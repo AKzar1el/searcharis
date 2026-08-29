@@ -70,8 +70,8 @@ def create_ingress_app(runtime: IngressRuntime | None = None) -> FastAPI:
     if runtime is not None:
         app.state.runtime = runtime
 
-    @app.get("/healthz")
-    async def healthz():
+    @app.get("/ready")
+    async def ready():
         return health_payload("ingress")
 
     @app.get("/", response_class=HTMLResponse)
