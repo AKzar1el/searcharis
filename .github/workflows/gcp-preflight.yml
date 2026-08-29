@@ -70,33 +70,6 @@ jobs:
           docker build -t searcharis-preflight:latest .
           docker build -t searcharis-demo-preflight:latest demo_target
 
-      - name: Inspect hosted validator result shape
-        env:
-          SEARCHARIS_LIVE_TEST_URL: https://digestseo.com/
-          SEARCHARIS_VALIDATOR_MCP_URL: https://web-validator-mcp.digestseo.com/mcp
-        run: |
-          uv run python - <<'PY'
-          import asyncio
-          import os
-          from fastmcp import Client
-
-          async def main():
-              async with Client(os.environ["SEARCHARIS_VALIDATOR_MCP_URL"]) as client:
-                  result = await client.call_tool(
-                      "audit_public_webpage",
-                      {"url": os.environ["SEARCHARIS_LIVE_TEST_URL"], "check_links": False},
-                      timeout=60.0,
-                      raise_on_error=False,
-                  )
-              print("RESULT_TYPE=", type(result).__name__)
-              print("IS_ERROR=", repr(getattr(result, "is_error", None)))
-              print("DATA=", repr(getattr(result, "data", None)))
-              print("STRUCTURED_CONTENT=", repr(getattr(result, "structured_content", None)))
-              print("CONTENT=", repr(getattr(result, "content", None)))
-
-          asyncio.run(main())
-          PY
-
       - name: Live hosted validator smoke test
         env:
           SEARCHARIS_LIVE_TEST_URL: https://digestseo.com/
@@ -104,12 +77,12 @@ jobs:
 
       - name: Commit generated lockfile
         run: |
-          if git diff --quiet -- uv.lock; then
+          git add uv.lock
+          if git diff --cached --quiet -- uv.lock; then
             echo "uv.lock already current"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add uv.lock
           git commit -m "chore: lock preflight dependencies [skip ci]"
           git push origin HEAD:gcp-preflight
