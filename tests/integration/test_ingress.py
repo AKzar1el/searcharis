@@ -36,7 +36,11 @@ def test_ready_endpoint_uses_cloud_run_safe_path():
     client = TestClient(create_ingress_app(runtime()))
     response = client.get("/ready")
     assert response.status_code == 200
-    assert response.json()["mode"] == "ingress"
+    assert response.json() == {
+        "status": "ok",
+        "service": "ingress",
+        "product": "Searcharis",
+    }
 
 
 def test_github_webhook_rejects_bad_signature_before_json_parsing():
