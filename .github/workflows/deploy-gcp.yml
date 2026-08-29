@@ -63,8 +63,24 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
-      - name: Diagnose existing Cloud Run URLs
+      - name: Diagnose existing Cloud Run service configuration
         run: |
+          describe_service() {
+            service="$1"
+            echo "===== ${service}: service configuration ====="
+            gcloud run services describe "$service" \
+              --region="$GOOGLE_CLOUD_LOCATION" \
+              --format='yaml(metadata.annotations,status.url,status.conditions,spec.template.metadata.annotations,spec.template.spec.serviceAccountName,spec.template.spec.containers[0].env)'
+            echo "===== ${service}: IAM policy ====="
+            gcloud run services get-iam-policy "$service" \
+              --region="$GOOGLE_CLOUD_LOCATION" \
+              --format=yaml
+          }
+
+          describe_service searcharis-ingress
+          describe_service searcharis-demo-target
+
+          echo "===== HTTP comparison ====="
           PROJECT_NUMBER="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')"
           probe() {
             label="$1"
