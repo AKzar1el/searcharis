@@ -16,6 +16,10 @@ INGRESS_SA="searcharis-ingress@${PROJECT_ID}.iam.gserviceaccount.com"
 WORKER_SA="searcharis-worker@${PROJECT_ID}.iam.gserviceaccount.com"
 PUBSUB_INVOKER_SA="searcharis-pubsub-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
 TASKS_INVOKER_SA="searcharis-tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
+INGRESS_MAX_INSTANCES="${SEARCHARIS_INGRESS_MAX_INSTANCES:-3}"
+WORKER_MAX_INSTANCES="${SEARCHARIS_WORKER_MAX_INSTANCES:-3}"
+INGRESS_CONCURRENCY="${SEARCHARIS_INGRESS_CONCURRENCY:-20}"
+WORKER_CONCURRENCY="${SEARCHARIS_WORKER_CONCURRENCY:-8}"
 
 for secret in searcharis-github-token searcharis-webhook-secret searcharis-demo-token; do
   if ! gcloud secrets versions access latest --secret="${secret}" >/dev/null 2>&1; then
@@ -43,6 +47,9 @@ gcloud run deploy "${WORKER_SERVICE}" \
   --region="${REGION}" \
   --service-account="${WORKER_SA}" \
   --no-allow-unauthenticated \
+  --min=0 \
+  --max="${WORKER_MAX_INSTANCES}" \
+  --concurrency="${WORKER_CONCURRENCY}" \
   --set-env-vars="${COMMON_WORKER_ENV},SEARCHARIS_WORKER_URL=https://bootstrap.invalid" \
   --set-secrets="SEARCHARIS_GITHUB_TOKEN=searcharis-github-token:latest" \
   --quiet
@@ -87,6 +94,9 @@ gcloud run deploy "${INGRESS_SERVICE}" \
   --region="${REGION}" \
   --service-account="${INGRESS_SA}" \
   --allow-unauthenticated \
+  --min=0 \
+  --max="${INGRESS_MAX_INSTANCES}" \
+  --concurrency="${INGRESS_CONCURRENCY}" \
   --set-env-vars="${INGRESS_ENV}" \
   --set-secrets="SEARCHARIS_WEBHOOK_SECRET=searcharis-webhook-secret:latest,SEARCHARIS_DEMO_TOKEN=searcharis-demo-token:latest" \
   --quiet
