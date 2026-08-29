@@ -125,7 +125,11 @@ def normalize_validator_result(
                 category=category,
                 severity=severity,
                 message=message,
-                details={key: value for key, value in item.items() if key not in {"message", "severity", "category"}},
+                details={
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"message", "severity", "category"}
+                },
                 retrieved_at=timestamp,
                 result_hash=result_hash,
             )
@@ -150,6 +154,8 @@ class ValidatorClient:
                 {"url": url, "check_links": False},
             )
         data = getattr(result, "data", None)
+        if not isinstance(data, dict):
+            data = getattr(result, "structured_content", None)
         if not isinstance(data, dict):
             raise ValidatorProviderError("Validator returned no structured result data.")
         return normalize_validator_result(data, url, run_id)
