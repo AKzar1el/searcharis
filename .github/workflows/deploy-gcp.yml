@@ -63,47 +63,47 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
-      - name: Diagnose existing Cloud Run service configuration
+      - name: Diagnose existing Cloud Run traffic and request routing
         run: |
-          describe_service() {
-            service="$1"
-            echo "===== ${service}: service configuration ====="
-            gcloud run services describe "$service" \
-              --region="$GOOGLE_CLOUD_LOCATION" \
-              --format='yaml(metadata.annotations,status.url,status.conditions,spec.template.metadata.annotations,spec.template.spec.serviceAccountName,spec.template.spec.containers[0].env)'
-            echo "===== ${service}: IAM policy ====="
-            gcloud run services get-iam-policy "$service" \
-              --region="$GOOGLE_CLOUD_LOCATION" \
-              --format=yaml
-          }
+          echo "===== ingress traffic ====="
+          gcloud run services describe searcharis-ingress \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='yaml(spec.traffic,status.traffic,status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url)'
 
-          describe_service searcharis-ingress
-          describe_service searcharis-demo-target
+          echo "===== demo traffic ====="
+          gcloud run services describe searcharis-demo-target \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='yaml(spec.traffic,status.traffic,status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url)'
 
-          echo "===== HTTP comparison ====="
-          PROJECT_NUMBER="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')"
+          INGRESS_URL="$(gcloud run services describe searcharis-ingress --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
+          DEMO_URL="$(gcloud run services describe searcharis-demo-target --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
+          ID_TOKEN="$(gcloud auth print-identity-token)"
+
           probe() {
             label="$1"
             url="$2"
+            auth="${3:-no}"
+            headers="$(mktemp)"
             body="$(mktemp)"
-            code="$(curl --silent --show-error --output "$body" --write-out '%{http_code}' "$url" || true)"
-            echo "$label -> HTTP $code ($url)"
-            if [[ "$code" != 2* ]]; then
-              head -c 300 "$body" || true
-              echo
+            if [[ "$auth" == "yes" ]]; then
+              code="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer ${ID_TOKEN}" "$url" || true)"
+            else
+              code="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url" || true)"
             fi
-            rm -f "$body"
+            echo "----- $label -> HTTP $code ($url) -----"
+            sed -n '1,20p' "$headers"
+            echo "body:"
+            head -c 400 "$body" || true
+            echo
+            rm -f "$headers" "$body"
           }
 
-          INGRESS_STATUS_URL="$(gcloud run services describe searcharis-ingress --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
-          DEMO_STATUS_URL="$(gcloud run services describe searcharis-demo-target --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
-          INGRESS_DETERMINISTIC_URL="https://searcharis-ingress-${PROJECT_NUMBER}.${GOOGLE_CLOUD_LOCATION}.run.app"
-          DEMO_DETERMINISTIC_URL="https://searcharis-demo-target-${PROJECT_NUMBER}.${GOOGLE_CLOUD_LOCATION}.run.app"
-
-          probe "ingress status.url" "${INGRESS_STATUS_URL}/healthz"
-          probe "ingress deterministic" "${INGRESS_DETERMINISTIC_URL}/healthz"
-          probe "demo status.url" "${DEMO_STATUS_URL}/"
-          probe "demo deterministic" "${DEMO_DETERMINISTIC_URL}/"
+          probe "ingress anonymous root" "${INGRESS_URL}/"
+          probe "ingress anonymous health" "${INGRESS_URL}/healthz"
+          probe "ingress anonymous incidents" "${INGRESS_URL}/api/incidents"
+          probe "ingress authenticated health" "${INGRESS_URL}/healthz" yes
+          probe "demo anonymous root" "${DEMO_URL}/"
+          probe "demo anonymous health" "${DEMO_URL}/healthz"
 
           echo "Diagnostic-only run complete; stopping before redeployment."
           exit 1
