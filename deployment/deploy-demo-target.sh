@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE="${SEARCHARIS_DEMO_SERVICE:-searcharis-demo-target}"
+MAX_INSTANCES="${SEARCHARIS_DEMO_MAX_INSTANCES:-3}"
+CONCURRENCY="${SEARCHARIS_DEMO_CONCURRENCY:-20}"
 
 if [[ -z "${PROJECT_ID}" || "${PROJECT_ID}" == "(unset)" ]]; then
   echo "GOOGLE_CLOUD_PROJECT is required" >&2
@@ -14,6 +16,9 @@ gcloud run deploy "${SERVICE}" \
   --source demo_target \
   --region="${REGION}" \
   --allow-unauthenticated \
+  --min=0 \
+  --max="${MAX_INSTANCES}" \
+  --concurrency="${CONCURRENCY}" \
   --set-env-vars="TARGET_VARIANT=healthy" \
   --tag=healthy \
   --quiet
@@ -24,6 +29,9 @@ gcloud run deploy "${SERVICE}" \
   --source demo_target \
   --region="${REGION}" \
   --allow-unauthenticated \
+  --min=0 \
+  --max="${MAX_INSTANCES}" \
+  --concurrency="${CONCURRENCY}" \
   --set-env-vars="TARGET_VARIANT=broken" \
   --no-traffic \
   --tag=broken \
