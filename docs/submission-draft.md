@@ -14,9 +14,11 @@
 
 ## Inspiration / problem
 
-Production deployments often have a binary success signal: the service started and the health check passed. Search regressions do not respect that boundary. A deploy can silently remove a title, canonical, viewport declaration, structured data, or other search-facing contract and remain “healthy” until traffic damage appears later.
+While maintaining and repeatedly deploying search-sensitive websites, I kept hitting the same post-deploy chore: re-check the production page, confirm that search-facing metadata and structured signals survived the release, diagnose anything that changed, open the right engineering follow-up, and then remember to verify it again after the fix. It is repetitive enough to skip and important enough that skipping it can turn a tiny deployment mistake into delayed search damage.
 
-Searcharis turns that delayed manual debugging loop into an autonomous operational workflow. A successful deployment becomes an event; the live site is audited immediately; Gemini interprets bounded evidence; deterministic policy decides whether an incident may be opened; and the incident remains open until fresh external evidence proves the original regression is gone.
+Production deployment systems usually have a binary success signal: the service started and the health check passed. Search regressions do not respect that boundary. A deploy can silently remove a title, canonical, viewport declaration, structured data, or other search-facing contract and remain “healthy” until traffic damage appears later.
+
+Searcharis turns that personal release-check loop into an autonomous operational workflow. A successful deployment becomes an event; the live site is audited immediately; Gemini interprets bounded evidence; deterministic policy decides whether an incident may be opened; and the incident remains open until fresh external evidence proves the original regression is gone.
 
 ## What it does
 
@@ -46,6 +48,14 @@ The workflow is event-driven and crosses several applications. The model is resp
 - **Cloud Tasks** — delayed authenticated verification
 - **Secret Manager** — operational secrets
 
+## Data sources and integrations
+
+- **Public webpage audit evidence** from the pre-existing read-only `mcp-web-validator` service.
+- **GitHub deployment metadata** for the repository, commit, deployed environment URL, and delivery identity.
+- **GitHub Issues** as the bounded external action surface for create/comment/close.
+
+The submitted core workflow does not require Google Search Console, Analytics, TrendPulse, customer data, or private website content.
+
 ## Architectural discipline
 
 The model never receives a generic GitHub mutation tool. It can recommend an action, but only typed policy code can authorize a mutation. The GitHub broker exposes exactly create issue, comment on issue, and close issue.
@@ -54,11 +64,17 @@ All irreversible actions use stable SHA-256 idempotency keys. Cloud Tasks use de
 
 The strongest invariant is verification-before-close: `CLOSE_INCIDENT` requires a fresh `validator.audit_complete` record and the triggering finding code must be absent from that same audit. Model output alone can never produce `RESOLVED`.
 
+## Validation before cloud deployment
+
+The public CI pipeline installs the project from a clean runner, runs Ruff, validates the deployment shell scripts, and executes the unit/integration suite. The suite contains 45 tests, including 200-way concurrent duplicate deployment deliveries, 200-way concurrent recovery verifications, verification-before-close checks, ingress authentication/allowlisting, and injected failures for GitHub open/close and Cloud Tasks scheduling.
+
+The final Google Cloud deployment and live end-to-end proof are intentionally treated as a separate gate rather than inferred from local tests.
+
 ## Demo
 
-The controlled demo target has two real Cloud Run revisions. The healthy revision contains a valid title. The broken revision removes only the title while retaining the rest of the page, producing a deterministic `seo.missing_title` error.
+The controlled demo target is designed to deploy as two tagged Cloud Run revisions. The healthy revision contains a valid title. The broken revision removes only the title while retaining the rest of the page, producing a deterministic `seo.missing_title` error.
 
-The video shows the live target becoming broken, a deployment event entering Google Cloud, evidence being produced, Gemini routing the incident, deterministic policy authorizing one GitHub issue, then the healthy revision returning and a fresh audit independently verifying recovery before the issue closes.
+The final video will show the live target becoming broken, a deployment event entering Google Cloud, evidence being produced, Gemini routing the incident, deterministic policy authorizing one GitHub issue, then the healthy revision returning and a fresh audit independently verifying recovery before the issue closes. The video will also show visible Google Cloud execution evidence.
 
 ## Pre-existing work disclosure
 
