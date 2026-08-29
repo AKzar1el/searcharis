@@ -1,0 +1,52 @@
+[project]
+name = "searcharis"
+version = "0.1.0"
+description = "Autonomous Search Regression Guardian"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tomi Seregi" }]
+dependencies = [
+  "fastapi>=0.116",
+  "uvicorn[standard]>=0.35",
+  "pydantic>=2.11",
+  "pydantic-settings>=2.10",
+  "google-adk[gcp]>=2.0.0,<3.0.0",
+  "fastmcp>=3.4.7,<4",
+  "google-cloud-firestore>=2.29,<3",
+  "google-cloud-pubsub>=2.39.2,<3",
+  "google-cloud-tasks>=2.23,<3",
+  "httpx>=0.28",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4",
+  "pytest-asyncio>=1.1",
+  "respx>=0.22",
+  "ruff>=0.12",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/searcharis"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "live: tests that call deployed external providers",
+  "stress: concurrency and duplicate-delivery stress tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
