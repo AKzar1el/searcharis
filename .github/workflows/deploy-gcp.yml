@@ -63,6 +63,35 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
+      - name: Diagnose existing Cloud Run URLs
+        run: |
+          PROJECT_NUMBER="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')"
+          probe() {
+            label="$1"
+            url="$2"
+            body="$(mktemp)"
+            code="$(curl --silent --show-error --output "$body" --write-out '%{http_code}' "$url" || true)"
+            echo "$label -> HTTP $code ($url)"
+            if [[ "$code" != 2* ]]; then
+              head -c 300 "$body" || true
+              echo
+            fi
+            rm -f "$body"
+          }
+
+          INGRESS_STATUS_URL="$(gcloud run services describe searcharis-ingress --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
+          DEMO_STATUS_URL="$(gcloud run services describe searcharis-demo-target --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
+          INGRESS_DETERMINISTIC_URL="https://searcharis-ingress-${PROJECT_NUMBER}.${GOOGLE_CLOUD_LOCATION}.run.app"
+          DEMO_DETERMINISTIC_URL="https://searcharis-demo-target-${PROJECT_NUMBER}.${GOOGLE_CLOUD_LOCATION}.run.app"
+
+          probe "ingress status.url" "${INGRESS_STATUS_URL}/healthz"
+          probe "ingress deterministic" "${INGRESS_DETERMINISTIC_URL}/healthz"
+          probe "demo status.url" "${DEMO_STATUS_URL}/"
+          probe "demo deterministic" "${DEMO_DETERMINISTIC_URL}/"
+
+          echo "Diagnostic-only run complete; stopping before redeployment."
+          exit 1
+
       - name: Deploy deterministic demo target
         run: ./deployment/deploy-demo-target.sh
 
