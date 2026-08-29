@@ -73,7 +73,9 @@ class VerificationScheduler:
             await asyncio.to_thread(self._client.create_task, request={"parent": parent, "task": task})
         except Exception as exc:
             try:
-                from google.api_core.exceptions import AlreadyExists  # type: ignore[import-not-found]
+                from google.api_core.exceptions import (
+                    AlreadyExists,  # type: ignore[import-not-found]
+                )
             except ImportError:  # pragma: no cover - only local dependency-limited environment
                 AlreadyExists = ()  # type: ignore[assignment,misc]
             if AlreadyExists and isinstance(exc, AlreadyExists):
