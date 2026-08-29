@@ -13,16 +13,19 @@ INGRESS_URL="$(gcloud run services describe "${INGRESS_SERVICE}" --region="${REG
 WORKER_URL="$(gcloud run services describe "${WORKER_SERVICE}" --region="${REGION}" --format='value(status.url)')"
 DEMO_URL="$(gcloud run services describe "${DEMO_SERVICE}" --region="${REGION}" --format='value(status.url)')"
 
-echo "Smoke ingress health: ${INGRESS_URL}/healthz"
-curl --fail --silent --show-error "${INGRESS_URL}/healthz" >/dev/null
-echo "Smoke ingress health: ok"
+echo "Smoke ingress readiness: ${INGRESS_URL}/ready"
+curl --fail --silent --show-error "${INGRESS_URL}/ready" >/dev/null
+echo "Smoke ingress readiness: ok"
 
-echo "Smoke worker health: ${WORKER_URL}/healthz"
-WORKER_ID_TOKEN="$(gcloud auth print-identity-token)"
+echo "Smoke worker readiness: ${WORKER_URL}/ready"
+WORKER_ID_TOKEN="${SEARCHARIS_WORKER_ID_TOKEN:-}"
+if [[ -z "${WORKER_ID_TOKEN}" ]]; then
+  WORKER_ID_TOKEN="$(gcloud auth print-identity-token)"
+fi
 curl --fail --silent --show-error \
   -H "Authorization: Bearer ${WORKER_ID_TOKEN}" \
-  "${WORKER_URL}/healthz" >/dev/null
-echo "Smoke worker health: ok"
+  "${WORKER_URL}/ready" >/dev/null
+echo "Smoke worker readiness: ok"
 unset WORKER_ID_TOKEN
 
 echo "Smoke demo target: ${DEMO_URL}/"
