@@ -34,6 +34,17 @@ def pubsub_payload():
     return {"message": {"data": encoded}}
 
 
+def test_ready_endpoint_uses_cloud_run_safe_path():
+    client = TestClient(create_worker_app(FakeOrchestrator()))
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "worker",
+        "product": "Searcharis",
+    }
+
+
 def test_pubsub_envelope_invokes_orchestrator_and_returns_204():
     orchestrator = FakeOrchestrator()
     client = TestClient(create_worker_app(orchestrator))
