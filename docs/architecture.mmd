@@ -1,0 +1,14 @@
+flowchart LR
+    GH[GitHub deployment\nor controlled demo event] --> IN[Public Cloud Run\nIngress]
+    IN -->|canonical event| PS[Pub/Sub]
+    PS -->|authenticated push| WK[Private Cloud Run\nWorker]
+    WK --> VAL[Pre-existing Web Validator MCP\nread-only]
+    VAL --> EV[Immutable normalized evidence]
+    EV --> ADK[Google ADK\nGemini 3.7 Flash]
+    ADK --> POL[Deterministic policy gate]
+    POL -->|allowed only| GHI[GitHub Issues\ncreate / comment / close]
+    WK <--> FS[(Firestore\nevents / runs / evidence / incidents / actions)]
+    WK --> CT[Cloud Tasks]
+    CT -->|OIDC /internal/verify| WK
+    WK -->|fresh audit| VAL
+    DEMO[Cloud Run demo target\nhealthy / broken tags] -. audited .-> VAL
