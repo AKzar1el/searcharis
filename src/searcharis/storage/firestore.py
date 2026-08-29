@@ -8,7 +8,9 @@ from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, R
 def _firestore_modules():
     try:
         from google.cloud import firestore  # type: ignore[import-not-found]
-        from google.cloud.firestore_v1.async_client import AsyncClient  # type: ignore[import-not-found]
+        from google.cloud.firestore_v1.async_client import (
+            AsyncClient,  # type: ignore[import-not-found]
+        )
     except ImportError as exc:  # pragma: no cover - exercised in deployed environment
         raise RuntimeError("google-cloud-firestore is required for FirestoreStateStore") from exc
     return firestore, AsyncClient
