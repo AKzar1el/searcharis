@@ -63,7 +63,7 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
-      - name: Diagnose existing Cloud Run traffic and request routing
+      - name: Diagnose existing Cloud Run traffic and public routing
         run: |
           echo "===== ingress traffic ====="
           gcloud run services describe searcharis-ingress \
@@ -77,23 +77,17 @@ jobs:
 
           INGRESS_URL="$(gcloud run services describe searcharis-ingress --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
           DEMO_URL="$(gcloud run services describe searcharis-demo-target --region="$GOOGLE_CLOUD_LOCATION" --format='value(status.url)')"
-          ID_TOKEN="$(gcloud auth print-identity-token)"
 
           probe() {
             label="$1"
             url="$2"
-            auth="${3:-no}"
             headers="$(mktemp)"
             body="$(mktemp)"
-            if [[ "$auth" == "yes" ]]; then
-              code="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer ${ID_TOKEN}" "$url" || true)"
-            else
-              code="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url" || true)"
-            fi
+            code="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' "$url" || true)"
             echo "----- $label -> HTTP $code ($url) -----"
             sed -n '1,20p' "$headers"
             echo "body:"
-            head -c 400 "$body" || true
+            head -c 500 "$body" || true
             echo
             rm -f "$headers" "$body"
           }
@@ -101,7 +95,6 @@ jobs:
           probe "ingress anonymous root" "${INGRESS_URL}/"
           probe "ingress anonymous health" "${INGRESS_URL}/healthz"
           probe "ingress anonymous incidents" "${INGRESS_URL}/api/incidents"
-          probe "ingress authenticated health" "${INGRESS_URL}/healthz" yes
           probe "demo anonymous root" "${DEMO_URL}/"
           probe "demo anonymous health" "${DEMO_URL}/healthz"
 
