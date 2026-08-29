@@ -1,6 +1,6 @@
 FROM python:3.13-slim AS runtime
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /usr/local/bin/uv
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
