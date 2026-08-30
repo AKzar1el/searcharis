@@ -74,6 +74,13 @@ def test_smoke_verifies_delivery_and_cloud_run_configuration():
     assert "startup-cpu-boost" in smoke
 
 
+def test_smoke_verifies_service_level_cloud_run_maximum():
+    smoke = _read("deployment/smoke.sh")
+
+    assert "run.googleapis.com/maxScale" in smoke
+    assert "autoscaling.knative.dev/maxScale" not in smoke
+
+
 def test_readme_and_operations_doc_make_judging_deadline_explicit():
     readme = _read("README.md")
     operations = _read("docs/JUDGING-OPERATIONS.md")
