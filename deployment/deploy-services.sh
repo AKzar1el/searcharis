@@ -62,6 +62,26 @@ if [[ "${SKIP_SECRET_IAM}" != "true" ]]; then
   done
 fi
 
+# Dead-letter resource creation and service-agent IAM are deliberately owned by
+# deployment/bootstrap.sh, which is run by a human administrator. The WIF
+# deployer has Pub/Sub Editor, not setIamPolicy permission, so fail closed if the
+# admin foundation has not been applied.
+for resource in \
+  "topic:${DLQ_TOPIC}" \
+  "subscription:${DLQ_SUBSCRIPTION}"; do
+  kind="${resource%%:*}"
+  name="${resource#*:}"
+  if [[ "${kind}" == "topic" ]]; then
+    if ! gcloud pubsub topics describe "${name}" >/dev/null 2>&1; then
+      echo "Missing admin-owned Pub/Sub dead-letter topic ${name}; run deployment/bootstrap.sh." >&2
+      exit 2
+    fi
+  elif ! gcloud pubsub subscriptions describe "${name}" >/dev/null 2>&1; then
+    echo "Missing admin-owned Pub/Sub dead-letter subscription ${name}; run deployment/bootstrap.sh." >&2
+    exit 2
+  fi
+done
+
 COMMON_WORKER_ENV="SERVICE_MODE=worker,SEARCHARIS_PROJECT_ID=${PROJECT_ID},SEARCHARIS_REGION=${REGION},SEARCHARIS_TASKS_QUEUE=${QUEUE},SEARCHARIS_VALIDATOR_MCP_URL=${VALIDATOR_URL},SEARCHARIS_TASKS_INVOKER_SERVICE_ACCOUNT=${TASKS_INVOKER_SA},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${VERTEX_LOCATION},GOOGLE_GENAI_USE_VERTEXAI=TRUE"
 
 gcloud run deploy "${WORKER_SERVICE}" \
@@ -99,25 +119,6 @@ gcloud run services add-iam-policy-binding "${WORKER_SERVICE}" \
   --role="roles/run.invoker" \
   --quiet >/dev/null
 
-PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-PUBSUB_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
-
-if ! gcloud pubsub topics describe "${DLQ_TOPIC}" >/dev/null 2>&1; then
-  gcloud pubsub topics create "${DLQ_TOPIC}" >/dev/null
-fi
-if ! gcloud pubsub subscriptions describe "${DLQ_SUBSCRIPTION}" >/dev/null 2>&1; then
-  gcloud pubsub subscriptions create "${DLQ_SUBSCRIPTION}" \
-    --topic="${DLQ_TOPIC}" \
-    --message-retention-duration=7d \
-    --expiration-period=never \
-    --quiet >/dev/null
-fi
-
-gcloud pubsub topics add-iam-policy-binding "${DLQ_TOPIC}" \
-  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
-  --role="roles/pubsub.publisher" \
-  --quiet >/dev/null
-
 if gcloud pubsub subscriptions describe "${SUBSCRIPTION}" >/dev/null 2>&1; then
   gcloud pubsub subscriptions modify-push-config "${SUBSCRIPTION}" \
     --push-endpoint="${WORKER_URL}/internal/pubsub" \
@@ -142,11 +143,6 @@ else
     --push-auth-token-audience="${WORKER_URL}" \
     --quiet >/dev/null
 fi
-
-gcloud pubsub subscriptions add-iam-policy-binding "${SUBSCRIPTION}" \
-  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
-  --role="roles/pubsub.subscriber" \
-  --quiet >/dev/null
 
 INGRESS_ENV="SERVICE_MODE=ingress,SEARCHARIS_PROJECT_ID=${PROJECT_ID},SEARCHARIS_REGION=${REGION},SEARCHARIS_PUBSUB_TOPIC=${TOPIC},SEARCHARIS_DEMO_REPOSITORY=${DEMO_REPOSITORY},SEARCHARIS_DEMO_TARGET_URL=${DEMO_TARGET_URL}"
 
