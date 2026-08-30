@@ -30,6 +30,15 @@ def incident_fingerprint(
     )
 
 
+def incident_occurrence_id(fingerprint: str, event_id: str) -> str:
+    return _canonical_hash(
+        {
+            "fingerprint": fingerprint,
+            "event_id": event_id,
+        }
+    )
+
+
 def action_key(kind: str, incident_id: str, evidence_hash: str) -> str:
     return _canonical_hash(
         {
