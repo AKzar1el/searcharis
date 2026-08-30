@@ -63,12 +63,39 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
+      - name: Run read-only production diagnostics
+        if: ${{ contains(github.event.head_commit.message, '[diag-only]') }}
+        run: |
+          set +e
+          echo '=== Source subscription ==='
+          gcloud pubsub subscriptions describe searcharis-worker-push \
+            --format='yaml(ackDeadlineSeconds,deadLetterPolicy,retryPolicy,pushConfig.pushEndpoint,pushConfig.oidcToken.serviceAccountEmail)'
+          echo
+          echo '=== Dead-letter retention subscription ==='
+          gcloud pubsub subscriptions describe searcharis-deployments-dead-letter-retention \
+            --format='yaml(name,topic,messageRetentionDuration,expirationPolicy)'
+          echo
+          echo '=== Firestore composite indexes ==='
+          gcloud firestore indexes composite list \
+            --database='(default)' \
+            --format='yaml(name,state,queryScope,fields)' \
+            2>&1 || echo 'Firestore index listing unavailable to deployer identity.'
+          echo
+          echo '=== Worker logs around failed proof ==='
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="searcharis-worker" AND timestamp>="2026-08-30T16:21:20Z" AND timestamp<="2026-08-30T16:25:10Z"' \
+            --limit=200 \
+            --order=asc \
+            --format='value(timestamp,severity,httpRequest.status,textPayload,jsonPayload.message)' \
+            2>&1 || echo 'Cloud Logging read unavailable to deployer identity.'
+          exit 0
+
       - name: Deploy deterministic demo target
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         run: ./deployment/deploy-demo-target.sh
 
       - name: Capture demo target URL after deployment
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         run: |
           DEMO_URL="$(gcloud run services describe searcharis-demo-target \
             --region="$GOOGLE_CLOUD_LOCATION" \
@@ -77,7 +104,7 @@ jobs:
           echo "Demo target: $DEMO_URL"
 
       - name: Deploy Searcharis worker and ingress
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         run: ./deployment/deploy-services.sh
 
       - name: Capture runtime URLs
@@ -98,7 +125,7 @@ jobs:
           echo "SEARCHARIS_DEMO_TARGET_URL=$DEMO_URL" >> "$GITHUB_ENV"
 
       - name: Allow deployer to smoke-test private worker
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         run: |
           gcloud run services add-iam-policy-binding searcharis-worker \
             --region="$GOOGLE_CLOUD_LOCATION" \
@@ -107,7 +134,7 @@ jobs:
             --quiet >/dev/null
 
       - name: Generate short-lived worker ID token
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         id: worker-auth
         uses: google-github-actions/auth@v3
         with:
@@ -118,13 +145,13 @@ jobs:
           id_token_audience: ${{ steps.runtime.outputs.worker_url }}
 
       - name: Run cloud smoke test
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') }}
         env:
           SEARCHARIS_WORKER_ID_TOKEN: ${{ steps.worker-auth.outputs.id_token }}
         run: ./deployment/smoke.sh
 
       - name: Remove deployer worker invocation grant
-        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && always() }}
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && !contains(github.event.head_commit.message, '[diag-only]') && always() }}
         run: |
           gcloud run services remove-iam-policy-binding searcharis-worker \
             --region="$GOOGLE_CLOUD_LOCATION" \
