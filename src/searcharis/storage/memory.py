@@ -110,6 +110,7 @@ class InMemoryStateStore:
                     "operation": operation,
                     "incident_id": incident_id,
                     "marker": marker,
+                    "stale_takeover": False,
                 }
                 return ActionClaim(acquired=True)
 
@@ -131,6 +132,7 @@ class InMemoryStateStore:
                         "operation": operation,
                         "incident_id": incident_id,
                         "marker": marker,
+                        "stale_takeover": True,
                     }
                 )
                 return ActionClaim(acquired=True, stale_takeover=True)
@@ -150,5 +152,9 @@ class InMemoryStateStore:
     async def release_action(self, idempotency_key: str) -> None:
         async with self._action_lock:
             current = self._actions.get(idempotency_key)
-            if current and current.get("status") == "claimed":
+            if (
+                current
+                and current.get("status") == "claimed"
+                and current.get("stale_takeover") is not True
+            ):
                 self._actions.pop(idempotency_key, None)
