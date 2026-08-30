@@ -136,7 +136,7 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, '[proof-only]') }}
         env:
           SEARCHARIS_PROOF_DUPLICATES: "5"
-        run: ./deployment/proof.sh
+        run: bash deployment/proof.sh
 
       - name: Capture deployed URLs
         if: success()
