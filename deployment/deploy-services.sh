@@ -3,12 +3,14 @@ set -euo pipefail
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
+VERTEX_LOCATION="${SEARCHARIS_VERTEX_LOCATION:-global}"
 TOPIC="${SEARCHARIS_PUBSUB_TOPIC:-searcharis-deployments}"
 SUBSCRIPTION="${SEARCHARIS_PUBSUB_SUBSCRIPTION:-searcharis-worker-push}"
 QUEUE="${SEARCHARIS_TASKS_QUEUE:-searcharis-verification}"
 DEMO_REPOSITORY="${SEARCHARIS_DEMO_REPOSITORY:?SEARCHARIS_DEMO_REPOSITORY is required}"
 DEMO_TARGET_URL="${SEARCHARIS_DEMO_TARGET_URL:?SEARCHARIS_DEMO_TARGET_URL is required}"
 VALIDATOR_URL="${SEARCHARIS_VALIDATOR_MCP_URL:-https://web-validator-mcp.digestseo.com/mcp}"
+SKIP_SECRET_IAM="${SEARCHARIS_SKIP_SECRET_IAM:-false}"
 
 INGRESS_SERVICE="${SEARCHARIS_INGRESS_SERVICE:-searcharis-ingress}"
 WORKER_SERVICE="${SEARCHARIS_WORKER_SERVICE:-searcharis-worker}"
@@ -22,25 +24,31 @@ INGRESS_CONCURRENCY="${SEARCHARIS_INGRESS_CONCURRENCY:-20}"
 WORKER_CONCURRENCY="${SEARCHARIS_WORKER_CONCURRENCY:-8}"
 
 for secret in searcharis-github-token searcharis-webhook-secret searcharis-demo-token; do
-  if ! gcloud secrets versions access latest --secret="${secret}" >/dev/null 2>&1; then
+  enabled_version="$(gcloud secrets versions list "${secret}" \
+    --filter='state=ENABLED' \
+    --limit=1 \
+    --format='value(name)' 2>/dev/null || true)"
+  if [[ -z "${enabled_version}" ]]; then
     echo "Secret ${secret} must exist with an enabled version before deployment." >&2
     exit 2
   fi
 done
 
-for pair in \
-  "${WORKER_SA}:searcharis-github-token" \
-  "${INGRESS_SA}:searcharis-webhook-secret" \
-  "${INGRESS_SA}:searcharis-demo-token"; do
-  sa="${pair%%:*}"
-  secret="${pair#*:}"
-  gcloud secrets add-iam-policy-binding "${secret}" \
-    --member="serviceAccount:${sa}" \
-    --role="roles/secretmanager.secretAccessor" \
-    --quiet >/dev/null
-done
+if [[ "${SKIP_SECRET_IAM}" != "true" ]]; then
+  for pair in \
+    "${WORKER_SA}:searcharis-github-token" \
+    "${INGRESS_SA}:searcharis-webhook-secret" \
+    "${INGRESS_SA}:searcharis-demo-token"; do
+    sa="${pair%%:*}"
+    secret="${pair#*:}"
+    gcloud secrets add-iam-policy-binding "${secret}" \
+      --member="serviceAccount:${sa}" \
+      --role="roles/secretmanager.secretAccessor" \
+      --quiet >/dev/null
+  done
+fi
 
-COMMON_WORKER_ENV="SERVICE_MODE=worker,SEARCHARIS_PROJECT_ID=${PROJECT_ID},SEARCHARIS_REGION=${REGION},SEARCHARIS_TASKS_QUEUE=${QUEUE},SEARCHARIS_VALIDATOR_MCP_URL=${VALIDATOR_URL},SEARCHARIS_TASKS_INVOKER_SERVICE_ACCOUNT=${TASKS_INVOKER_SA},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE"
+COMMON_WORKER_ENV="SERVICE_MODE=worker,SEARCHARIS_PROJECT_ID=${PROJECT_ID},SEARCHARIS_REGION=${REGION},SEARCHARIS_TASKS_QUEUE=${QUEUE},SEARCHARIS_VALIDATOR_MCP_URL=${VALIDATOR_URL},SEARCHARIS_TASKS_INVOKER_SERVICE_ACCOUNT=${TASKS_INVOKER_SA},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${VERTEX_LOCATION},GOOGLE_GENAI_USE_VERTEXAI=TRUE"
 
 gcloud run deploy "${WORKER_SERVICE}" \
   --source . \

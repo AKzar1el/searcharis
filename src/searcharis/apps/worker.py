@@ -29,8 +29,8 @@ def create_worker_app(orchestrator: Any | None = None) -> FastAPI:
     if orchestrator is not None:
         app.state.orchestrator = orchestrator
 
-    @app.get("/healthz")
-    async def healthz():
+    @app.get("/ready")
+    async def ready():
         return health_payload("worker")
 
     @app.post("/internal/pubsub")

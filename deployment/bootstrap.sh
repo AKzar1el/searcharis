@@ -77,7 +77,14 @@ if ! gcloud firestore databases describe --database="${DATABASE_ID}" >/dev/null 
 fi
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 PUBSUB_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${COMPUTE_SA}" \
+  --role="roles/run.builder" \
+  --quiet >/dev/null
+
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
   --role="roles/iam.serviceAccountTokenCreator" \

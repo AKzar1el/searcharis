@@ -32,6 +32,17 @@ def sign(body: bytes) -> str:
     return "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
 
 
+def test_ready_endpoint_uses_cloud_run_safe_path():
+    client = TestClient(create_ingress_app(runtime()))
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "ingress",
+        "product": "Searcharis",
+    }
+
+
 def test_github_webhook_rejects_bad_signature_before_json_parsing():
     rt = runtime()
     client = TestClient(create_ingress_app(rt))

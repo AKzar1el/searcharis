@@ -1,0 +1,158 @@
+name: Deploy to Google Cloud
+
+on:
+  push:
+    branches: [gcp-deploy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: searcharis-gcp-deploy
+  cancel-in-progress: false
+
+env:
+  GOOGLE_CLOUD_PROJECT: searcharis
+  GOOGLE_CLOUD_LOCATION: us-central1
+  SEARCHARIS_VERTEX_LOCATION: global
+  SEARCHARIS_DEMO_REPOSITORY: AKzar1el/searcharis
+  SEARCHARIS_SKIP_SECRET_IAM: "true"
+  WIF_PROVIDER: projects/65161687668/locations/global/workloadIdentityPools/github-actions/providers/searcharis
+  WIF_SERVICE_ACCOUNT: searcharis-deployer@searcharis.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out deployment branch
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Google Cloud with OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - name: Verify reviewed source
+        run: |
+          uv python install 3.13
+          uv sync --locked
+          uv run ruff check src tests demo_target
+          bash -n deployment/*.sh
+          uv run pytest tests/unit tests/integration -q
+
+      - name: Verify Google identity
+        run: |
+          gcloud config set project "$GOOGLE_CLOUD_PROJECT"
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
+
+      - name: Deploy deterministic demo target
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        run: ./deployment/deploy-demo-target.sh
+
+      - name: Capture demo target URL after deployment
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        run: |
+          DEMO_URL="$(gcloud run services describe searcharis-demo-target \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='value(status.url)')"
+          echo "SEARCHARIS_DEMO_TARGET_URL=$DEMO_URL" >> "$GITHUB_ENV"
+          echo "Demo target: $DEMO_URL"
+
+      - name: Deploy Searcharis worker and ingress
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        run: ./deployment/deploy-services.sh
+
+      - name: Capture runtime URLs
+        id: runtime
+        run: |
+          INGRESS_URL="$(gcloud run services describe searcharis-ingress \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='value(status.url)')"
+          WORKER_URL="$(gcloud run services describe searcharis-worker \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='value(status.url)')"
+          DEMO_URL="$(gcloud run services describe searcharis-demo-target \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --format='value(status.url)')"
+          echo "ingress_url=$INGRESS_URL" >> "$GITHUB_OUTPUT"
+          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          echo "demo_url=$DEMO_URL" >> "$GITHUB_OUTPUT"
+          echo "SEARCHARIS_DEMO_TARGET_URL=$DEMO_URL" >> "$GITHUB_ENV"
+
+      - name: Allow deployer to smoke-test private worker
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        run: |
+          gcloud run services add-iam-policy-binding searcharis-worker \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --member="serviceAccount:${WIF_SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" \
+            --quiet >/dev/null
+
+      - name: Generate short-lived worker ID token
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        id: worker-auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ steps.runtime.outputs.worker_url }}
+
+      - name: Run cloud smoke test
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
+        env:
+          SEARCHARIS_WORKER_ID_TOKEN: ${{ steps.worker-auth.outputs.id_token }}
+        run: ./deployment/smoke.sh
+
+      - name: Remove deployer worker invocation grant
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && always() }}
+        run: |
+          gcloud run services remove-iam-policy-binding searcharis-worker \
+            --region="$GOOGLE_CLOUD_LOCATION" \
+            --member="serviceAccount:${WIF_SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" \
+            --quiet >/dev/null || true
+
+      - name: Run bounded live proof
+        if: ${{ contains(github.event.head_commit.message, '[proof-only]') }}
+        env:
+          SEARCHARIS_PROOF_DUPLICATES: "5"
+        run: bash deployment/proof.sh
+
+      - name: Capture deployed URLs
+        if: success()
+        run: |
+          {
+            echo '## Searcharis Google Cloud deployment'
+            echo
+            echo "- Public app: ${{ steps.runtime.outputs.ingress_url }}"
+            echo "- Private worker: ${{ steps.runtime.outputs.worker_url }}"
+            echo "- Demo target: ${{ steps.runtime.outputs.demo_url }}"
+            echo "- Cloud Run region: $GOOGLE_CLOUD_LOCATION"
+            echo "- Vertex AI location: $SEARCHARIS_VERTEX_LOCATION"
+            echo "- Commit: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf 'Ingress: %s\nWorker: %s\nDemo: %s\n' \
+            '${{ steps.runtime.outputs.ingress_url }}' \
+            '${{ steps.runtime.outputs.worker_url }}' \
+            '${{ steps.runtime.outputs.demo_url }}'
