@@ -4,8 +4,10 @@ from searcharis.storage.memory import InMemoryStateStore
 
 async def test_claim_action_is_atomic_for_sequential_duplicate_calls():
     store = InMemoryStateStore()
-    assert await store.claim_action("same") is True
-    assert await store.claim_action("same") is False
+    first = await store.claim_action("same")
+    second = await store.claim_action("same")
+    assert first.acquired is True
+    assert second.acquired is False
 
 
 async def test_event_run_and_incident_round_trip():
