@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord
+from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord, WorkflowState
 
 
 class InMemoryStateStore:
@@ -52,8 +52,33 @@ class InMemoryStateStore:
     async def upsert_incident(self, incident: IncidentRecord) -> None:
         self._incidents[incident.incident_id] = incident.model_copy(deep=True)
 
-    async def list_incidents(self) -> list[IncidentRecord]:
-        return [value.model_copy(deep=True) for value in self._incidents.values()]
+    async def find_active_incident(
+        self,
+        repository: str,
+        affected_url: str,
+    ) -> IncidentRecord | None:
+        candidates = sorted(
+            self._incidents.values(),
+            key=lambda item: item.updated_at,
+            reverse=True,
+        )
+        for incident in candidates:
+            if (
+                incident.repository == repository
+                and str(incident.affected_url) == affected_url
+                and incident.state != WorkflowState.RESOLVED
+            ):
+                return incident.model_copy(deep=True)
+        return None
+
+    async def list_incidents(self, limit: int = 100) -> list[IncidentRecord]:
+        bounded_limit = max(1, min(int(limit), 500))
+        incidents = sorted(
+            self._incidents.values(),
+            key=lambda item: item.updated_at,
+            reverse=True,
+        )
+        return [value.model_copy(deep=True) for value in incidents[:bounded_limit]]
 
     async def claim_action(self, idempotency_key: str) -> bool:
         async with self._action_lock:
