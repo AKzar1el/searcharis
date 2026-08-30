@@ -5,6 +5,10 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from searcharis.agent.diagnostician import (
+    DiagnosticianInvalidOutputError,
+    DiagnosticianRetryableError,
+)
 from searcharis.ids import action_key, incident_fingerprint
 from searcharis.models import (
     DeploymentEvent,
@@ -16,6 +20,8 @@ from searcharis.models import (
 )
 from searcharis.policy import evaluate_policy
 from searcharis.state_machine import assert_transition
+
+_ACTION_LEASE_SECONDS = 120
 
 
 class Orchestrator:
@@ -65,21 +71,19 @@ class Orchestrator:
         try:
             evidence = await self._validator.audit_page(str(event.target_url), run.run_id)
         except Exception as exc:
-            run = await self._move_run(
+            return await self._move_run(
                 run,
                 WorkflowState.FAILED_RETRYABLE,
                 error=f"validator: {type(exc).__name__}: {exc}",
             )
-            return run
 
         for item in evidence:
             if item.run_id != run.run_id:
-                run = await self._move_run(
+                return await self._move_run(
                     run,
                     WorkflowState.FAILED_TERMINAL,
                     error="validator returned evidence for a different run",
                 )
-                return run
             await self._store.save_evidence(item)
         run = run.model_copy(
             update={
@@ -91,13 +95,24 @@ class Orchestrator:
 
         try:
             decision = await self._diagnostician.diagnose(event, evidence, incident)
-        except Exception as exc:
-            run = await self._move_run(
+        except DiagnosticianRetryableError as exc:
+            return await self._move_run(
+                run,
+                WorkflowState.FAILED_RETRYABLE,
+                error=f"diagnostician: {type(exc).__name__}: {exc}",
+            )
+        except DiagnosticianInvalidOutputError as exc:
+            return await self._move_run(
                 run,
                 WorkflowState.NEEDS_REVIEW,
                 error=f"diagnostician: {type(exc).__name__}: {exc}",
             )
-            return run
+        except Exception as exc:
+            return await self._move_run(
+                run,
+                WorkflowState.NEEDS_REVIEW,
+                error=f"diagnostician: {type(exc).__name__}: {exc}",
+            )
 
         run = run.model_copy(update={"decision": decision, "updated_at": datetime.now(UTC)})
         await self._store.update_run(run)
@@ -112,20 +127,7 @@ class Orchestrator:
             and incident.state == WorkflowState.ACTIONED
             and incident.github_issue_number is not None
         ):
-            try:
-                await self._scheduler.schedule(event.event_id, incident.incident_id, 30)
-            except Exception as exc:
-                return await self._move_run(
-                    run,
-                    WorkflowState.FAILED_RETRYABLE,
-                    error=f"scheduler: {type(exc).__name__}: {exc}",
-                )
-            incident = incident.model_copy(
-                update={"state": WorkflowState.VERIFYING, "updated_at": datetime.now(UTC)}
-            )
-            await self._store.upsert_incident(incident)
-            run = await self._move_run(run, WorkflowState.ACTIONED, incident_id=incident.incident_id)
-            return await self._move_run(run, WorkflowState.VERIFYING)
+            return await self._schedule_verification(run, event, incident)
 
         if policy_action.kind == PolicyActionKind.ALLOW_OPEN:
             return await self._open_incident(run, event, evidence, decision)
@@ -139,6 +141,28 @@ class Orchestrator:
         if policy_action.kind == PolicyActionKind.ESCALATE:
             return await self._move_run(run, WorkflowState.NEEDS_REVIEW)
         return run
+
+    async def _schedule_verification(
+        self,
+        run: RunRecord,
+        event: DeploymentEvent,
+        incident: IncidentRecord,
+    ) -> RunRecord:
+        try:
+            await self._scheduler.schedule(event.event_id, incident.incident_id, 30)
+        except Exception as exc:
+            return await self._move_run(
+                run,
+                WorkflowState.FAILED_RETRYABLE,
+                error=f"scheduler: {type(exc).__name__}: {exc}",
+            )
+        incident = incident.model_copy(
+            update={"state": WorkflowState.VERIFYING, "updated_at": datetime.now(UTC)}
+        )
+        await self._store.upsert_incident(incident)
+        if run.state == WorkflowState.DECIDED:
+            run = await self._move_run(run, WorkflowState.ACTIONED, incident_id=incident.incident_id)
+        return await self._move_run(run, WorkflowState.VERIFYING, incident_id=incident.incident_id)
 
     async def _open_incident(
         self,
@@ -165,35 +189,74 @@ class Orchestrator:
             finding.finding_code,
         )
         key = action_key("open", incident_id, finding.result_hash)
-        claimed = await self._store.claim_action(key)
-        if not claimed:
+        marker = self._action_marker(key)
+        claim = await self._store.claim_action(
+            key,
+            operation="open",
+            incident_id=incident_id,
+            marker=marker,
+            lease_seconds=_ACTION_LEASE_SECONDS,
+        )
+
+        issue_number: int | None = None
+        issue_url: str | None = None
+        if claim.completed:
+            result = claim.result or {}
+            number = result.get("issue_number")
+            url = result.get("issue_url")
+            if isinstance(number, int) and isinstance(url, str):
+                issue_number, issue_url = number, url
+            else:
+                return await self._move_run(
+                    run,
+                    WorkflowState.NEEDS_REVIEW,
+                    error="completed GitHub open action is missing issue result metadata",
+                )
+        elif not claim.acquired:
             existing = await self._store.get_incident(incident_id)
             if existing and existing.state == WorkflowState.ACTIONED:
-                await self._scheduler.schedule(event.event_id, incident_id, 30)
-                existing = existing.model_copy(
-                    update={"state": WorkflowState.VERIFYING, "updated_at": datetime.now(UTC)}
-                )
-                await self._store.upsert_incident(existing)
-                return await self._move_run(run, WorkflowState.VERIFYING, incident_id=incident_id)
-            return run.model_copy(update={"incident_id": incident_id})
-
-        try:
-            issue = await self._github.open_incident(
-                event.repository,
-                f"[Searcharis] Search regression: {finding.finding_code}",
-                self._issue_body(event, finding, decision.summary),
-            )
-        except Exception as exc:
-            await self._store.release_action(key)
+                return await self._schedule_verification(run, event, existing)
             return await self._move_run(
                 run,
                 WorkflowState.FAILED_RETRYABLE,
-                error=f"github open: {type(exc).__name__}: {exc}",
+                error="github open action is currently leased",
+                incident_id=incident_id,
             )
-        await self._store.complete_action(
-            key,
-            {"issue_number": issue.number, "issue_url": str(issue.html_url)},
-        )
+        else:
+            recovered = None
+            if claim.stale_takeover:
+                try:
+                    recovered = await self._github.find_issue_by_marker(event.repository, marker)
+                except Exception as exc:
+                    await self._store.release_action(key)
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github reconcile open: {type(exc).__name__}: {exc}",
+                        incident_id=incident_id,
+                    )
+
+            if recovered is None:
+                try:
+                    recovered = await self._github.open_incident(
+                        event.repository,
+                        f"[Searcharis] Search regression: {finding.finding_code}",
+                        self._issue_body(event, finding, decision.summary, marker),
+                    )
+                except Exception as exc:
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github open: {type(exc).__name__}: {exc}",
+                        incident_id=incident_id,
+                    )
+
+            issue_number = recovered.number
+            issue_url = str(recovered.html_url)
+            await self._store.complete_action(
+                key,
+                {"issue_number": issue_number, "issue_url": issue_url},
+            )
 
         incident = IncidentRecord(
             incident_id=incident_id,
@@ -204,25 +267,11 @@ class Orchestrator:
             finding_code=finding.finding_code,
             state=WorkflowState.ACTIONED,
             triggering_evidence_id=finding.evidence_id,
-            github_issue_number=issue.number,
-            github_issue_url=issue.html_url,
+            github_issue_number=issue_number,
+            github_issue_url=issue_url,
         )
         await self._store.upsert_incident(incident)
-        run = await self._move_run(run, WorkflowState.ACTIONED, incident_id=incident_id)
-
-        try:
-            await self._scheduler.schedule(event.event_id, incident_id, 30)
-        except Exception as exc:
-            return await self._move_run(
-                run,
-                WorkflowState.FAILED_RETRYABLE,
-                error=f"scheduler: {type(exc).__name__}: {exc}",
-            )
-        incident = incident.model_copy(
-            update={"state": WorkflowState.VERIFYING, "updated_at": datetime.now(UTC)}
-        )
-        await self._store.upsert_incident(incident)
-        return await self._move_run(run, WorkflowState.VERIFYING)
+        return await self._schedule_verification(run, event, incident)
 
     async def _close_incident(
         self,
@@ -233,40 +282,98 @@ class Orchestrator:
     ) -> RunRecord:
         run = await self._move_run(run, WorkflowState.VERIFYING)
         evidence_hash = self._evidence_hash(evidence)
+        issue_number = incident.github_issue_number
+        if issue_number is None:
+            return await self._move_run(
+                run,
+                WorkflowState.NEEDS_REVIEW,
+                error="incident has no GitHub issue number",
+            )
 
         comment_key = action_key("verification-comment", incident.incident_id, evidence_hash)
-        if await self._store.claim_action(comment_key):
-            try:
-                await self._github.comment_incident(
-                    event.repository,
-                    incident.github_issue_number,
-                    self._verification_comment(incident, evidence),
-                )
-            except Exception as exc:
-                await self._store.release_action(comment_key)
+        comment_marker = self._action_marker(comment_key)
+        comment_claim = await self._store.claim_action(
+            comment_key,
+            operation="verification-comment",
+            incident_id=incident.incident_id,
+            marker=comment_marker,
+            lease_seconds=_ACTION_LEASE_SECONDS,
+        )
+        if not comment_claim.completed:
+            if not comment_claim.acquired:
                 return await self._move_run(
                     run,
                     WorkflowState.FAILED_RETRYABLE,
-                    error=f"github comment: {type(exc).__name__}: {exc}",
+                    error="github verification comment action is currently leased",
                 )
+            comment_exists = False
+            if comment_claim.stale_takeover:
+                try:
+                    comment_exists = await self._github.comment_exists(
+                        event.repository, issue_number, comment_marker
+                    )
+                except Exception as exc:
+                    await self._store.release_action(comment_key)
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github reconcile comment: {type(exc).__name__}: {exc}",
+                    )
+            if not comment_exists:
+                try:
+                    await self._github.comment_incident(
+                        event.repository,
+                        issue_number,
+                        self._verification_comment(incident, evidence, comment_marker),
+                    )
+                except Exception as exc:
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github comment: {type(exc).__name__}: {exc}",
+                    )
             await self._store.complete_action(comment_key, {"commented": True})
 
         close_key = action_key("close", incident.incident_id, evidence_hash)
-        closed_now = False
-        if await self._store.claim_action(close_key):
-            try:
-                await self._github.close_incident(event.repository, incident.github_issue_number)
-            except Exception as exc:
-                await self._store.release_action(close_key)
+        close_marker = self._action_marker(close_key)
+        close_claim = await self._store.claim_action(
+            close_key,
+            operation="close",
+            incident_id=incident.incident_id,
+            marker=close_marker,
+            lease_seconds=_ACTION_LEASE_SECONDS,
+        )
+        closed = close_claim.completed
+        if not closed:
+            if not close_claim.acquired:
                 return await self._move_run(
                     run,
                     WorkflowState.FAILED_RETRYABLE,
-                    error=f"github close: {type(exc).__name__}: {exc}",
+                    error="github close action is currently leased",
                 )
+            if close_claim.stale_takeover:
+                try:
+                    closed = await self._github.get_issue_state(event.repository, issue_number) == "closed"
+                except Exception as exc:
+                    await self._store.release_action(close_key)
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github reconcile close: {type(exc).__name__}: {exc}",
+                    )
+            if not closed:
+                try:
+                    await self._github.close_incident(event.repository, issue_number)
+                except Exception as exc:
+                    return await self._move_run(
+                        run,
+                        WorkflowState.FAILED_RETRYABLE,
+                        error=f"github close: {type(exc).__name__}: {exc}",
+                    )
+                closed = True
             await self._store.complete_action(close_key, {"closed": True})
-            closed_now = True
 
-        if closed_now:
+        if closed:
             incident = incident.model_copy(
                 update={"state": WorkflowState.RESOLVED, "updated_at": datetime.now(UTC)}
             )
@@ -281,35 +388,60 @@ class Orchestrator:
         evidence: list[EvidenceRecord],
         incident: IncidentRecord,
     ) -> RunRecord:
+        issue_number = incident.github_issue_number
+        if issue_number is None:
+            return await self._move_run(
+                run,
+                WorkflowState.NEEDS_REVIEW,
+                error="incident has no GitHub issue number",
+            )
         evidence_hash = self._evidence_hash(evidence)
         key = action_key("comment", incident.incident_id, evidence_hash)
-        if await self._store.claim_action(key):
+        marker = self._action_marker(key)
+        claim = await self._store.claim_action(
+            key,
+            operation="comment",
+            incident_id=incident.incident_id,
+            marker=marker,
+            lease_seconds=_ACTION_LEASE_SECONDS,
+        )
+        if claim.completed:
+            return await self._move_run(run, WorkflowState.ACTIONED)
+        if not claim.acquired:
+            return await self._move_run(
+                run,
+                WorkflowState.FAILED_RETRYABLE,
+                error="github comment action is currently leased",
+            )
+        comment_exists = False
+        if claim.stale_takeover:
             try:
-                await self._github.comment_incident(
-                    event.repository,
-                    incident.github_issue_number,
-                    "Searcharis observed new fresh evidence for this incident.",
-                )
+                comment_exists = await self._github.comment_exists(event.repository, issue_number, marker)
             except Exception as exc:
                 await self._store.release_action(key)
                 return await self._move_run(
                     run,
                     WorkflowState.FAILED_RETRYABLE,
+                    error=f"github reconcile comment: {type(exc).__name__}: {exc}",
+                )
+        if not comment_exists:
+            try:
+                await self._github.comment_incident(
+                    event.repository,
+                    issue_number,
+                    f"Searcharis observed new fresh evidence for this incident.\n\n{marker}",
+                )
+            except Exception as exc:
+                return await self._move_run(
+                    run,
+                    WorkflowState.FAILED_RETRYABLE,
                     error=f"github comment: {type(exc).__name__}: {exc}",
                 )
-            await self._store.complete_action(key, {"commented": True})
+        await self._store.complete_action(key, {"commented": True})
         return await self._move_run(run, WorkflowState.ACTIONED)
 
     async def _find_open_incident(self, event: DeploymentEvent) -> IncidentRecord | None:
-        target = str(event.target_url)
-        for incident in await self._store.list_incidents():
-            if (
-                incident.repository == event.repository
-                and str(incident.affected_url) == target
-                and incident.state != WorkflowState.RESOLVED
-            ):
-                return incident
-        return None
+        return await self._store.find_active_incident(event.repository, str(event.target_url))
 
     async def _move_run(
         self,
@@ -330,6 +462,10 @@ class Orchestrator:
         )
         await self._store.update_run(run)
         return run
+
+    @staticmethod
+    def _action_marker(key: str) -> str:
+        return f"<!-- searcharis-action:{key} -->"
 
     @staticmethod
     def _primary_finding(
@@ -354,7 +490,13 @@ class Orchestrator:
         return complete
 
     @staticmethod
-    def _issue_body(event: DeploymentEvent, finding: EvidenceRecord, summary: str) -> str:
+    def _issue_body(
+        event: DeploymentEvent,
+        finding: EvidenceRecord,
+        summary: str,
+        marker: str = "",
+    ) -> str:
+        suffix = f"\n\n{marker}" if marker else ""
         return (
             "## Searcharis detected a post-deployment search regression\n\n"
             f"- Deployment: `{event.commit_sha}`\n"
@@ -363,16 +505,19 @@ class Orchestrator:
             f"- Evidence: `{finding.evidence_id}`\n\n"
             f"{summary}\n\n"
             "This issue is managed by Searcharis. It will only be closed after a fresh external "
-            "audit proves the triggering finding is absent."
+            f"audit proves the triggering finding is absent.{suffix}"
         )
 
     @staticmethod
     def _verification_comment(
         incident: IncidentRecord,
         evidence: list[EvidenceRecord],
+        marker: str = "",
     ) -> str:
         complete = next(item for item in evidence if item.finding_code == "validator.audit_complete")
+        suffix = f"\n\n{marker}" if marker else ""
         return (
             "Searcharis verification passed. A fresh external audit completed and no longer "
             f"contains `{incident.finding_code}`. Evidence result hash: `{complete.result_hash}`."
+            f"{suffix}"
         )

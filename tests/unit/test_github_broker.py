@@ -36,3 +36,74 @@ async def test_broker_uses_only_narrow_issue_routes_and_exact_close_payload():
     assert seen[2][2] == {"state": "closed", "state_reason": "completed"}
     assert seen[0][3]["authorization"] == "Bearer token"
     assert seen[0][3]["x-github-api-version"] == "2026-03-10"
+
+
+@pytest.mark.asyncio
+async def test_find_issue_by_marker_scans_bounded_recent_issue_page():
+    marker = "<!-- searcharis-action:abc -->"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "number": 42,
+                    "html_url": "https://github.com/AKzar1el/searcharis/issues/42",
+                    "body": f"Regression\n{marker}",
+                }
+            ],
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    broker = GitHubIssueBroker("token", client=client)
+
+    finder = getattr(broker, "find_issue_by_marker", None)
+    assert callable(finder), "GitHub issue reconciliation read is missing"
+    issue = await finder("AKzar1el/searcharis", marker)
+
+    assert issue is not None
+    assert issue.number == 42
+    assert len(requests) == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.params["state"] == "all"
+    assert requests[0].url.params["per_page"] == "100"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_comment_exists_detects_marker_without_posting_duplicate():
+    marker = "<!-- searcharis-action:verify -->"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[{"body": f"Verified.\n{marker}"}])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    broker = GitHubIssueBroker("token", client=client)
+
+    checker = getattr(broker, "comment_exists", None)
+    assert callable(checker), "GitHub comment reconciliation read is missing"
+    exists = await checker("AKzar1el/searcharis", 42, marker)
+
+    assert exists is True
+    assert [request.method for request in requests] == ["GET"]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_get_issue_state_supports_idempotent_close_reconciliation():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"state": "closed"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    broker = GitHubIssueBroker("token", client=client)
+
+    getter = getattr(broker, "get_issue_state", None)
+    assert callable(getter), "GitHub issue-state reconciliation read is missing"
+    state = await getter("AKzar1el/searcharis", 42)
+
+    assert state == "closed"
+    await client.aclose()

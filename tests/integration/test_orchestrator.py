@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -86,11 +86,25 @@ class FakeBroker:
         self.opens.append((repository, title, body))
         return GitHubIssue(number=42, html_url="https://github.com/AKzar1el/demo/issues/42")
 
+    async def find_issue_by_marker(self, repository, marker):
+        if any(repo == repository and marker in body for repo, _, body in self.opens):
+            return GitHubIssue(number=42, html_url="https://github.com/AKzar1el/demo/issues/42")
+        return None
+
     async def comment_incident(self, repository, issue_number, body):
         self.comments.append((repository, issue_number, body))
 
+    async def comment_exists(self, repository, issue_number, marker):
+        return any(
+            repo == repository and number == issue_number and marker in body
+            for repo, number, body in self.comments
+        )
+
     async def close_incident(self, repository, issue_number):
         self.closes.append((repository, issue_number))
+
+    async def get_issue_state(self, repository, issue_number):
+        return "closed" if (repository, issue_number) in self.closes else "open"
 
 
 class FakeScheduler:
@@ -100,6 +114,17 @@ class FakeScheduler:
     async def schedule(self, event_id, incident_id, delay_seconds):
         self.calls.append((event_id, incident_id, delay_seconds))
         return f"tasks/{event_id}-{incident_id}"
+
+
+class MutableClock:
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, seconds: int) -> None:
+        self.now += timedelta(seconds=seconds)
 
 
 def regression_decision():
@@ -344,22 +369,31 @@ class FlakyScheduler(FakeScheduler):
 
 
 @pytest.mark.asyncio
-async def test_failed_github_open_is_retryable_and_retry_can_open_incident():
-    store = InMemoryStateStore()
+async def test_failed_github_open_waits_for_lease_then_retries_safely():
+    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+    store = InMemoryStateStore(clock=clock)
     broker = FlakyOpenBroker()
     orchestrator = Orchestrator(
         store=store,
-        validator=FakeValidator([True, True]),
-        diagnostician=FakeDiagnostician([regression_decision(), regression_decision()]),
+        validator=FakeValidator([True, True, True]),
+        diagnostician=FakeDiagnostician(
+            [regression_decision(), regression_decision(), regression_decision()]
+        ),
         github=broker,
         scheduler=FakeScheduler(),
     )
 
     first = await orchestrator.process_deployment(event())
-    second = await orchestrator.process_deployment(event())
+    immediate_retry = await orchestrator.process_deployment(event())
 
     assert first.state == WorkflowState.FAILED_RETRYABLE
-    assert second.state == WorkflowState.VERIFYING
+    assert immediate_retry.state == WorkflowState.FAILED_RETRYABLE
+    assert broker.open_attempts == 1
+
+    clock.advance(121)
+    recovered = await orchestrator.process_deployment(event())
+
+    assert recovered.state == WorkflowState.VERIFYING
     assert broker.open_attempts == 2
     assert len(broker.opens) == 1
     assert len(await store.list_incidents()) == 1
@@ -389,8 +423,9 @@ async def test_failed_verification_schedule_is_retryable_without_duplicate_issue
 
 
 @pytest.mark.asyncio
-async def test_failed_github_close_is_retryable_without_duplicate_comment():
-    store = InMemoryStateStore()
+async def test_failed_github_close_waits_for_lease_without_duplicate_comment():
+    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+    store = InMemoryStateStore(clock=clock)
     current_event = event()
     await store.put_event(current_event)
     incident = IncidentRecord(
@@ -408,17 +443,26 @@ async def test_failed_github_close_is_retryable_without_duplicate_comment():
     broker = FlakyCloseBroker()
     orchestrator = Orchestrator(
         store=store,
-        validator=FakeValidator([False, False]),
-        diagnostician=FakeDiagnostician([recovery_decision(), recovery_decision()]),
+        validator=FakeValidator([False, False, False]),
+        diagnostician=FakeDiagnostician(
+            [recovery_decision(), recovery_decision(), recovery_decision()]
+        ),
         github=broker,
         scheduler=FakeScheduler(),
     )
 
     first = await orchestrator.verify(current_event.event_id, incident.incident_id)
-    second = await orchestrator.verify(current_event.event_id, incident.incident_id)
+    immediate_retry = await orchestrator.verify(current_event.event_id, incident.incident_id)
 
     assert first.state == WorkflowState.FAILED_RETRYABLE
-    assert second.state == WorkflowState.RESOLVED
+    assert immediate_retry.state == WorkflowState.FAILED_RETRYABLE
+    assert broker.close_attempts == 1
+    assert len(broker.comments) == 1
+
+    clock.advance(121)
+    recovered = await orchestrator.verify(current_event.event_id, incident.incident_id)
+
+    assert recovered.state == WorkflowState.RESOLVED
     assert broker.close_attempts == 2
     assert len(broker.comments) == 1
     assert len(broker.closes) == 1

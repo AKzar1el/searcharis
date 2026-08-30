@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 TOPIC="${SEARCHARIS_PUBSUB_TOPIC:-searcharis-deployments}"
+DLQ_TOPIC="${SEARCHARIS_PUBSUB_DLQ_TOPIC:-searcharis-deployments-dead-letter}"
+DLQ_SUBSCRIPTION="${SEARCHARIS_PUBSUB_DLQ_SUBSCRIPTION:-searcharis-deployments-dead-letter-retention}"
 QUEUE="${SEARCHARIS_TASKS_QUEUE:-searcharis-verification}"
 DATABASE_ID="${SEARCHARIS_FIRESTORE_DATABASE:-(default)}"
 
@@ -64,6 +66,17 @@ if ! gcloud pubsub topics describe "${TOPIC}" >/dev/null 2>&1; then
   gcloud pubsub topics create "${TOPIC}"
 fi
 
+if ! gcloud pubsub topics describe "${DLQ_TOPIC}" >/dev/null 2>&1; then
+  gcloud pubsub topics create "${DLQ_TOPIC}"
+fi
+if ! gcloud pubsub subscriptions describe "${DLQ_SUBSCRIPTION}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions create "${DLQ_SUBSCRIPTION}" \
+    --topic="${DLQ_TOPIC}" \
+    --message-retention-duration=7d \
+    --expiration-period=never \
+    --quiet >/dev/null
+fi
+
 if ! gcloud tasks queues describe "${QUEUE}" --location="${REGION}" >/dev/null 2>&1; then
   gcloud tasks queues create "${QUEUE}" --location="${REGION}" --log-sampling-ratio=1.0
 fi
@@ -74,6 +87,50 @@ if ! gcloud firestore databases describe --database="${DATABASE_ID}" >/dev/null 
     --location="${REGION}" \
     --edition=standard \
     --type=firestore-native
+fi
+
+# Operational collections use native expires_at timestamps. TTL provisioning is
+# intentionally human-admin owned instead of granting schema-admin IAM to the
+# GitHub deployer. Updates are asynchronous because Firestore TTL policy changes
+# can take several minutes to finish provisioning.
+for collection_group in events runs evidence actions; do
+  gcloud firestore fields ttls update expires_at \
+    --database="${DATABASE_ID}" \
+    --collection-group="${collection_group}" \
+    --enable-ttl \
+    --async \
+    --quiet >/dev/null
+done
+
+# The active-incident query filters repository + affected_url and orders by
+# updated_at. Provision exactly that composite index, and avoid duplicate create
+# operations on repeated bootstrap runs.
+if ! gcloud firestore indexes composite list \
+  --database="${DATABASE_ID}" \
+  --filter='collectionGroup:incidents' \
+  --format=json \
+  | python3 -c '
+import json, sys
+indexes = json.load(sys.stdin)
+for index in indexes:
+    fields = {item.get("fieldPath"): item.get("order") for item in index.get("fields", [])}
+    if (
+        fields.get("repository") == "ASCENDING"
+        and fields.get("affected_url") == "ASCENDING"
+        and fields.get("updated_at") == "DESCENDING"
+    ):
+        raise SystemExit(0)
+raise SystemExit(1)
+'; then
+  gcloud firestore indexes composite create \
+    --database="${DATABASE_ID}" \
+    --collection-group=incidents \
+    --query-scope=collection \
+    --field-config=field-path=repository,order=ascending \
+    --field-config=field-path=affected_url,order=ascending \
+    --field-config=field-path=updated_at,order=descending \
+    --async \
+    --quiet >/dev/null
 fi
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
@@ -90,12 +147,28 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role="roles/iam.serviceAccountTokenCreator" \
   --quiet >/dev/null
 
+# Pub/Sub Editor can configure the source subscription but cannot set resource
+# IAM policy. Keep dead-letter forwarding IAM on this human-admin bootstrap path.
+gcloud pubsub topics add-iam-policy-binding "${DLQ_TOPIC}" \
+  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+  --role="roles/pubsub.publisher" \
+  --quiet >/dev/null
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+  --role="roles/pubsub.subscriber" \
+  --quiet >/dev/null
+
 cat <<OUT
 Bootstrap complete.
 Project: ${PROJECT_ID}
 Region: ${REGION}
 Topic: ${TOPIC}
+Dead-letter topic: ${DLQ_TOPIC}
+Dead-letter retention subscription: ${DLQ_SUBSCRIPTION}
 Queue: ${QUEUE}
+Firestore TTL: events/runs/evidence/actions on expires_at
+Firestore incident index: repository + affected_url + updated_at desc
 
 Before deployment, create these Secret Manager secrets with at least one enabled version:
   searcharis-github-token

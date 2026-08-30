@@ -6,6 +6,8 @@ Searcharis is an event-driven agent that reacts to successful website deployment
 
 Built for the **Taskmaster** track of the All Things Agentic Hackathon.
 
+> **Judging availability:** keep https://searcharis-ingress-2wzjcu6mqa-uc.a.run.app live and testable through **October 1, 2026 at 11:45 PM PT**. Do not tear down the judging environment before that deadline. See [`docs/JUDGING-OPERATIONS.md`](docs/JUDGING-OPERATIONS.md).
+
 ## The problem
 
 A deployment can silently remove a title, canonical, viewport declaration, structured data, or another search-critical signal. The failure may be technically small while its business impact is delayed and difficult to attribute. Conventional monitoring checks availability; Searcharis checks whether a successful deployment changed the site's search-facing contract and then owns the incident lifecycle until recovery is independently verified.
@@ -55,8 +57,8 @@ Google Cloud services used in the running design:
 - GitHub writes are limited to issue create, issue comment, and issue close.
 - Use a fine-grained GitHub token restricted to the configured demo/submission repository with **Issues: read and write** only; Searcharis does not need Contents, Actions, Pull requests, Administration, or Secrets permissions.
 - Evidence older than ten minutes, missing evidence IDs, provider failures, mixed-run evidence, and ambiguous decisions fail closed.
-- Stable incident fingerprints, action keys, and Cloud Task IDs make retries idempotent.
-- Pub/Sub retryable failures return HTTP 500; terminal business outcomes acknowledge delivery.
+- Stable incident fingerprints, leased action keys with reconciliation, and Cloud Task IDs make retries idempotent.
+- Pub/Sub retryable failures return HTTP 500; delivery uses bounded exponential redelivery and a dead-letter path.
 
 ## Hackathon work and pre-existing dependency disclosure
 
@@ -86,15 +88,10 @@ Requirements:
 - `uv`
 
 ```bash
-# On a network-connected machine, generate and commit the lockfile once:
-uv lock
-
 uv sync --locked
 uv run pytest tests/unit tests/integration -q
 uv run ruff check src tests demo_target
 ```
-
-The repository can bootstrap without `uv.lock` during development, but the submission/deployment should commit the generated lockfile so Cloud Build and CI resolve the exact reviewed dependency graph.
 
 The live validator test is deliberately opt-in:
 
@@ -132,7 +129,7 @@ export SEARCHARIS_DEMO_TARGET_URL="$(gcloud run services describe searcharis-dem
 ./deployment/smoke.sh
 ```
 
-The bootstrap script enables only the APIs used by this project, creates the service identities/topic/queue/database if missing, and applies the project-level permissions required by the runtime. `deploy-services.sh` then binds Pub/Sub and Cloud Tasks invoker identities specifically to the private worker service.
+The bootstrap script enables only the APIs used by this project, creates the service identities/topic/queue/database if missing, enables operational Firestore TTL policies, and provisions the bounded incident-query index. `deploy-services.sh` binds Pub/Sub and Cloud Tasks invoker identities specifically to the private worker service, configures Pub/Sub exponential retry/dead-letter delivery, and applies explicit Cloud Run resource/backpressure limits.
 
 ## Demo target
 
@@ -165,13 +162,17 @@ The suite specifically verifies:
 - webhook authentication happens before payload parsing
 - the public demo ingress cannot be used as an arbitrary URL scanner
 - retryable worker outcomes cause Pub/Sub redelivery
+- transient Gemini failures are retried with a bounded backoff and then redelivered by infrastructure
+- stale GitHub mutation leases reconcile remote state before repeating a side effect
+- production deployment scripts declare Pub/Sub DLQ/backoff, Firestore TTL/index, and Cloud Run limits
 
 ## Submission material
 
 - [`docs/demo-script.md`](docs/demo-script.md) — four-minute recording plan
 - [`docs/submission-draft.md`](docs/submission-draft.md) — Devpost copy draft
+- [`docs/JUDGING-OPERATIONS.md`](docs/JUDGING-OPERATIONS.md) — judging availability and production operations
 - [`docs/superpowers/specs/2026-08-29-searcharis-design.md`](docs/superpowers/specs/2026-08-29-searcharis-design.md) — architecture/design record
-- [`docs/superpowers/plans/2026-08-29-searcharis-implementation.md`](docs/superpowers/plans/2026-08-29-searcharis-implementation.md) — implementation plan
+- [`docs/superpowers/specs/2026-08-30-searcharis-production-hardening-design.md`](docs/superpowers/specs/2026-08-30-searcharis-production-hardening-design.md) — production hardening design
 
 ## License
 

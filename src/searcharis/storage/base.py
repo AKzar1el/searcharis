@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord
+from searcharis.models import (
+    ActionClaim,
+    DeploymentEvent,
+    EvidenceRecord,
+    IncidentRecord,
+    RunRecord,
+)
 
 
 class StateStore(Protocol):
@@ -24,9 +30,21 @@ class StateStore(Protocol):
 
     async def upsert_incident(self, incident: IncidentRecord) -> None: ...
 
-    async def list_incidents(self) -> list[IncidentRecord]: ...
+    async def find_active_incident(
+        self, repository: str, affected_url: str
+    ) -> IncidentRecord | None: ...
 
-    async def claim_action(self, idempotency_key: str) -> bool: ...
+    async def list_incidents(self, limit: int = 100) -> list[IncidentRecord]: ...
+
+    async def claim_action(
+        self,
+        idempotency_key: str,
+        *,
+        operation: str = "legacy",
+        incident_id: str = "legacy",
+        marker: str = "",
+        lease_seconds: int = 120,
+    ) -> ActionClaim: ...
 
     async def complete_action(self, idempotency_key: str, result: dict[str, object]) -> None: ...
 

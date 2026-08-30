@@ -150,6 +150,9 @@ jobs:
             echo "- Cloud Run region: $GOOGLE_CLOUD_LOCATION"
             echo "- Vertex AI location: $SEARCHARIS_VERTEX_LOCATION"
             echo "- Commit: $GITHUB_SHA"
+            echo
+            echo '- **KEEP LIVE THROUGH 2026-10-01 23:45 PT** — judging environment must remain available.'
+            echo '- Operations: docs/JUDGING-OPERATIONS.md'
           } >> "$GITHUB_STEP_SUMMARY"
 
           printf 'Ingress: %s\nWorker: %s\nDemo: %s\n' \

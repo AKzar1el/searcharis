@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "incidents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "repository", "order": "ASCENDING"},
+        {"fieldPath": "affected_url", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {"collectionGroup": "events", "fieldPath": "expires_at", "ttl": true, "indexes": []},
+    {"collectionGroup": "runs", "fieldPath": "expires_at", "ttl": true, "indexes": []},
+    {"collectionGroup": "evidence", "fieldPath": "expires_at", "ttl": true, "indexes": []},
+    {"collectionGroup": "actions", "fieldPath": "expires_at", "ttl": true, "indexes": []}
+  ]
+}
