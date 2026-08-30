@@ -102,6 +102,23 @@ class FlakyReconciliationBroker(ReconciliationBroker):
         return self.recovered_issue
 
 
+class AmbiguousOpenBroker:
+    def __init__(self, recovered_issue: GitHubIssue) -> None:
+        self.recovered_issue = recovered_issue
+        self.open_calls = 0
+        self.find_calls: list[tuple[str, str]] = []
+        self.remote_issue_visible = False
+
+    async def open_incident(self, repository: str, title: str, body: str):
+        self.open_calls += 1
+        self.remote_issue_visible = True
+        raise RuntimeError("connection reset after GitHub accepted the issue")
+
+    async def find_issue_by_marker(self, repository: str, marker: str):
+        self.find_calls.append((repository, marker))
+        return self.recovered_issue if self.remote_issue_visible else None
+
+
 class Scheduler:
     def __init__(self) -> None:
         self.calls = []
@@ -224,5 +241,45 @@ async def test_reconciliation_read_failure_keeps_lease_until_safe_stale_retry():
     ]
     assert incident is not None
     assert incident.github_issue_number == 78
+    assert incident.state == WorkflowState.VERIFYING
+    assert len(scheduler.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_open_failure_keeps_fresh_lease_until_reconciliation():
+    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+    store = InMemoryStateStore(clock=clock)
+    event = _event()
+    incident_id, _, marker = _open_action(event)
+    broker = AmbiguousOpenBroker(
+        GitHubIssue(number=79, html_url="https://github.com/AKzar1el/searcharis/issues/79")
+    )
+    scheduler = Scheduler()
+    orchestrator = Orchestrator(
+        store=store,
+        validator=BrokenValidator(),
+        diagnostician=RegressionDiagnostician(),
+        github=broker,
+        scheduler=scheduler,
+    )
+
+    first = await orchestrator.process_deployment(event)
+    immediate_retry = await orchestrator.process_deployment(event)
+
+    assert first.state == WorkflowState.FAILED_RETRYABLE
+    assert immediate_retry.state == WorkflowState.FAILED_RETRYABLE
+    assert broker.open_calls == 1
+    assert broker.find_calls == []
+    assert await store.get_incident(incident_id) is None
+
+    clock.advance(121)
+    recovered = await orchestrator.process_deployment(event)
+
+    incident = await store.get_incident(incident_id)
+    assert recovered.state == WorkflowState.VERIFYING
+    assert broker.open_calls == 1
+    assert broker.find_calls == [(event.repository, marker)]
+    assert incident is not None
+    assert incident.github_issue_number == 79
     assert incident.state == WorkflowState.VERIFYING
     assert len(scheduler.calls) == 1
