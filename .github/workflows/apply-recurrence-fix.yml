@@ -1,0 +1,79 @@
+name: Apply recurrence fix
+
+on:
+  push:
+    branches: [fix/recurring-incidents]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ contains(github.event.head_commit.message, '[apply-recurrence-fix]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/recurring-incidents
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Apply minimal occurrence-identity patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          ids_path = Path('src/searcharis/ids.py')
+          ids = ids_path.read_text()
+          old_ids = '''def action_key(kind: str, incident_id: str, evidence_hash: str) -> str:\n'''
+          new_ids = '''def incident_occurrence_id(fingerprint: str, event_id: str) -> str:\n    return _canonical_hash(\n        {\n            "fingerprint": fingerprint,\n            "event_id": event_id,\n        }\n    )\n\n\ndef action_key(kind: str, incident_id: str, evidence_hash: str) -> str:\n'''
+          assert ids.count(old_ids) == 1, 'unexpected ids.py action_key anchor'
+          ids_path.write_text(ids.replace(old_ids, new_ids, 1))
+
+          orchestrator_path = Path('src/searcharis/services/orchestrator.py')
+          orchestrator = orchestrator_path.read_text()
+
+          old_import = 'from searcharis.ids import action_key, incident_fingerprint\n'
+          new_import = (\n              'from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id\n'\n          )
+          assert orchestrator.count(old_import) == 1, 'unexpected orchestrator import anchor'
+          orchestrator = orchestrator.replace(old_import, new_import, 1)
+
+          old_identity = '''        incident_id = incident_fingerprint(\n            event.repository,\n            target_origin,\n            target_url,\n            finding.finding_code,\n        )\n        key = action_key("open", incident_id, finding.result_hash)\n'''
+          new_identity = '''        fingerprint = incident_fingerprint(\n            event.repository,\n            target_origin,\n            target_url,\n            finding.finding_code,\n        )\n        incident_id = incident_occurrence_id(fingerprint, event.event_id)\n        key = action_key("open", incident_id, finding.result_hash)\n'''
+          assert orchestrator.count(old_identity) == 1, 'unexpected incident identity anchor'
+          orchestrator = orchestrator.replace(old_identity, new_identity, 1)
+
+          old_fingerprint = '            fingerprint=incident_id,\n'
+          new_fingerprint = '            fingerprint=fingerprint,\n'
+          assert orchestrator.count(old_fingerprint) == 1, 'unexpected fingerprint assignment anchor'
+          orchestrator = orchestrator.replace(old_fingerprint, new_fingerprint, 1)
+          orchestrator_path.write_text(orchestrator)
+          PY
+
+      - name: Verify recurrence fix
+        run: |
+          uv run pytest tests/integration/test_recurring_incidents.py -q
+          uv run ruff check src tests demo_target
+          bash -n deployment/*.sh
+          uv run pytest tests/unit tests/integration -q
+
+      - name: Commit verified patch and remove temporary workflow
+        run: |
+          rm .github/workflows/apply-recurrence-fix.yml
+          git config user.name 'ChatGPT Codex Connector'
+          git config user.email 'noreply@openai.com'
+          git add src/searcharis/ids.py src/searcharis/services/orchestrator.py .github/workflows/apply-recurrence-fix.yml
+          git diff --cached --check
+          git commit -m 'fix: scope recurring incidents to deployment occurrence'
+          git push origin HEAD:fix/recurring-incidents
