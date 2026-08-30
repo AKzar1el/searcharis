@@ -89,6 +89,19 @@ class ReconciliationBroker:
         raise AssertionError("stale reconciliation must not create a duplicate issue")
 
 
+class FlakyReconciliationBroker(ReconciliationBroker):
+    def __init__(self, recovered_issue: GitHubIssue) -> None:
+        super().__init__(recovered_issue)
+        self.fail_next_find = True
+
+    async def find_issue_by_marker(self, repository: str, marker: str):
+        self.find_calls.append((repository, marker))
+        if self.fail_next_find:
+            self.fail_next_find = False
+            raise RuntimeError("temporary GitHub read failure")
+        return self.recovered_issue
+
+
 class Scheduler:
     def __init__(self) -> None:
         self.calls = []
@@ -108,11 +121,7 @@ def _event() -> DeploymentEvent:
     )
 
 
-@pytest.mark.asyncio
-async def test_stale_open_claim_reconciles_existing_github_issue_after_process_crash():
-    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
-    store = InMemoryStateStore(clock=clock)
-    event = _event()
+def _open_action(event: DeploymentEvent) -> tuple[str, str, str]:
     target_url = str(event.target_url)
     split = urlsplit(target_url)
     incident_id = incident_fingerprint(
@@ -123,6 +132,15 @@ async def test_stale_open_claim_reconciles_existing_github_issue_after_process_c
     )
     key = action_key("open", incident_id, "b" * 64)
     marker = f"<!-- searcharis-action:{key} -->"
+    return incident_id, key, marker
+
+
+@pytest.mark.asyncio
+async def test_stale_open_claim_reconciles_existing_github_issue_after_process_crash():
+    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+    store = InMemoryStateStore(clock=clock)
+    event = _event()
+    incident_id, key, marker = _open_action(event)
 
     await store.claim_action(
         key,
@@ -154,4 +172,57 @@ async def test_stale_open_claim_reconciles_existing_github_issue_after_process_c
     assert incident.github_issue_number == 77
     assert incident.state == WorkflowState.VERIFYING
     assert run.state == WorkflowState.VERIFYING
+    assert len(scheduler.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_read_failure_keeps_lease_until_safe_stale_retry():
+    clock = MutableClock(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+    store = InMemoryStateStore(clock=clock)
+    event = _event()
+    incident_id, key, marker = _open_action(event)
+
+    await store.claim_action(
+        key,
+        operation="open",
+        incident_id=incident_id,
+        marker=marker,
+        lease_seconds=120,
+    )
+    clock.advance(121)
+
+    broker = FlakyReconciliationBroker(
+        GitHubIssue(number=78, html_url="https://github.com/AKzar1el/searcharis/issues/78")
+    )
+    scheduler = Scheduler()
+    orchestrator = Orchestrator(
+        store=store,
+        validator=BrokenValidator(),
+        diagnostician=RegressionDiagnostician(),
+        github=broker,
+        scheduler=scheduler,
+    )
+
+    first = await orchestrator.process_deployment(event)
+    immediate_retry = await orchestrator.process_deployment(event)
+
+    assert first.state == WorkflowState.FAILED_RETRYABLE
+    assert immediate_retry.state == WorkflowState.FAILED_RETRYABLE
+    assert broker.open_calls == 0
+    assert broker.find_calls == [(event.repository, marker)]
+    assert await store.get_incident(incident_id) is None
+
+    clock.advance(121)
+    recovered = await orchestrator.process_deployment(event)
+
+    incident = await store.get_incident(incident_id)
+    assert recovered.state == WorkflowState.VERIFYING
+    assert broker.open_calls == 0
+    assert broker.find_calls == [
+        (event.repository, marker),
+        (event.repository, marker),
+    ]
+    assert incident is not None
+    assert incident.github_issue_number == 78
+    assert incident.state == WorkflowState.VERIFYING
     assert len(scheduler.calls) == 1
