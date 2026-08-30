@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 from searcharis.models import (
+    ActionClaim,
     DeploymentEvent,
     EvidenceRecord,
     IncidentRecord,
@@ -12,13 +15,14 @@ from searcharis.models import (
 
 
 class InMemoryStateStore:
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], datetime] | None = None) -> None:
         self._events: dict[str, DeploymentEvent] = {}
         self._runs: dict[str, RunRecord] = {}
         self._evidence: dict[str, EvidenceRecord] = {}
         self._incidents: dict[str, IncidentRecord] = {}
         self._actions: dict[str, dict[str, object]] = {}
         self._action_lock = asyncio.Lock()
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     async def put_event(self, event: DeploymentEvent) -> None:
         self._events[event.event_id] = event.model_copy(deep=True)
@@ -86,18 +90,62 @@ class InMemoryStateStore:
         )
         return [value.model_copy(deep=True) for value in incidents[:bounded_limit]]
 
-    async def claim_action(self, idempotency_key: str) -> bool:
+    async def claim_action(
+        self,
+        idempotency_key: str,
+        *,
+        operation: str = "legacy",
+        incident_id: str = "legacy",
+        marker: str = "",
+        lease_seconds: int = 120,
+    ) -> ActionClaim:
         async with self._action_lock:
-            if idempotency_key in self._actions:
-                return False
-            self._actions[idempotency_key] = {"status": "claimed"}
-            return True
+            now = self._clock()
+            current = self._actions.get(idempotency_key)
+            if current is None:
+                self._actions[idempotency_key] = {
+                    "status": "claimed",
+                    "claimed_at": now,
+                    "lease_expires_at": now + timedelta(seconds=lease_seconds),
+                    "operation": operation,
+                    "incident_id": incident_id,
+                    "marker": marker,
+                }
+                return ActionClaim(acquired=True)
+
+            if current.get("status") == "completed":
+                result = current.get("result")
+                return ActionClaim(
+                    acquired=False,
+                    completed=True,
+                    result=dict(result) if isinstance(result, dict) else None,
+                )
+
+            lease_expires_at = current.get("lease_expires_at")
+            if isinstance(lease_expires_at, datetime) and lease_expires_at <= now:
+                current.update(
+                    {
+                        "status": "claimed",
+                        "claimed_at": now,
+                        "lease_expires_at": now + timedelta(seconds=lease_seconds),
+                        "operation": operation,
+                        "incident_id": incident_id,
+                        "marker": marker,
+                    }
+                )
+                return ActionClaim(acquired=True, stale_takeover=True)
+
+            return ActionClaim(acquired=False)
 
     async def complete_action(self, idempotency_key: str, result: dict[str, object]) -> None:
         async with self._action_lock:
             if idempotency_key not in self._actions:
                 raise KeyError(f"action was not claimed: {idempotency_key}")
-            self._actions[idempotency_key] = {"status": "completed", "result": dict(result)}
+            self._actions[idempotency_key] = {
+                **self._actions[idempotency_key],
+                "status": "completed",
+                "result": dict(result),
+            }
 
     async def release_action(self, idempotency_key: str) -> None:
         async with self._action_lock:
