@@ -45,7 +45,7 @@ jobs:
           orchestrator = orchestrator_path.read_text()
 
           old_import = 'from searcharis.ids import action_key, incident_fingerprint\n'
-          new_import = (\n              'from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id\n'\n          )
+          new_import = 'from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id\n'
           assert orchestrator.count(old_import) == 1, 'unexpected orchestrator import anchor'
           orchestrator = orchestrator.replace(old_import, new_import, 1)
 
