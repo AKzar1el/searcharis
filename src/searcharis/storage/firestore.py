@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from pydantic import AnyUrl
 
 from searcharis.models import (
+    ActionClaim,
     DeploymentEvent,
     EvidenceRecord,
     IncidentRecord,
@@ -58,14 +60,19 @@ def _model_payload(model: Any, *, expires_at: datetime | None = None) -> dict[st
     return payload
 
 
-def _operational_expiry() -> datetime:
-    return datetime.now(UTC) + _OPERATIONAL_TTL
+def _operational_expiry(now: datetime | None = None) -> datetime:
+    return (now or datetime.now(UTC)) + _OPERATIONAL_TTL
 
 
 class FirestoreStateStore:
-    def __init__(self, project_id: str | None = None) -> None:
+    def __init__(
+        self,
+        project_id: str | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         _, async_client = _firestore_modules()
         self._client = async_client(project=project_id)
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     async def _set_model(
         self,
@@ -150,26 +157,56 @@ class FirestoreStateStore:
         )
         return [IncidentRecord.model_validate(doc.to_dict()) async for doc in query.stream()]
 
-    async def claim_action(self, idempotency_key: str) -> bool:
+    async def claim_action(
+        self,
+        idempotency_key: str,
+        *,
+        operation: str = "legacy",
+        incident_id: str = "legacy",
+        marker: str = "",
+        lease_seconds: int = 120,
+    ) -> ActionClaim:
         firestore, _ = _firestore_modules()
         ref = self._client.collection("actions").document(idempotency_key)
         transaction = self._client.transaction()
+        now = self._clock()
+        lease_expires_at = now + timedelta(seconds=lease_seconds)
 
         @firestore.async_transactional
         async def claim(txn):
             snapshot = await ref.get(transaction=txn)
+            data = snapshot.to_dict() or {} if snapshot.exists else {}
+            if snapshot.exists and data.get("status") == "completed":
+                result = data.get("result")
+                return ActionClaim(
+                    acquired=False,
+                    completed=True,
+                    result=dict(result) if isinstance(result, dict) else None,
+                )
+
             if snapshot.exists:
-                return False
+                current_lease = data.get("lease_expires_at")
+                if isinstance(current_lease, datetime) and current_lease > now:
+                    return ActionClaim(acquired=False)
+                stale_takeover = True
+            else:
+                stale_takeover = False
+
             txn.set(
                 ref,
                 {
                     "status": "claimed",
-                    "expires_at": _operational_expiry(),
+                    "claimed_at": now,
+                    "lease_expires_at": lease_expires_at,
+                    "operation": operation,
+                    "incident_id": incident_id,
+                    "marker": marker,
+                    "expires_at": _operational_expiry(now),
                 },
             )
-            return True
+            return ActionClaim(acquired=True, stale_takeover=stale_takeover)
 
-        return bool(await claim(transaction))
+        return await claim(transaction)
 
     async def complete_action(self, idempotency_key: str, result: dict[str, object]) -> None:
         ref = self._client.collection("actions").document(idempotency_key)
