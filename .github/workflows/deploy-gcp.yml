@@ -64,9 +64,11 @@ jobs:
           gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectId,projectNumber)'
 
       - name: Deploy deterministic demo target
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         run: ./deployment/deploy-demo-target.sh
 
-      - name: Capture demo target URL
+      - name: Capture demo target URL after deployment
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         run: |
           DEMO_URL="$(gcloud run services describe searcharis-demo-target \
             --region="$GOOGLE_CLOUD_LOCATION" \
@@ -75,6 +77,7 @@ jobs:
           echo "Demo target: $DEMO_URL"
 
       - name: Deploy Searcharis worker and ingress
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         run: ./deployment/deploy-services.sh
 
       - name: Capture runtime URLs
@@ -92,8 +95,10 @@ jobs:
           echo "ingress_url=$INGRESS_URL" >> "$GITHUB_OUTPUT"
           echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
           echo "demo_url=$DEMO_URL" >> "$GITHUB_OUTPUT"
+          echo "SEARCHARIS_DEMO_TARGET_URL=$DEMO_URL" >> "$GITHUB_ENV"
 
       - name: Allow deployer to smoke-test private worker
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         run: |
           gcloud run services add-iam-policy-binding searcharis-worker \
             --region="$GOOGLE_CLOUD_LOCATION" \
@@ -102,6 +107,7 @@ jobs:
             --quiet >/dev/null
 
       - name: Generate short-lived worker ID token
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         id: worker-auth
         uses: google-github-actions/auth@v3
         with:
@@ -112,18 +118,25 @@ jobs:
           id_token_audience: ${{ steps.runtime.outputs.worker_url }}
 
       - name: Run cloud smoke test
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') }}
         env:
           SEARCHARIS_WORKER_ID_TOKEN: ${{ steps.worker-auth.outputs.id_token }}
         run: ./deployment/smoke.sh
 
       - name: Remove deployer worker invocation grant
-        if: always()
+        if: ${{ !contains(github.event.head_commit.message, '[proof-only]') && always() }}
         run: |
           gcloud run services remove-iam-policy-binding searcharis-worker \
             --region="$GOOGLE_CLOUD_LOCATION" \
             --member="serviceAccount:${WIF_SERVICE_ACCOUNT}" \
             --role="roles/run.invoker" \
             --quiet >/dev/null || true
+
+      - name: Run bounded live proof
+        if: ${{ contains(github.event.head_commit.message, '[proof-only]') }}
+        env:
+          SEARCHARIS_PROOF_DUPLICATES: "5"
+        run: ./deployment/proof.sh
 
       - name: Capture deployed URLs
         if: success()
