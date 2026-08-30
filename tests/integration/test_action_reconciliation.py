@@ -3,7 +3,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from searcharis.ids import action_key, incident_fingerprint
+from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id
 from searcharis.integrations.github import GitHubIssue
 from searcharis.models import (
     DecisionClassification,
@@ -141,12 +141,13 @@ def _event() -> DeploymentEvent:
 def _open_action(event: DeploymentEvent) -> tuple[str, str, str]:
     target_url = str(event.target_url)
     split = urlsplit(target_url)
-    incident_id = incident_fingerprint(
+    fingerprint = incident_fingerprint(
         event.repository,
         f"{split.scheme}://{split.netloc}",
         target_url,
         "seo.missing_title",
     )
+    incident_id = incident_occurrence_id(fingerprint, event.event_id)
     key = action_key("open", incident_id, "b" * 64)
     marker = f"<!-- searcharis-action:{key} -->"
     return incident_id, key, marker

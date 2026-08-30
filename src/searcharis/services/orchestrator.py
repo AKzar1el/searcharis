@@ -9,7 +9,7 @@ from searcharis.agent.diagnostician import (
     DiagnosticianInvalidOutputError,
     DiagnosticianRetryableError,
 )
-from searcharis.ids import action_key, incident_fingerprint
+from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id
 from searcharis.models import (
     DeploymentEvent,
     EvidenceRecord,
@@ -182,12 +182,13 @@ class Orchestrator:
         target_url = str(event.target_url)
         split = urlsplit(target_url)
         target_origin = f"{split.scheme}://{split.netloc}"
-        incident_id = incident_fingerprint(
+        fingerprint = incident_fingerprint(
             event.repository,
             target_origin,
             target_url,
             finding.finding_code,
         )
+        incident_id = incident_occurrence_id(fingerprint, event.event_id)
         key = action_key("open", incident_id, finding.result_hash)
         marker = self._action_marker(key)
         claim = await self._store.claim_action(
@@ -260,7 +261,7 @@ class Orchestrator:
 
         incident = IncidentRecord(
             incident_id=incident_id,
-            fingerprint=incident_id,
+            fingerprint=fingerprint,
             repository=event.repository,
             target_origin=target_origin,
             affected_url=event.target_url,
