@@ -59,11 +59,23 @@ jobs:
           assert orchestrator.count(old_fingerprint) == 1, 'unexpected fingerprint assignment anchor'
           orchestrator = orchestrator.replace(old_fingerprint, new_fingerprint, 1)
           orchestrator_path.write_text(orchestrator)
+
+          reconciliation_path = Path('tests/integration/test_action_reconciliation.py')
+          reconciliation = reconciliation_path.read_text()
+          old_test_import = 'from searcharis.ids import action_key, incident_fingerprint\n'
+          new_test_import = 'from searcharis.ids import action_key, incident_fingerprint, incident_occurrence_id\n'
+          assert reconciliation.count(old_test_import) == 1, 'unexpected reconciliation import anchor'
+          reconciliation = reconciliation.replace(old_test_import, new_test_import, 1)
+
+          old_test_identity = '''    incident_id = incident_fingerprint(\n        event.repository,\n        f"{split.scheme}://{split.netloc}",\n        target_url,\n        "seo.missing_title",\n    )\n    key = action_key("open", incident_id, "b" * 64)\n'''
+          new_test_identity = '''    fingerprint = incident_fingerprint(\n        event.repository,\n        f"{split.scheme}://{split.netloc}",\n        target_url,\n        "seo.missing_title",\n    )\n    incident_id = incident_occurrence_id(fingerprint, event.event_id)\n    key = action_key("open", incident_id, "b" * 64)\n'''
+          assert reconciliation.count(old_test_identity) == 1, 'unexpected reconciliation identity anchor'
+          reconciliation_path.write_text(reconciliation.replace(old_test_identity, new_test_identity, 1))
           PY
 
       - name: Verify recurrence fix
         run: |
-          uv run pytest tests/integration/test_recurring_incidents.py -q
+          uv run pytest tests/integration/test_recurring_incidents.py tests/integration/test_action_reconciliation.py -q
           uv run ruff check src tests demo_target
           bash -n deployment/*.sh
           uv run pytest tests/unit tests/integration -q
@@ -73,7 +85,7 @@ jobs:
           rm .github/workflows/apply-recurrence-fix.yml
           git config user.name 'ChatGPT Codex Connector'
           git config user.email 'noreply@openai.com'
-          git add src/searcharis/ids.py src/searcharis/services/orchestrator.py .github/workflows/apply-recurrence-fix.yml
+          git add src/searcharis/ids.py src/searcharis/services/orchestrator.py tests/integration/test_action_reconciliation.py .github/workflows/apply-recurrence-fix.yml
           git diff --cached --check
           git commit -m 'fix: scope recurring incidents to deployment occurrence'
           git push origin HEAD:fix/recurring-incidents
