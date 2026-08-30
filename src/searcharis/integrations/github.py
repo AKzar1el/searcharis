@@ -42,6 +42,30 @@ class GitHubIssueBroker:
         response.raise_for_status()
         return GitHubIssue.model_validate(response.json())
 
+    async def find_issue_by_marker(self, repository: str, marker: str) -> GitHubIssue | None:
+        repo = self._repo_path(repository)
+        response = await self._client.get(
+            f"https://api.github.com/repos/{repo}/issues",
+            headers=self._headers,
+            params={
+                "state": "all",
+                "per_page": "100",
+                "sort": "updated",
+                "direction": "desc",
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise ValueError("GitHub issues response must be a list")
+        for item in payload:
+            if not isinstance(item, dict) or "pull_request" in item:
+                continue
+            body = item.get("body")
+            if isinstance(body, str) and marker in body:
+                return GitHubIssue.model_validate(item)
+        return None
+
     async def comment_incident(self, repository: str, issue_number: int, body: str) -> None:
         repo = self._repo_path(repository)
         response = await self._client.post(
@@ -50,6 +74,36 @@ class GitHubIssueBroker:
             json={"body": body},
         )
         response.raise_for_status()
+
+    async def comment_exists(self, repository: str, issue_number: int, marker: str) -> bool:
+        repo = self._repo_path(repository)
+        response = await self._client.get(
+            f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments",
+            headers=self._headers,
+            params={"per_page": "100"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise ValueError("GitHub comments response must be a list")
+        return any(
+            isinstance(item, dict)
+            and isinstance(item.get("body"), str)
+            and marker in item["body"]
+            for item in payload
+        )
+
+    async def get_issue_state(self, repository: str, issue_number: int) -> str:
+        repo = self._repo_path(repository)
+        response = await self._client.get(
+            f"https://api.github.com/repos/{repo}/issues/{issue_number}",
+            headers=self._headers,
+        )
+        response.raise_for_status()
+        state = response.json().get("state")
+        if state not in {"open", "closed"}:
+            raise ValueError("GitHub issue response has invalid state")
+        return str(state)
 
     async def close_incident(self, repository: str, issue_number: int) -> None:
         repo = self._repo_path(repository)
