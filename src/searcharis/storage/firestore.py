@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
+from pydantic import AnyUrl
+
 from searcharis.models import (
     DeploymentEvent,
     EvidenceRecord,
@@ -37,6 +39,8 @@ def _normalize_firestore_value(value: Any) -> Any:
         return [_normalize_firestore_value(item) for item in value]
     if isinstance(value, (str, int, float, bool, bytes, type(None))):
         return value
+    if isinstance(value, AnyUrl):
+        return str(value)
     if value.__class__.__module__.startswith("pydantic_core") and value.__class__.__name__ in {
         "Url",
         "MultiHostUrl",
