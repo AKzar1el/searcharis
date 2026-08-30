@@ -16,8 +16,20 @@ def test_pubsub_push_subscription_has_backoff_and_dead_letter_policy():
     assert "--max-retry-delay=60s" in deploy
     assert "--max-delivery-attempts=8" in deploy
     assert "--dead-letter-topic=" in deploy
-    assert "roles/pubsub.publisher" in deploy
-    assert "roles/pubsub.subscriber" in deploy
+
+
+def test_pubsub_dead_letter_iam_is_human_admin_owned():
+    bootstrap = _read("deployment/bootstrap.sh")
+    deploy = _read("deployment/deploy-services.sh")
+
+    assert "searcharis-deployments-dead-letter" in bootstrap
+    assert "roles/pubsub.publisher" in bootstrap
+    assert "roles/pubsub.subscriber" in bootstrap
+    assert "add-iam-policy-binding" not in "\n".join(
+        line
+        for line in deploy.splitlines()
+        if "pubsub topics" in line or "pubsub subscriptions" in line or "roles/pubsub" in line
+    )
 
 
 def test_firestore_admin_bootstrap_declares_ttl_and_incident_index():
