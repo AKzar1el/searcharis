@@ -60,3 +60,30 @@ def test_smoke_verifies_delivery_and_cloud_run_configuration():
     assert "containerConcurrency" in smoke
     assert "timeoutSeconds" in smoke
     assert "startup-cpu-boost" in smoke
+
+
+def test_readme_and_operations_doc_make_judging_deadline_explicit():
+    readme = _read("README.md")
+    operations = _read("docs/JUDGING-OPERATIONS.md")
+
+    for content in (readme, operations):
+        assert "October 1, 2026" in content
+        assert "11:45 PM PT" in content
+        assert "searcharis-ingress-2wzjcu6mqa-uc.a.run.app" in content
+    assert "docs/JUDGING-OPERATIONS.md" in readme
+    assert "Do not" in operations or "DO NOT" in operations
+
+
+def test_deployment_warns_when_multiple_github_token_versions_are_enabled():
+    deploy = _read("deployment/deploy-services.sh")
+
+    assert "searcharis-github-token" in deploy
+    assert "multiple enabled" in deploy.lower()
+    assert "secret payload" in deploy.lower()
+
+
+def test_successful_deploy_summary_repeats_no_teardown_deadline():
+    workflow = _read(".github/workflows/deploy-gcp.yml")
+
+    assert "KEEP LIVE THROUGH 2026-10-01 23:45 PT" in workflow
+    assert "searcharis-ingress" in workflow
