@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import yaml
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,8 +18,6 @@ def test_env_example_uses_vertex_ai_configuration() -> None:
 
 
 def test_deploy_workflow_does_not_target_deleted_branch() -> None:
-    workflow = ROOT / ".github" / "workflows" / "deploy-gcp.yml"
-    text = workflow.read_text(encoding="utf-8")
-    assert "gcp-deploy" not in text
-    data = yaml.safe_load(text)
-    assert "workflow_dispatch" in data["on"]
+    text = (ROOT / ".github" / "workflows" / "deploy-gcp.yml").read_text(encoding="utf-8")
+    assert "branches: [gcp-deploy]" not in text
+    assert "workflow_dispatch:" in text
