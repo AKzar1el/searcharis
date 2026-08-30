@@ -76,6 +76,50 @@ if ! gcloud firestore databases describe --database="${DATABASE_ID}" >/dev/null 
     --type=firestore-native
 fi
 
+# Operational collections use native expires_at timestamps. TTL provisioning is
+# intentionally human-admin owned instead of granting schema-admin IAM to the
+# GitHub deployer. Updates are asynchronous because Firestore TTL policy changes
+# can take several minutes to finish provisioning.
+for collection_group in events runs evidence actions; do
+  gcloud firestore fields ttls update expires_at \
+    --database="${DATABASE_ID}" \
+    --collection-group="${collection_group}" \
+    --enable-ttl \
+    --async \
+    --quiet >/dev/null
+done
+
+# The active-incident query filters repository + affected_url and orders by
+# updated_at. Provision exactly that composite index, and avoid duplicate create
+# operations on repeated bootstrap runs.
+if ! gcloud firestore indexes composite list \
+  --database="${DATABASE_ID}" \
+  --filter='collectionGroup:incidents' \
+  --format=json \
+  | python3 -c '
+import json, sys
+indexes = json.load(sys.stdin)
+for index in indexes:
+    fields = {item.get("fieldPath"): item.get("order") for item in index.get("fields", [])}
+    if (
+        fields.get("repository") == "ASCENDING"
+        and fields.get("affected_url") == "ASCENDING"
+        and fields.get("updated_at") == "DESCENDING"
+    ):
+        raise SystemExit(0)
+raise SystemExit(1)
+'; then
+  gcloud firestore indexes composite create \
+    --database="${DATABASE_ID}" \
+    --collection-group=incidents \
+    --query-scope=collection \
+    --field-config=field-path=repository,order=ascending \
+    --field-config=field-path=affected_url,order=ascending \
+    --field-config=field-path=updated_at,order=descending \
+    --async \
+    --quiet >/dev/null
+fi
+
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 PUBSUB_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
@@ -96,6 +140,8 @@ Project: ${PROJECT_ID}
 Region: ${REGION}
 Topic: ${TOPIC}
 Queue: ${QUEUE}
+Firestore TTL: events/runs/evidence/actions on expires_at
+Firestore incident index: repository + affected_url + updated_at desc
 
 Before deployment, create these Secret Manager secrets with at least one enabled version:
   searcharis-github-token
