@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from searcharis.models import ActionClaim, DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord
+from searcharis.models import (
+    ActionClaim,
+    DeploymentEvent,
+    EvidenceRecord,
+    IncidentRecord,
+    RunRecord,
+)
 
 
 class StateStore(Protocol):
