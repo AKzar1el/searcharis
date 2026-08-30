@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord, WorkflowState
+from searcharis.models import (
+    DeploymentEvent,
+    EvidenceRecord,
+    IncidentRecord,
+    RunRecord,
+    WorkflowState,
+)
 
 
 class InMemoryStateStore:
