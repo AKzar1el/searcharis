@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="780" viewBox="0 0 1400 780" role="img" aria-labelledby="title desc">
+  <title id="title">Searcharis architecture</title>
+  <desc id="desc">Event-driven search regression workflow using Cloud Run, Pub/Sub, Firestore, Cloud Tasks, Google ADK with Gemini 3.7 Flash, a read-only validator, deterministic policy, and GitHub Issues.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .bg { fill: #ffffff; }
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 14; }
+      .cloud { fill: #eff6ff; stroke: #2563eb; }
+      .agent { fill: #f5f3ff; stroke: #7c3aed; }
+      .policy { fill: #fff7ed; stroke: #ea580c; }
+      .external { fill: #f0fdf4; stroke: #16a34a; }
+      .state { fill: #fefce8; stroke: #ca8a04; }
+      .label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 20px; font-weight: 700; fill: #0f172a; text-anchor: middle; }
+      .sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; fill: #475569; text-anchor: middle; }
+      .edge { stroke: #475569; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .edge-dash { stroke: #64748b; stroke-width: 2.2; fill: none; stroke-dasharray: 8 7; marker-end: url(#arrow); }
+      .edge-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; fill: #475569; text-anchor: middle; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; font-weight: 700; letter-spacing: .08em; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="780"/>
+  <text class="section" x="60" y="45">EVENT → EVIDENCE → DECISION → GUARDED ACTION → VERIFICATION</text>
+
+  <rect class="box external" x="45" y="110" width="175" height="92"/>
+  <text class="label" x="132" y="145">GitHub</text>
+  <text class="sub" x="132" y="170">deployment event</text>
+  <text class="sub" x="132" y="190">or controlled demo</text>
+
+  <rect class="box cloud" x="270" y="110" width="175" height="92"/>
+  <text class="label" x="357" y="145">Cloud Run</text>
+  <text class="sub" x="357" y="172">public ingress</text>
+
+  <rect class="box cloud" x="495" y="110" width="165" height="92"/>
+  <text class="label" x="577" y="145">Pub/Sub</text>
+  <text class="sub" x="577" y="172">async delivery</text>
+
+  <rect class="box cloud" x="710" y="110" width="175" height="92"/>
+  <text class="label" x="797" y="145">Cloud Run</text>
+  <text class="sub" x="797" y="172">private worker</text>
+
+  <rect class="box external" x="935" y="110" width="190" height="92"/>
+  <text class="label" x="1030" y="143">Web Validator</text>
+  <text class="sub" x="1030" y="169">MCP · read-only</text>
+  <text class="sub" x="1030" y="189">public page audit</text>
+
+  <rect class="box state" x="1175" y="110" width="180" height="92"/>
+  <text class="label" x="1265" y="143">Evidence</text>
+  <text class="sub" x="1265" y="169">normalized + hashed</text>
+  <text class="sub" x="1265" y="189">same-run records</text>
+
+  <path class="edge" d="M220 156 H270"/>
+  <path class="edge" d="M445 156 H495"/>
+  <path class="edge" d="M660 156 H710"/>
+  <path class="edge" d="M885 156 H935"/>
+  <path class="edge" d="M1125 156 H1175"/>
+  <text class="edge-label" x="470" y="142">canonical event</text>
+
+  <rect class="box agent" x="930" y="315" width="195" height="100"/>
+  <text class="label" x="1027" y="350">Google ADK</text>
+  <text class="sub" x="1027" y="376">Gemini 3.7 Flash</text>
+  <text class="sub" x="1027" y="397">typed diagnosis</text>
+
+  <rect class="box policy" x="1170" y="315" width="190" height="100"/>
+  <text class="label" x="1265" y="350">Policy gate</text>
+  <text class="sub" x="1265" y="376">deterministic</text>
+  <text class="sub" x="1265" y="397">fail-closed</text>
+
+  <rect class="box external" x="1170" y="525" width="190" height="100"/>
+  <text class="label" x="1265" y="560">GitHub Issues</text>
+  <text class="sub" x="1265" y="586">create · comment</text>
+  <text class="sub" x="1265" y="607">close</text>
+
+  <path class="edge" d="M1265 202 V260 H1027 V315"/>
+  <path class="edge" d="M1125 365 H1170"/>
+  <path class="edge" d="M1265 415 V525"/>
+  <text class="edge-label" x="1148" y="349">recommendation</text>
+  <text class="edge-label" x="1308" y="474">authorized only</text>
+
+  <rect class="box state" x="700" y="315" width="190" height="100"/>
+  <text class="label" x="795" y="350">Firestore</text>
+  <text class="sub" x="795" y="376">events · runs · evidence</text>
+  <text class="sub" x="795" y="397">incidents · action claims</text>
+
+  <rect class="box cloud" x="475" y="315" width="175" height="100"/>
+  <text class="label" x="562" y="350">Cloud Tasks</text>
+  <text class="sub" x="562" y="376">delayed verification</text>
+  <text class="sub" x="562" y="397">OIDC invocation</text>
+
+  <path class="edge" d="M797 202 V315"/>
+  <path class="edge" d="M710 365 H650"/>
+  <path class="edge" d="M562 315 V255 H797 V202"/>
+  <path class="edge" d="M890 365 H930"/>
+  <text class="edge-label" x="686" y="348">durable state</text>
+  <text class="edge-label" x="683" y="245">fresh re-check</text>
+
+  <rect class="box cloud" x="70" y="525" width="220" height="100"/>
+  <text class="label" x="180" y="560">Cloud Run demo target</text>
+  <text class="sub" x="180" y="586">healthy / broken</text>
+  <text class="sub" x="180" y="607">deterministic revision tags</text>
+
+  <path class="edge-dash" d="M290 575 H410 V465 H1030 V202"/>
+  <text class="edge-label" x="485" y="451">audited through the same read-only validator path</text>
+
+  <rect x="45" y="690" width="1310" height="58" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="sub" x="700" y="716">Core invariant: Gemini can diagnose, but only deterministic policy + fresh external evidence can authorize GitHub mutation.</text>
+  <text class="sub" x="700" y="738">Retries are bounded by durable action claims, reconciliation, Pub/Sub redelivery, and Cloud Tasks verification.</text>
+</svg>
