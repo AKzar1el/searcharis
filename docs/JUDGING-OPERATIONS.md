@@ -53,7 +53,7 @@ gcloud run services describe searcharis-worker \
   --region="$GOOGLE_CLOUD_LOCATION" >/dev/null
 ```
 
-For a complete authenticated infrastructure check, use the keyless `gcp-deploy` workflow or `deployment/smoke.sh` with an audience-bound worker identity token.
+For a complete authenticated infrastructure check, use the keyless **Deploy to Google Cloud** workflow from `main` or `deployment/smoke.sh` with an audience-bound worker identity token.
 
 ## Secret hygiene
 
