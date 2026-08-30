@@ -244,7 +244,6 @@ class Orchestrator:
                         self._issue_body(event, finding, decision.summary, marker),
                     )
                 except Exception as exc:
-                    await self._store.release_action(key)
                     return await self._move_run(
                         run,
                         WorkflowState.FAILED_RETRYABLE,
@@ -328,7 +327,6 @@ class Orchestrator:
                         self._verification_comment(incident, evidence, comment_marker),
                     )
                 except Exception as exc:
-                    await self._store.release_action(comment_key)
                     return await self._move_run(
                         run,
                         WorkflowState.FAILED_RETRYABLE,
@@ -367,7 +365,6 @@ class Orchestrator:
                 try:
                     await self._github.close_incident(event.repository, issue_number)
                 except Exception as exc:
-                    await self._store.release_action(close_key)
                     return await self._move_run(
                         run,
                         WorkflowState.FAILED_RETRYABLE,
@@ -435,7 +432,6 @@ class Orchestrator:
                     f"Searcharis observed new fresh evidence for this incident.\n\n{marker}",
                 )
             except Exception as exc:
-                await self._store.release_action(key)
                 return await self._move_run(
                     run,
                     WorkflowState.FAILED_RETRYABLE,
