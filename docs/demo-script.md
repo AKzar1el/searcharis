@@ -1,6 +1,6 @@
 # Searcharis — four-minute demo script
 
-Target length: **3:45–3:55**. Keep the recording continuous. AI narration is acceptable; the screen must show the real application state changing.
+Target length: **3:45–3:55**. Keep the recording continuous and unedited. AI narration is acceptable; the screen must show the real application state changing.
 
 ## 0:00–0:20 — problem and promise
 
@@ -47,13 +47,11 @@ Narration:
 
 > Gemini diagnoses; it does not own GitHub. The mutation broker exposes only issue create, comment, and close. Every action has an idempotency key, and closure additionally requires `validator.audit_complete` from a fresh run with the original triggering code absent. A model saying “fixed” is insufficient.
 
-Optionally show the duplicate-delivery test result: one event delivered twice, one issue.
+If time permits, flash the validated proof result: five identical Pub/Sub deliveries produced one new incident and one GitHub issue.
 
 ## 2:35–3:25 — recovery and independent verification
 
-Switch demo traffic back to tag `healthy`.
-
-Trigger the next deployment event or the verification path. Show:
+Switch demo traffic back to tag `healthy`. Do **not** manually close the issue. Let the already-scheduled Cloud Tasks verification fire. Show:
 
 1. New live audit completes.
 2. `seo.missing_title` is absent.
