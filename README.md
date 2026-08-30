@@ -32,6 +32,17 @@ Searcharis is not a cron report or an LLM wrapper. A deployment event starts a d
 
 Gemini has diagnostic authority. Typed policy code has mutation authority. Fresh external evidence has closure authority.
 
+## Verified live proof
+
+On August 30, 2026, the production Google Cloud deployment passed the bounded end-to-end proof on the same reviewed runtime tree:
+
+- 5 identical Pub/Sub deployment events produced exactly 1 new incident and 1 GitHub issue.
+- The demo target was restored to the healthy revision.
+- Cloud Tasks triggered a fresh validator audit.
+- Searcharis posted exactly 1 verification comment, closed the issue exactly once, and reached `RESOLVED`.
+
+Evidence: [GitHub Actions run #23](https://github.com/AKzar1el/searcharis/actions/runs/33323705127) · [proof issue #8](https://github.com/AKzar1el/searcharis/issues/8)
+
 ## Architecture
 
 ![Searcharis architecture](docs/architecture.svg)
@@ -157,6 +168,7 @@ The suite specifically verifies:
 - a model cannot close an incident while `seo.missing_title` is still present
 - a completed clean audit can authorize closure
 - duplicate deployment delivery does not open a second issue
+- a resolved regression that recurs on a later deployment creates a fresh incident occurrence without weakening same-event duplicate idempotency
 - recovery adds verification evidence before closing
 - GitHub write routes are restricted to issue create/comment/close
 - webhook authentication happens before payload parsing
