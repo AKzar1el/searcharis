@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 TOPIC="${SEARCHARIS_PUBSUB_TOPIC:-searcharis-deployments}"
+DLQ_TOPIC="${SEARCHARIS_PUBSUB_DLQ_TOPIC:-searcharis-deployments-dead-letter}"
+DLQ_SUBSCRIPTION="${SEARCHARIS_PUBSUB_DLQ_SUBSCRIPTION:-searcharis-deployments-dead-letter-retention}"
 QUEUE="${SEARCHARIS_TASKS_QUEUE:-searcharis-verification}"
 DATABASE_ID="${SEARCHARIS_FIRESTORE_DATABASE:-(default)}"
 
@@ -62,6 +64,17 @@ gcloud iam service-accounts add-iam-policy-binding "${TASKS_INVOKER_SA}" \
 
 if ! gcloud pubsub topics describe "${TOPIC}" >/dev/null 2>&1; then
   gcloud pubsub topics create "${TOPIC}"
+fi
+
+if ! gcloud pubsub topics describe "${DLQ_TOPIC}" >/dev/null 2>&1; then
+  gcloud pubsub topics create "${DLQ_TOPIC}"
+fi
+if ! gcloud pubsub subscriptions describe "${DLQ_SUBSCRIPTION}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions create "${DLQ_SUBSCRIPTION}" \
+    --topic="${DLQ_TOPIC}" \
+    --message-retention-duration=7d \
+    --expiration-period=never \
+    --quiet >/dev/null
 fi
 
 if ! gcloud tasks queues describe "${QUEUE}" --location="${REGION}" >/dev/null 2>&1; then
@@ -134,11 +147,25 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role="roles/iam.serviceAccountTokenCreator" \
   --quiet >/dev/null
 
+# Pub/Sub Editor can configure the source subscription but cannot set resource
+# IAM policy. Keep dead-letter forwarding IAM on this human-admin bootstrap path.
+gcloud pubsub topics add-iam-policy-binding "${DLQ_TOPIC}" \
+  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+  --role="roles/pubsub.publisher" \
+  --quiet >/dev/null
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${PUBSUB_SERVICE_AGENT}" \
+  --role="roles/pubsub.subscriber" \
+  --quiet >/dev/null
+
 cat <<OUT
 Bootstrap complete.
 Project: ${PROJECT_ID}
 Region: ${REGION}
 Topic: ${TOPIC}
+Dead-letter topic: ${DLQ_TOPIC}
+Dead-letter retention subscription: ${DLQ_SUBSCRIPTION}
 Queue: ${QUEUE}
 Firestore TTL: events/runs/evidence/actions on expires_at
 Firestore incident index: repository + affected_url + updated_at desc
