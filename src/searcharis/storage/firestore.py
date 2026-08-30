@@ -4,7 +4,13 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from searcharis.models import DeploymentEvent, EvidenceRecord, IncidentRecord, RunRecord, WorkflowState
+from searcharis.models import (
+    DeploymentEvent,
+    EvidenceRecord,
+    IncidentRecord,
+    RunRecord,
+    WorkflowState,
+)
 
 _OPERATIONAL_TTL = timedelta(days=30)
 
