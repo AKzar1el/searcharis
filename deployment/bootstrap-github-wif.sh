@@ -6,7 +6,7 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 POOL_ID="${SEARCHARIS_WIF_POOL_ID:-github-actions}"
 PROVIDER_ID="${SEARCHARIS_WIF_PROVIDER_ID:-searcharis}"
 DEPLOYER_NAME="${SEARCHARIS_DEPLOYER_SERVICE_ACCOUNT:-searcharis-deployer}"
-DEPLOY_BRANCH="${SEARCHARIS_DEPLOY_BRANCH:-gcp-deploy}"
+DEPLOY_BRANCH="${SEARCHARIS_DEPLOY_BRANCH:-main}"
 GITHUB_REPOSITORY="${SEARCHARIS_GITHUB_REPOSITORY:-AKzar1el/searcharis}"
 GITHUB_REPOSITORY_ID="${SEARCHARIS_GITHUB_REPOSITORY_ID:-1350136483}"
 GITHUB_OWNER_ID="${SEARCHARIS_GITHUB_OWNER_ID:-104433268}"
@@ -91,6 +91,13 @@ if ! gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
     --issuer-uri="https://token.actions.githubusercontent.com/" \
     --attribute-mapping="${ATTRIBUTE_MAPPING}" \
     --attribute-condition="${ATTRIBUTE_CONDITION}"
+else
+  gcloud iam workload-identity-pools providers update-oidc "${PROVIDER_ID}" \
+    --location=global \
+    --workload-identity-pool="${POOL_ID}" \
+    --attribute-mapping="${ATTRIBUTE_MAPPING}" \
+    --attribute-condition="${ATTRIBUTE_CONDITION}" \
+    --quiet >/dev/null
 fi
 
 POOL_RESOURCE="$(gcloud iam workload-identity-pools describe "${POOL_ID}" \
