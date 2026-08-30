@@ -85,7 +85,9 @@ import os
 config = json.loads(os.environ["SERVICE_CONFIG_JSON"])
 template = config.get("spec", {}).get("template", {})
 spec = template.get("spec", {})
-annotations = template.get("metadata", {}).get("annotations", {})
+template_annotations = template.get("metadata", {}).get("annotations", {})
+service_annotations = config.get("metadata", {}).get("annotations", {})
+service_scaling = config.get("scaling", {})
 containers = spec.get("containers", [])
 if not containers:
     raise SystemExit("Cloud Run service has no container configuration")
@@ -93,8 +95,10 @@ limits = containers[0].get("resources", {}).get("limits", {})
 
 containerConcurrency = spec.get("containerConcurrency")
 timeoutSeconds = spec.get("timeoutSeconds")
-startup_cpu_boost = annotations.get("run.googleapis.com/startup-cpu-boost")
-max_scale = annotations.get("autoscaling.knative.dev/maxScale")
+startup_cpu_boost = template_annotations.get("run.googleapis.com/startup-cpu-boost")
+max_scale = service_scaling.get("maxInstanceCount")
+if max_scale is None:
+    max_scale = service_annotations.get("run.googleapis.com/maxScale")
 
 expected_concurrency = int(os.environ["EXPECTED_CONCURRENCY"])
 expected_timeout = int(os.environ["EXPECTED_TIMEOUT"])
@@ -110,7 +114,7 @@ checks = {
     "timeoutSeconds": (timeoutSeconds, expected_timeout),
     "cpu": (normalized_cpu, expected_cpu),
     "memory": (str(limits.get("memory", "")), expected_memory),
-    "maxScale": (str(max_scale), expected_max),
+    "serviceMaxScale": (str(max_scale), expected_max),
     "startup-cpu-boost": (str(startup_cpu_boost).lower(), "true"),
 }
 failures = [f"{name}={actual!r} expected {expected!r}" for name, (actual, expected) in checks.items() if actual != expected]
