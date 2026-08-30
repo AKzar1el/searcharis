@@ -20,3 +20,10 @@ def test_deploy_workflow_does_not_target_deleted_branch() -> None:
     text = (ROOT / ".github" / "workflows" / "deploy-gcp.yml").read_text(encoding="utf-8")
     assert "branches: [gcp-deploy]" not in text
     assert "workflow_dispatch:" in text
+
+
+def test_wif_bootstrap_targets_main_and_updates_existing_provider() -> None:
+    text = (ROOT / "deployment" / "bootstrap-github-wif.sh").read_text(encoding="utf-8")
+    assert 'DEPLOY_BRANCH="${SEARCHARIS_DEPLOY_BRANCH:-main}"' in text
+    assert "providers update-oidc" in text
+    assert "gcp-deploy" not in text
