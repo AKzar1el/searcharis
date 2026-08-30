@@ -319,15 +319,7 @@ class Orchestrator:
         return await self._move_run(run, WorkflowState.ACTIONED)
 
     async def _find_open_incident(self, event: DeploymentEvent) -> IncidentRecord | None:
-        target = str(event.target_url)
-        for incident in await self._store.list_incidents():
-            if (
-                incident.repository == event.repository
-                and str(incident.affected_url) == target
-                and incident.state != WorkflowState.RESOLVED
-            ):
-                return incident
-        return None
+        return await self._store.find_active_incident(event.repository, str(event.target_url))
 
     async def _move_run(
         self,
