@@ -32,13 +32,19 @@ INGRESS_TIMEOUT="${SEARCHARIS_INGRESS_TIMEOUT:-60s}"
 WORKER_TIMEOUT="${SEARCHARIS_WORKER_TIMEOUT:-600s}"
 
 for secret in searcharis-github-token searcharis-webhook-secret searcharis-demo-token; do
-  enabled_version="$(gcloud secrets versions list "${secret}" \
+  enabled_versions="$(gcloud secrets versions list "${secret}" \
     --filter='state=ENABLED' \
-    --limit=1 \
     --format='value(name)' 2>/dev/null || true)"
-  if [[ -z "${enabled_version}" ]]; then
+  if [[ -z "${enabled_versions}" ]]; then
     echo "Secret ${secret} must exist with an enabled version before deployment." >&2
     exit 2
+  fi
+  if [[ "${secret}" == "searcharis-github-token" ]]; then
+    enabled_count="$(printf '%s\n' "${enabled_versions}" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if (( enabled_count > 1 )); then
+      echo "WARNING: searcharis-github-token has multiple enabled versions (${enabled_count})." >&2
+      echo "This check inspects Secret Manager metadata only; no secret payload is read or printed." >&2
+    fi
   fi
 done
 
