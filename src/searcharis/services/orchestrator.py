@@ -5,6 +5,10 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from searcharis.agent.diagnostician import (
+    DiagnosticianInvalidOutputError,
+    DiagnosticianRetryableError,
+)
 from searcharis.ids import action_key, incident_fingerprint
 from searcharis.models import (
     DeploymentEvent,
@@ -91,6 +95,20 @@ class Orchestrator:
 
         try:
             decision = await self._diagnostician.diagnose(event, evidence, incident)
+        except DiagnosticianRetryableError as exc:
+            run = await self._move_run(
+                run,
+                WorkflowState.FAILED_RETRYABLE,
+                error=f"diagnostician: {type(exc).__name__}: {exc}",
+            )
+            return run
+        except DiagnosticianInvalidOutputError as exc:
+            run = await self._move_run(
+                run,
+                WorkflowState.NEEDS_REVIEW,
+                error=f"diagnostician: {type(exc).__name__}: {exc}",
+            )
+            return run
         except Exception as exc:
             run = await self._move_run(
                 run,
