@@ -64,11 +64,13 @@ All irreversible actions use stable SHA-256 idempotency keys. Cloud Tasks use de
 
 The strongest invariant is verification-before-close: `CLOSE_INCIDENT` requires a fresh `validator.audit_complete` record and the triggering finding code must be absent from that same audit. Model output alone can never produce `RESOLVED`.
 
-## Validation before cloud deployment
+## Validation and live Google Cloud proof
 
-The public CI pipeline installs the project from a clean runner, runs Ruff, validates the deployment shell scripts, and executes the unit/integration suite. The suite contains 45 tests, including 200-way concurrent duplicate deployment deliveries, 200-way concurrent recovery verifications, verification-before-close checks, ingress authentication/allowlisting, and injected failures for GitHub open/close and Cloud Tasks scheduling.
+The public CI pipeline installs the project from a clean runner, runs Ruff, validates the deployment shell scripts, and executes the unit/integration suite. The suite contains 86 tests, including 200-way concurrent duplicate deployment deliveries, 200-way concurrent recovery verifications, recurring-regression isolation, verification-before-close checks, ingress authentication/allowlisting, and injected failures for GitHub open/close and Cloud Tasks scheduling.
 
-The final Google Cloud deployment and live end-to-end proof are intentionally treated as a separate gate rather than inferred from local tests.
+The reviewed runtime was then deployed keylessly to Google Cloud through GitHub OIDC/WIF and passed production smoke assertions. A bounded live proof published 5 identical Pub/Sub events for one deployment identity and produced exactly 1 new incident and 1 GitHub issue. After the demo target returned to healthy, Cloud Tasks triggered a fresh external audit; Searcharis posted exactly 1 verification comment, closed the issue exactly once, and reached `RESOLVED`.
+
+Live evidence: [GitHub Actions run #23](https://github.com/AKzar1el/searcharis/actions/runs/33323705127) and [proof issue #8](https://github.com/AKzar1el/searcharis/issues/8).
 
 ## Demo
 
