@@ -112,6 +112,13 @@ class PolicyAction(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
+class ActionClaim(BaseModel):
+    acquired: bool
+    stale_takeover: bool = False
+    completed: bool = False
+    result: dict[str, Any] | None = None
+
+
 class RunRecord(BaseModel):
     run_id: str = Field(min_length=1)
     event_id: str = Field(min_length=1)
