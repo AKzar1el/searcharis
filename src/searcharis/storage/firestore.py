@@ -201,6 +201,7 @@ class FirestoreStateStore:
                     "operation": operation,
                     "incident_id": incident_id,
                     "marker": marker,
+                    "stale_takeover": stale_takeover,
                     "expires_at": _operational_expiry(now),
                 },
             )
@@ -230,7 +231,12 @@ class FirestoreStateStore:
         @firestore.async_transactional
         async def release(txn):
             snapshot = await ref.get(transaction=txn)
-            if snapshot.exists and (snapshot.to_dict() or {}).get("status") == "claimed":
+            data = snapshot.to_dict() or {} if snapshot.exists else {}
+            if (
+                snapshot.exists
+                and data.get("status") == "claimed"
+                and data.get("stale_takeover") is not True
+            ):
                 txn.delete(ref)
 
         await release(transaction)
