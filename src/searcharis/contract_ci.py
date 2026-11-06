@@ -120,7 +120,13 @@ def _types(value: object) -> set[str]:
     return found | _types(value.get("@graph", []))
 
 
-def verify_contract(contract: object, html: str, *, include_hreflang: bool = False) -> dict:
+def verify_contract(
+    contract: object,
+    html: str,
+    *,
+    include_hreflang: bool = False,
+    include_canonical: bool = False,
+) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
     page = _SEOParser()
@@ -171,4 +177,13 @@ def verify_contract(contract: object, html: str, *, include_hreflang: bool = Fal
             language: [urljoin(url, href) for href in hrefs if href]
             for language, hrefs in sorted(page.hreflangs.items())
         }
+    if include_canonical:
+        # Expose observed HTML values for optional cross-page checks; never fetch URLs.
+        observed = []
+        for href in page.canonicals:
+            try:
+                observed.append(urljoin(url, href) if href else "")
+            except ValueError:
+                observed.append(href)  # Malformed URLs become assertion failures.
+        result["observed_canonical"] = observed
     return result

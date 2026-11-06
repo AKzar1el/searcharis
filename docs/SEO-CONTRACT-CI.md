@@ -52,8 +52,8 @@ Only fields explicitly specified in the JSON contract are checked. The
 
 1. Improve contract fixtures, error output and test coverage before broadening
    the contract schema.
-2. Add cross-page reciprocal hreflang and canonical mapping checks on top of
-   the separate manifest mode below.
+2. Extend the existing opt-in cross-page hreflang and canonical checks with
+   complete locale-cluster diagnostics once justified by real fixtures.
 3. Add static site generators' artifact mapping and a documented,
    unprivileged GitHub Action.
 4. Validate against independent real-world fixtures; never depend on production
@@ -85,10 +85,9 @@ add `--require-full-coverage` to fail on any unlisted HTML.
 Exit codes: **0** all assertions passed (and coverage if enforced),
 **1** assertion or enforced-coverage failure, **2** invalid input. Add
 `--json` for deterministic machine-readable findings, including JSON
-errors with exit 2. This mode checks each declared page independently:
-**cross-page canonical relationships are not yet validated**. It does not
-change deployment behavior or run a live crawl. Reciprocal hreflang checking
-is available as a separate opt-in mode below.
+errors with exit 2. This mode checks each declared page independently by
+default. Cross-page canonical relationships and reciprocal hreflang links
+require explicit flags below. It does not change deployment or run a crawl.
 
 ## Reciprocal hreflang between local build artifacts
 
@@ -121,3 +120,35 @@ The checker does not fetch missing URLs, parse HTTP Link headers or XML
 sitemaps, verify language correctness, or prove Google will use the annotations.
 This scope follows the bidirectional HTML-link guidance in
 [Google Search Central](https://developers.google.com/search/docs/specialty/international/localized-versions).
+
+## Cross-page canonical consistency in local builds
+
+Opt into checking canonical signals in actual built HTML, even when individual
+page contracts do not assert canonical URLs:
+
+```sh
+uv run python -m searcharis.site_cli \
+  examples/seo-contract/bilingual-manifest.json \
+  examples/seo-contract/bilingual-build \
+  --check-canonical-consistency --require-full-coverage --json
+```
+
+Each manifest page must have **exactly one** HTML canonical link resolving to
+an HTTP(S) URL. Self-canonical pages pass. A page may point to another page,
+including a deliberate duplicate, but when that target URL is also in the
+manifest its built HTML must contain exactly one canonical to **itself**.
+This detects canonical chains, cycles, missing links on known targets and
+duplicate canonical declarations. Findings use
+`canonical_consistency.internal_targets_checked` and
+`canonical_consistency.unverified_targets` (with source artifact paths).
+
+Targets **absent from the manifest** are reported as unverified, not counted as
+checked or treated as verified passes. That includes cross-domain canonicals.
+Include target HTML and its URL in the manifest to verify it offline.
+`--require-full-coverage` governs local HTML only, not remote target URLs.
+The checker never fetches canonical URLs. It does not inspect HTTP Link
+headers, redirects, robots directives, sitemap hints, JavaScript DOM,
+Google's selected canonical, or live indexing. This is an opt-in strict CI
+policy, not a claim that search engines require a self-canonical tag on
+every page. Both optional site-level checks can be combined, and the default
+manifest exit behavior remains unchanged.

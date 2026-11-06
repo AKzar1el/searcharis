@@ -24,6 +24,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Require return links between built pages listed in the manifest",
     )
+    parser.add_argument(
+        "--check-canonical-consistency",
+        action="store_true",
+        help="Check actual canonical links and self-canonical targets among manifest pages",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured JSON findings")
     args = parser.parse_args(argv)
 
@@ -33,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
             args.build_dir,
             require_full_coverage=args.require_full_coverage,
             check_hreflang_reciprocity=args.check_hreflang_reciprocity,
+            check_canonical_consistency=args.check_canonical_consistency,
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -66,6 +72,12 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Hreflang: {links['checked_pairs']} internal pairs checked, "
                 f"{len(links['unverified_targets'])} targets outside manifest (not verified)"
+            )
+        if args.check_canonical_consistency:
+            canonical = report["canonical_consistency"]
+            print(
+                f"  Canonicals: {canonical['internal_targets_checked']} internal targets checked, "
+                f"{len(canonical['unverified_targets'])} targets outside manifest (not verified)"
             )
     return 0 if report["status"] == "pass" else 1
 

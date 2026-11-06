@@ -49,7 +49,8 @@ offline development.
 
 - [x] Multi-page build-manifest verification with clear coverage reporting.
 - [x] Opt-in reciprocal HTML hreflang return-link tests using local bilingual fixtures.
-- [ ] Cross-page canonical consistency tests and complete locale-cluster diagnostics.
+- [x] Opt-in cross-page canonical target/self-link consistency checks.
+- [ ] Complete locale-cluster diagnostics beyond reciprocal HTML hreflang links.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
 - [ ] Artifact comparisons and stable JSON/SARIF reporting.
 - [ ] Usability studies against static Astro and React/Vite build outputs.
