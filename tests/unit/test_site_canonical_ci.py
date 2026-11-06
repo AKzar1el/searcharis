@@ -103,6 +103,25 @@ def test_missing_duplicate_and_invalid_canonicals_fail(tmp_path, links, code):
     assert _issues(result, "en")[0]["code"] == code
 
 
+def test_body_only_canonical_does_not_pass_cross_page_consistency(tmp_path, capsys):
+    manifest = _build(tmp_path)
+    path = tmp_path / "en" / "index.html"
+    path.write_text(
+        _html(["/en/"]).replace(
+            '<link rel="canonical" href="/en/"></head><body>',
+            '</head><body><link rel="canonical" href="/en/">',
+        ),
+        encoding="utf-8",
+    )
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "fail"
+    assert _issues(result, "en")[0]["code"] == "canonical_count"
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_path), str(tmp_path), "--check-canonical-consistency", "--json"]) == 1
+    assert _issues(json.loads(capsys.readouterr().out), "en")[0]["code"] == "canonical_count"
+
+
 def test_external_or_missing_manifest_target_is_unverified_not_passed_as_checked(
     tmp_path, monkeypatch,
 ):

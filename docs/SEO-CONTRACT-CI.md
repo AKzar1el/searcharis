@@ -42,6 +42,10 @@ Only fields explicitly specified in the JSON contract are checked. The
 * Checks relative URL resolution against the declared URL, not the
   build artifact's local path. Does not normalize away meaningful URL
   differences; set canonical expected values deliberately.
+* Counts HTML titles, canonical and hreflang links, and robots/googlebot meta
+  directives only inside the document `<head>`. Identically named elements
+  in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
+  may appear in the head or body; visible headings are checked separately.
 * Checks JSON-LD *syntax and presence of types*, not rich-result eligibility
   or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO

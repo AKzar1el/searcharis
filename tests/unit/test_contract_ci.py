@@ -126,3 +126,45 @@ def test_nested_templates_do_not_add_ghost_links_or_headings():
     assert result["observed_hreflang"] == {
         "en": [URL], "sl": ["https://example.com/sl/"],
     }
+
+
+def test_body_only_head_metadata_cannot_satisfy_contract():
+    html = '''<html><head></head><body>
+    <title>Not a head title</title>
+    <link rel="canonical" href="/en/">
+    <link rel="alternate" hreflang="en" href="/en/">
+    <link rel="alternate" hreflang="sl" href="/sl/">
+    <meta name="robots" content="noindex">
+    <h1>Visible heading</h1>
+    <script type="application/ld+json">{"@type":"WebPage"}</script>
+    </body></html>'''
+    result = verify_contract(
+        {**CONTRACT, "indexable": False}, html,
+        include_hreflang=True, include_canonical=True,
+    )
+    assert {issue["code"] for issue in result["issues"]} == {
+        "title_presence", "canonical", "indexability_meta", "hreflang:en", "hreflang:sl",
+    }
+    assert result["observed_canonical"] == []
+    assert result["observed_hreflang"] == {}
+
+
+def test_body_metadata_does_not_poison_valid_head_or_body_jsonld():
+    html = HTML.replace(
+        '<script type="application/ld+json">{"@graph":[{"@type":"WebPage"}]}</script>',
+        "",
+    ).replace(
+        "<h1>Welcome</h1>",
+        '''<title>Duplicate body title</title>
+        <link rel="canonical" href="/incorrect/">
+        <link rel="alternate" hreflang="en" href="/incorrect/">
+        <meta name="robots" content="noindex">
+        <h1>Welcome</h1>
+        <script type="application/ld+json">{"@type":"WebPage"}</script>''',
+    )
+    result = verify_contract(CONTRACT, html, include_hreflang=True, include_canonical=True)
+    assert result["status"] == "pass"
+    assert result["observed_canonical"] == [URL]
+    assert result["observed_hreflang"] == {
+        "en": [URL], "sl": ["https://example.com/sl/"],
+    }

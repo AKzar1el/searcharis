@@ -21,6 +21,8 @@ class _SEOParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.has_html = False
         self.has_head = False
+        self.in_head = False
+        self.body_seen = False
         self.title_chunks: list[str] = []
         self.in_title = False
         self.h1_count = 0
@@ -41,17 +43,22 @@ class _SEOParser(HTMLParser):
         values = dict(attrs)
         if tag == "html":
             self.has_html = True
-        if tag == "head":
+        if tag == "head" and not self.body_seen:
             self.has_head = True
-        if tag == "title":
+            self.in_head = True
+        if tag == "body":
+            self.body_seen = True
+            self.in_head = False  # HTML can omit an explicit closing </head>.
+            self.in_title = False
+        if tag == "title" and self.in_head:
             self.in_title = True
         elif tag == "h1":
             self.h1_count += 1
-        elif tag == "meta" and (values.get("name") or "").lower() in {
+        elif tag == "meta" and self.in_head and (values.get("name") or "").lower() in {
             "robots", "googlebot"
         }:
             self.robots.append(values.get("content") or "")
-        elif tag == "link":
+        elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
             if "canonical" in rels and href is not None:
@@ -69,6 +76,9 @@ class _SEOParser(HTMLParser):
             return
         if self.template_depth:
             return
+        if tag == "head":
+            self.in_head = False
+            self.in_title = False
         if tag == "title":
             self.in_title = False
         if tag == "script" and self.in_jsonld:
