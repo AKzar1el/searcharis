@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from searcharis.contract_ci import verify_contract
 
@@ -43,6 +44,7 @@ def verify_manifest(
     *,
     require_full_coverage: bool = False,
     check_hreflang_reciprocity: bool = False,
+    check_canonical_consistency: bool = False,
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -60,6 +62,7 @@ def verify_manifest(
     listed: set[str] = set()
     urls: set[str] = set()
     observed_links: dict[str, dict[str, list[str]]] = {}
+    observed_canonicals: dict[str, list[str]] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -74,12 +77,15 @@ def verify_manifest(
             entry["contract"],
             _read_limited(html_path),
             include_hreflang=check_hreflang_reciprocity,
+            include_canonical=check_canonical_consistency,
         )
         if report["checked_url"] in urls:
             raise ValueError(f"Duplicate contract URL: {report['checked_url']}")
         urls.add(report["checked_url"])
         if check_hreflang_reciprocity:
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
+        if check_canonical_consistency:
+            observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
         reports.append({"path": path, **report})
 
     hreflang_summary = None
@@ -133,6 +139,64 @@ def verify_manifest(
             ),
         }
 
+    canonical_summary = None
+    if check_canonical_consistency:
+        by_url = {report["checked_url"]: report for report in reports}
+        checked_targets = 0
+        unverified_targets: list[dict[str, str]] = []
+        for report in reports:
+            source_url = report["checked_url"]
+            observed = observed_canonicals[source_url]
+            if len(observed) != 1:
+                report["issues"].append({
+                    "code": "canonical_count",
+                    "expected": "exactly one canonical link",
+                    "actual": observed,
+                })
+            else:
+                target = observed[0]
+                try:
+                    parsed = urlsplit(target)
+                    valid = (
+                        parsed.scheme in {"http", "https"}
+                        and bool(parsed.hostname)
+                        and parsed.username is None
+                        and parsed.password is None
+                        and (parsed.port is None or 0 < parsed.port <= 65535)
+                        and not any(char.isspace() or ord(char) < 32 for char in target)
+                    )
+                except ValueError:
+                    valid = False
+                if not valid:
+                    report["issues"].append({
+                        "code": "canonical_invalid_url",
+                        "expected": "an absolute HTTP(S) canonical URL",
+                        "actual": target,
+                    })
+                elif target != source_url:
+                    if target not in by_url:
+                        unverified_targets.append({
+                            "path": report["path"], "target": target,
+                        })
+                    else:
+                        checked_targets += 1
+                        actual = observed_canonicals[target]
+                        if actual != [target]:
+                            report["issues"].append({
+                                "code": "canonical_target_not_self",
+                                "target": target,
+                                "expected": [target],
+                                "actual": actual,
+                            })
+            if report["issues"]:
+                report["status"] = "fail"
+        canonical_summary = {
+            "internal_targets_checked": checked_targets,
+            "unverified_targets": sorted(
+                unverified_targets, key=lambda item: (item["path"], item["target"])
+            ),
+        }
+
     # Include every built HTML artifact in the coverage denominator, without
     # assuming that a partial adoption must block a release.
     discovered: set[str] = set()
@@ -163,6 +227,8 @@ def verify_manifest(
     }
     if hreflang_summary is not None:
         result["hreflang_reciprocity"] = hreflang_summary
+    if canonical_summary is not None:
+        result["canonical_consistency"] = canonical_summary
     return result
 
 
