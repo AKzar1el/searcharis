@@ -166,3 +166,114 @@ def test_json_and_sarif_are_mutually_exclusive(tmp_path):
     with pytest.raises(SystemExit) as failure:
         main([str(manifest), str(tmp_path), "--json", "--sarif"])
     assert failure.value.code == 2
+
+
+def _source_map(tmp_path, mapping):
+    path = tmp_path / "source-map.json"
+    path.write_text(json.dumps({"version": 1, "sources": mapping}), encoding="utf-8")
+    return path
+
+
+def test_sarif_explicit_source_mapping_points_to_checked_in_template(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    (tmp_path / "sl" / "index.html").write_text("<html><title>Wrong</title></html>")
+    source = tmp_path / "src" / "pages" / "sl" / "index.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Source</h1>")
+    mapping = _source_map(tmp_path, {"sl/index.html": "src/pages/sl/index.astro"})
+    monkeypatch.chdir(tmp_path)
+
+    code, report = _run(manifest, tmp_path, capsys, "--sarif-source-map", str(mapping))
+    assert code == 1
+    result = report["runs"][0]["results"][0]
+    location = result["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"] == {"uri": "src/pages/sl/index.astro"}
+    assert location["region"]["startLine"] == 1
+    assert result["relatedLocations"][0]["physicalLocation"]["artifactLocation"] == {
+        "uri": "sl/index.html", "uriBaseId": "%BUILDROOT%",
+    }
+    _, unmapped = _run(manifest, tmp_path, capsys)
+    assert (
+        result["partialFingerprints"]
+        == unmapped["runs"][0]["results"][0]["partialFingerprints"]
+    )
+
+
+def test_sarif_unmapped_artifacts_fall_back_to_build_paths(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    (tmp_path / "sl" / "index.html").write_text("<html></html>")
+    mapping = _source_map(tmp_path, {})
+    monkeypatch.chdir(tmp_path)
+    code, report = _run(manifest, tmp_path, capsys, "--sarif-source-map", str(mapping))
+    assert code == 1
+    for result in report["runs"][0]["results"]:
+        assert result["locations"][0]["physicalLocation"]["artifactLocation"] == {
+            "uri": "sl/index.html", "uriBaseId": "%BUILDROOT%",
+        }
+        assert "relatedLocations" not in result
+
+
+@pytest.mark.parametrize("mapping", [
+    {"../escape.html": "src/page.astro"},
+    {"sl/index.html": "../outside.astro"},
+    {"sl/index.html": "C:/outside.astro"},
+    {"sl/index.html": "src\\page.astro"},
+    {"missing.html": "src/page.astro"},
+])
+def test_sarif_source_map_rejects_unsafe_or_unknown_paths(tmp_path, capsys, monkeypatch, mapping):
+    manifest = _fixture(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "page.astro").write_text("hello")
+    monkeypatch.chdir(tmp_path)
+    source_map = _source_map(tmp_path, mapping)
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(source_map)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input:" in output.err
+
+
+def test_sarif_source_map_rejects_missing_source_file(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    mapping = _source_map(tmp_path, {"sl/index.html": "src/does-not-exist.astro"})
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_sarif_source_map_rejects_duplicate_artifact_keys(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    mapping = tmp_path / "source-map.json"
+    mapping.write_text('{"version":1,"sources":{"sl/index.html":"a","sl/index.html":"b"}}')
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_sarif_source_map_rejects_casefold_duplicate_artifact_keys(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    source = tmp_path / "src" / "page.astro"
+    source.parent.mkdir()
+    source.write_text("hello")
+    monkeypatch.chdir(tmp_path)
+    mapping = _source_map(tmp_path, {
+        "sl/index.html": "src/page.astro",
+        "SL/index.html": "src/page.astro",
+    })
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    assert "Duplicate source-map artifact" in capsys.readouterr().err
+
+
+def test_sarif_source_map_rejects_unsupported_version(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    mapping = tmp_path / "source-map.json"
+    mapping.write_text('{"version":true,"sources":{}}')
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    assert "Unsupported source-map version" in capsys.readouterr().err
+
+
+def test_source_mapping_only_with_sarif(tmp_path):
+    manifest = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as failure:
+        main([str(manifest), str(tmp_path), "--json", "--sarif-source-map", "x.json"])
+    assert failure.value.code == 2
