@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "sources": {
+    "en/index.html": "examples/seo-contract/generator-fixtures/astro/src/pages/en/index.astro",
+    "sl/index.html": "examples/seo-contract/generator-fixtures/astro/src/pages/sl/index.astro"
+  }
+}

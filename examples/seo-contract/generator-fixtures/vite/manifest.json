@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "path": "index.html",
+      "contract": {
+        "url": "https://fixtures.invalid/",
+        "title_present": true,
+        "canonical": "https://fixtures.invalid/",
+        "h1_min": 1,
+        "h1_max": 1
+      }
+    },
+    {
+      "path": "pricing/index.html",
+      "contract": {
+        "url": "https://fixtures.invalid/pricing/",
+        "title_present": true,
+        "canonical": "https://fixtures.invalid/pricing/",
+        "h1_min": 1,
+        "h1_max": 1
+      }
+    }
+  ]
+}
