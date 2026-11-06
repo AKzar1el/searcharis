@@ -1,0 +1,14 @@
+{
+  "url": "https://example.com/en/",
+  "title_present": true,
+  "canonical": "https://example.com/en/",
+  "indexable": true,
+  "h1_min": 1,
+  "h1_max": 1,
+  "hreflang": {
+    "en": "https://example.com/en/"
+  },
+  "jsonld_types": [
+    "WebPage"
+  ]
+}
