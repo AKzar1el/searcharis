@@ -57,4 +57,5 @@ offline development.
 - [x] Explicit source-template hints for static-build SARIF findings (Astro/Vite);
       no guessed template lines or source-map inference.
 - [ ] Broader artifact formats and automatic source-map provenance.
-- [ ] Usability studies against static Astro and React/Vite build outputs.
+- [ ] Usability studies against independent real Astro and React/Vite builds.
+- [x] Representative local Astro/Vite build-output fixtures with CLI regression tests.

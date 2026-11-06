@@ -280,3 +280,18 @@ is user-declared, not inferred or verified from source maps, and does not prove
 that the selected template produced the artifact. A GitHub code-scanning
 consumer still needs the source paths in its checkout. No GitHub workflow,
 SARIF upload, network fetch or deployment is performed by Searcharis.
+
+## Static generator adoption fixtures (Astro and Vite)
+
+The [generator fixtures](../examples/seo-contract/generator-fixtures/README.md)
+exercise the full CLI with bilingual Astro-style output and a Vite-style
+static multipage layout. They cover declared routes, strict HTML coverage,
+canonical/locale relationships, regression failures, and SARIF mappings to
+explicitly named Astro templates. Unit and integration tests enforce the
+expected exit statuses, including a failure when an HTML heading would exist
+only after JavaScript hydration.
+
+These are synthetic snapshots with the same relative HTML path layout as
+common `dist/` directories, **not** artifacts verified by running Astro or
+Vite builds. Integrators must supply their own compiled output and route
+contracts; dynamic SPA content is outside the offline parser's scope.
