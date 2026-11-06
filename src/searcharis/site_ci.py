@@ -38,7 +38,11 @@ def _manifest_path(value: object) -> str:
 
 
 def verify_manifest(
-    manifest: object, build_dir: Path, *, require_full_coverage: bool = False
+    manifest: object,
+    build_dir: Path,
+    *,
+    require_full_coverage: bool = False,
+    check_hreflang_reciprocity: bool = False,
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -55,6 +59,7 @@ def verify_manifest(
     reports: list[dict] = []
     listed: set[str] = set()
     urls: set[str] = set()
+    observed_links: dict[str, dict[str, list[str]]] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -65,11 +70,68 @@ def verify_manifest(
         html_path = (root / path).resolve()
         if not html_path.is_relative_to(root) or not html_path.is_file():
             raise ValueError(f"Missing or unsafe built HTML artifact: {path}")
-        report = verify_contract(entry["contract"], _read_limited(html_path))
+        report = verify_contract(
+            entry["contract"],
+            _read_limited(html_path),
+            include_hreflang=check_hreflang_reciprocity,
+        )
         if report["checked_url"] in urls:
             raise ValueError(f"Duplicate contract URL: {report['checked_url']}")
         urls.add(report["checked_url"])
+        if check_hreflang_reciprocity:
+            observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         reports.append({"path": path, **report})
+
+    hreflang_summary = None
+    if check_hreflang_reciprocity:
+        by_url = {report["checked_url"]: report for report in reports}
+        checked_pairs = 0
+        unverified_targets: list[dict[str, str]] = []
+        for report in reports:
+            source_url = report["checked_url"]
+            links = observed_links[source_url]
+            self_languages = sorted(
+                language for language, targets in links.items()
+                if language != "x-default" and source_url in targets
+            )
+            if any(language != "x-default" for language in links) and not self_languages:
+                report["issues"].append({
+                    "code": "hreflang_self_missing",
+                    "expected": "a language-tagged alternate pointing to this page",
+                    "actual": links,
+                })
+
+            # A pair is checked once even when several locale labels target it.
+            targets = sorted({
+                target for values in links.values() for target in values
+                if target != source_url
+            })
+            for target in targets:
+                if target not in by_url:
+                    unverified_targets.append({
+                        "path": report["path"], "target": target,
+                    })
+                    continue
+                if not self_languages:
+                    continue  # The missing self-label is already reported above.
+                checked_pairs += 1
+                for language in self_languages:
+                    actual = observed_links[target].get(language, [])
+                    if actual != [source_url]:
+                        report["issues"].append({
+                            "code": f"hreflang_return:{language}",
+                            "target": target,
+                            "expected": [source_url],
+                            "actual": actual,
+                        })
+            if report["issues"]:
+                report["status"] = "fail"
+        hreflang_summary = {
+            "checked_pairs": checked_pairs,
+            "unverified_targets": sorted(
+                unverified_targets, key=lambda item: (item["path"], item["target"])
+            ),
+        }
 
     # Include every built HTML artifact in the coverage denominator, without
     # assuming that a partial adoption must block a release.
@@ -88,7 +150,7 @@ def verify_manifest(
     passed = len(reports) - failed
     coverage_failed = require_full_coverage and bool(unlisted)
 
-    return {
+    result = {
         "status": "fail" if failed or coverage_failed else "pass",
         "summary": {"checked": len(reports), "passed": passed, "failed": failed},
         "coverage": {
@@ -99,6 +161,9 @@ def verify_manifest(
         },
         "pages": reports,
     }
+    if hreflang_summary is not None:
+        result["hreflang_reciprocity"] = hreflang_summary
+    return result
 
 
 def read_manifest(path: Path) -> object:

@@ -86,5 +86,38 @@ Exit codes: **0** all assertions passed (and coverage if enforced),
 **1** assertion or enforced-coverage failure, **2** invalid input. Add
 `--json` for deterministic machine-readable findings, including JSON
 errors with exit 2. This mode checks each declared page independently:
-**reciprocal hreflang links and cross-page canonical relationships are not
-yet validated**. It does not change deployment behavior or run a live crawl.
+**cross-page canonical relationships are not yet validated**. It does not
+change deployment behavior or run a live crawl. Reciprocal hreflang checking
+is available as a separate opt-in mode below.
+
+## Reciprocal hreflang between local build artifacts
+
+For multilingual builds, opt into checking that HTML language alternates
+between the URLs **present in the manifest** have matching return links:
+
+```sh
+uv run python -m searcharis.site_cli \
+  examples/seo-contract/bilingual-manifest.json \
+  examples/seo-contract/bilingual-build \
+  --check-hreflang-reciprocity --require-full-coverage --json
+```
+
+The checker reads the actual HTML alternate links, even if the corresponding
+per-page contracts do not individually assert `hreflang`. A page advertising
+language alternatives must include a language-tagged link to itself. If page
+A links to a page B whose URL is listed in the manifest, B must link back
+to A exactly once for every language label A assigns to itself. Failures
+include the source path, target URL and observed return links. Language labels
+are case-insensitive; `x-default` is a fallback, not a language identity.
+The check is opt-in so existing CI contracts and exit behavior are unchanged.
+
+An alternate pointing to a URL **absent from the manifest** is reported in
+`hreflang_reciprocity.unverified_targets`, but does not fail: the checker
+cannot prove the destination has the return link. This remains true with
+`--require-full-coverage`, which applies only to built HTML file paths.
+For complete reciprocal coverage, provide local artifacts and manifest entries
+for every language variant, including cross-domain variants if applicable.
+The checker does not fetch missing URLs, parse HTTP Link headers or XML
+sitemaps, verify language correctness, or prove Google will use the annotations.
+This scope follows the bidirectional HTML-link guidance in
+[Google Search Central](https://developers.google.com/search/docs/specialty/international/localized-versions).
