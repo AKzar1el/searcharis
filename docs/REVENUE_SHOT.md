@@ -54,5 +54,7 @@ offline development.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
 - [x] Offline baseline/candidate JSON report comparisons with regression-only exit codes.
 - [x] Optional deterministic SARIF 2.1.0 reporting for built HTML findings.
-- [ ] Broader artifact formats and source-template mapping.
+- [x] Explicit source-template hints for static-build SARIF findings (Astro/Vite);
+      no guessed template lines or source-map inference.
+- [ ] Broader artifact formats and automatic source-map provenance.
 - [ ] Usability studies against static Astro and React/Vite build outputs.

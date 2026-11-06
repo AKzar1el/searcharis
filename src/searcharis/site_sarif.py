@@ -1,7 +1,6 @@
-"""Export local SEO site findings as deterministic SARIF 2.1.0.
+"""Export deterministic SARIF for built HTML or explicitly mapped source files.
 
-SARIF locations refer to generated HTML artifacts, not source templates.
-Line 1 is a document-level anchor, not an inferred offending HTML line.
+Line 1 is a document-level anchor, not an inferred offending source line.
 This module only transforms an in-memory report; it performs no I/O.
 """
 
@@ -27,28 +26,42 @@ def _fingerprint(path: str, issue: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _result(path: str, code: str, message: str, issue: dict) -> dict:
-    return {
+def _result(
+    path: str, code: str, message: str, issue: dict, sources: dict[str, str]
+) -> dict:
+    build_location = {"uri": quote(path, safe="/"), "uriBaseId": "%BUILDROOT%"}
+    source = sources.get(path)
+    result = {
         "ruleId": code.split(":", 1)[0],
         "level": "error",
         "message": {"text": message},
         "locations": [
             {
                 "physicalLocation": {
-                    "artifactLocation": {
-                        "uri": quote(path, safe="/"),
-                        "uriBaseId": "%BUILDROOT%",
-                    },
+                    "artifactLocation": (
+                        {"uri": quote(source, safe="/")} if source else build_location
+                    ),
                     "region": {"startLine": 1},
                 },
             }
         ],
         "partialFingerprints": {"searcharis/issue/v1": _fingerprint(path, issue)},
     }
+    if source:
+        result["relatedLocations"] = [{
+            "id": 1,
+            "message": {"text": "Generated HTML artifact (document-level anchor)"},
+            "physicalLocation": {
+                "artifactLocation": build_location,
+                "region": {"startLine": 1},
+            },
+        }]
+    return result
 
 
-def build_sarif_report(report: dict) -> dict:
+def build_sarif_report(report: dict, *, sources: dict[str, str] | None = None) -> dict:
     """Convert a site_cli result; preserve its pass/fail policy and offline limits."""
+    sources = sources or {}
     findings: list[tuple[str, str, dict, str]] = []
     for page in report["pages"]:
         path = page["path"]
@@ -99,7 +112,7 @@ def build_sarif_report(report: dict) -> dict:
                     }
                 },
                 "results": [
-                    _result(path, code, message, issue)
+                    _result(path, code, message, issue, sources)
                     for path, code, issue, message in findings
                 ],
             }

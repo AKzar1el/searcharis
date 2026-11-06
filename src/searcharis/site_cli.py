@@ -9,6 +9,7 @@ from pathlib import Path
 
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_sarif import build_sarif_report
+from searcharis.site_source_map import read_source_map
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,9 +41,16 @@ def main(argv: list[str] | None = None) -> int:
     output.add_argument(
         "--sarif",
         action="store_true",
-        help="Print SARIF 2.1.0 issues located in built HTML (for code scanning)",
+        help="Print SARIF 2.1.0 issues for built HTML (or explicitly mapped sources)",
+    )
+    parser.add_argument(
+        "--sarif-source-map",
+        type=Path,
+        help="Optional JSON map of built HTML to existing repository source files (SARIF only)",
     )
     args = parser.parse_args(argv)
+    if args.sarif_source_map and not args.sarif:
+        parser.error("--sarif-source-map requires --sarif")
 
     try:
         report = verify_manifest(
@@ -52,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_reciprocity=args.check_hreflang_reciprocity,
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
+        )
+        sources = (
+            read_source_map(args.sarif_source_map, report, source_root=Path.cwd())
+            if args.sarif_source_map else {}
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -63,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.sarif:
-        print(json.dumps(build_sarif_report(report), indent=2, sort_keys=True))
+        print(json.dumps(build_sarif_report(report, sources=sources), indent=2, sort_keys=True))
     else:
         summary = report["summary"]
         coverage = report["coverage"]

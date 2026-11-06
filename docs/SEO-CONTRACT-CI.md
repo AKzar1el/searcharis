@@ -241,11 +241,42 @@ deterministic issue fingerprints and percent-encodes relative artifact paths.
 Ordinary non-strict unlisted pages and **unverified** off-manifest canonical
 or hreflang targets do not become verified/error findings.
 
-SARIF locations refer to generated HTML paths **relative to the supplied build
-root** (SARIF base ID `%BUILDROOT%`), with line 1 used only as a document-level
-anchor (the checker does not
-identify a precise offending HTML line). To obtain useful GitHub code-scanning
-annotations, your CI consumer must map these generated paths to files it can
-access, normally within its checkout; these findings are **not** source
-template locations. No GitHub workflow, SARIF upload, network fetch or
-deployment is performed by Searcharis.
+By default, SARIF locations refer to generated HTML paths **relative to the
+supplied build root** (SARIF base ID `%BUILDROOT%`). To annotate checked-in
+templates instead, supply an **explicit** artifact-to-source map. For example,
+from the repository root of a built Astro site:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --sarif --sarif-source-map source-map.json
+```
+
+```json
+{
+  "version": 1,
+  "sources": {
+    "en/index.html": "src/pages/en/index.astro",
+    "sl/index.html": "src/pages/sl/index.astro"
+  }
+}
+```
+
+For Vite projects the `sources` values can instead refer to checked-in
+`index.html`, JSX, TSX or other source files, as appropriate for the build.
+Paths on the left are **relative to `dist`** and must refer to discovered
+HTML artifacts. Paths on the right are **relative to the current working
+directory**, which must be the source repository root. Each right-hand
+source file must exist under that root; traversal, broken links, symlink escapes,
+duplicate JSON keys, unknown artifact paths, unsupported versions and maps
+larger than 1 MB fail with exit code 2. Maps can cover only a subset of the
+build; unmapped findings continue to point to generated HTML. Multiple
+artifacts may map to the same source template for statically generated routes.
+
+Mapped SARIF findings use the repository-relative source path as their primary
+location and preserve the original built HTML in `relatedLocations`; the
+issue fingerprint remains based on the built artifact and finding. **Line 1 is
+only a document-level anchor**, not the precise offending source line. Mapping
+is user-declared, not inferred or verified from source maps, and does not prove
+that the selected template produced the artifact. A GitHub code-scanning
+consumer still needs the source paths in its checkout. No GitHub workflow,
+SARIF upload, network fetch or deployment is performed by Searcharis.
