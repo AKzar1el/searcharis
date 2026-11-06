@@ -91,6 +91,19 @@ tests/live/              opt-in hosted validator smoke test
 docs/                    architecture, demo script, submission material
 ```
 
+## Offline SEO contract CI (new)
+
+A separate, dependency-free verifier checks **built HTML** for explicit SEO
+contracts before release. It never fetches remote pages or mutates the live
+Searcharis incident workflow.
+
+```sh
+uv run python -m searcharis.contract_cli examples/seo-contract/expected.json examples/seo-contract/page.html --json
+```
+
+See [contract usage and limitations](docs/SEO-CONTRACT-CI.md) and the
+[prepared Revenue Shot worker charter](docs/REVENUE_SHOT.md).
+
 ## Local development
 
 Requirements:
