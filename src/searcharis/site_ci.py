@@ -289,4 +289,12 @@ def verify_manifest(
 
 def read_manifest(path: Path) -> object:
     """Read JSON manifest with the same bounded input size as HTML pages."""
-    return json.loads(_read_limited(path))
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate manifest JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    return json.loads(_read_limited(path), object_pairs_hook=unique_keys)

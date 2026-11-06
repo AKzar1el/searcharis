@@ -74,8 +74,9 @@ The manifest format is a JSON object with `"version": 1` and a non-empty
 The supplied build directory is the only source of HTML; contract `url`
 values are never fetched. Paths escaping the build root, missing files,
 duplicate paths/URLs, invalid contracts and oversized inputs fail as input
-errors. Files are limited to 4 MB each; manifests to 10,000 pages and builds
-to 20,000 HTML artifacts.
+errors. Duplicate JSON object keys (including inside page contracts) are
+rejected rather than silently overriding SEO assertions. Files are limited to
+4 MB each; manifests to 10,000 pages, and builds to 20,000 HTML artifacts.
 
 The result includes per-page findings and a coverage record listing any built
 HTML not declared in the manifest. Partial adoption is supported: unlisted
