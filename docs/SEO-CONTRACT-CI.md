@@ -179,3 +179,39 @@ This is an **optional team consistency rule**, not a claim that Google requires
 complete hreflang sets. Sites intentionally using partial reciprocal language
 links can use `--check-hreflang-reciprocity` alone. Neither flag checks whether
 the language codes match the content, fetches any URLs or verifies live indexing.
+
+## Compare two local JSON reports without blocking existing defects
+
+Teams adopting contracts on an older website can gate **new** regressions
+without temporarily failing on known pre-existing issues. Run the site checker
+with identical manifest and flag policies on the trusted baseline build and
+on the candidate build, saving their complete `--json` outputs:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json baseline-build --json > baseline.json
+uv run python -m searcharis.site_cli manifest.json candidate-build --json > candidate.json
+uv run python -m searcharis.report_compare baseline.json candidate.json --json
+```
+
+The first two invocations may return **1** when their build has known contract
+failures; when collecting reports, handle that exit status without aborting
+the comparison, but always stop on **2** (invalid input). The last invocation
+returns **0** if no new regressions are found, **1** for new or changed page
+issues, missing baseline routes, or newly unlisted HTML when full coverage
+is enabled, and **2** for unreadable, malformed or incompatible reports.
+
+Comparison uses the exact artifact path, declared URL and full issue details;
+changing an observed value counts as a new failure, while a persistent issue
+does not. A route present in the baseline but missing from the candidate fails
+closed, even if that route had no issues. Intentional route removals need an
+approved baseline update. Existing and resolved issues are still reported.
+New outside-manifest canonical/hreflang targets are surfaced as **unverified**,
+never treated as successfully checked or automatically blocking.
+
+Use a **trusted, review-controlled baseline from the protected branch**.
+Reports must use matching full-coverage and optional cross-page check flags,
+and each local report is limited to 16 MB. Neither report is downloaded by
+Searcharis: both files must already be present locally. This tool reads
+no live URLs or production credentials, and does not create a GitHub
+workflow, decide whether a baseline is trustworthy or prove real search
+indexing health.

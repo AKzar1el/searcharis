@@ -52,5 +52,6 @@ offline development.
 - [x] Opt-in cross-page canonical target/self-link consistency checks.
 - [x] Opt-in local locale-cluster consistency diagnostics beyond reciprocal HTML links.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
-- [ ] Artifact comparisons and stable JSON/SARIF reporting.
+- [x] Offline baseline/candidate JSON report comparisons with regression-only exit codes.
+- [ ] SARIF reporting and broader artifact formats.
 - [ ] Usability studies against static Astro and React/Vite build outputs.
