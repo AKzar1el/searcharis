@@ -90,3 +90,39 @@ def test_blank_html_cannot_pass_indexability_only_contract():
     report = verify_contract({"url": URL, "indexable": True}, "")
     assert report["status"] == "fail"
     assert "html_structure" in {i["code"] for i in report["issues"]}
+
+
+def test_inert_template_content_does_not_satisfy_seo_contract():
+    html = '''<html><head><template>
+    <title>Invisible title</title><link rel="canonical" href="/en/">
+    <link rel="alternate" hreflang="en" href="/en/">
+    <link rel="alternate" hreflang="sl" href="/sl/">
+    <meta name="robots" content="noindex">
+    <script type="application/ld+json">{"@type":"WebPage"}</script>
+    </template></head><body><template><h1>Invisible heading</h1></template></body></html>'''
+    spec = {**CONTRACT, "indexable": False}
+    result = verify_contract(spec, html, include_hreflang=True, include_canonical=True)
+    assert {i["code"] for i in result["issues"]} == {
+        "title_presence", "canonical", "indexability_meta", "h1_min",
+        "hreflang:en", "hreflang:sl", "jsonld_type_missing",
+    }
+    assert result["observed_canonical"] == []
+    assert result["observed_hreflang"] == {}
+
+
+def test_nested_templates_do_not_add_ghost_links_or_headings():
+    html = HTML.replace(
+        "</head>",
+        '<template><template><link rel="canonical" href="/bad/">'
+        '<link rel="alternate" hreflang="en" href="/bad/">'
+        '<meta name="robots" content="noindex"></template></template></head>',
+    ).replace(
+        "<h1>Welcome</h1>",
+        "<template><template><h1>Ghost</h1></template></template><h1>Welcome</h1>",
+    )
+    result = verify_contract(CONTRACT, html, include_hreflang=True, include_canonical=True)
+    assert result["status"] == "pass"
+    assert result["observed_canonical"] == [URL]
+    assert result["observed_hreflang"] == {
+        "en": [URL], "sl": ["https://example.com/sl/"],
+    }
