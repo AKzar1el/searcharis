@@ -10,3 +10,10 @@ htmlcov/
 dist/
 build/
 gha-creds-*.json
+
+# Local Revenue Shot state and private credentials (never commit)
+secrets.txt
+.revenue-shot/
+*.clixml
+.env.*
+!.env.example
