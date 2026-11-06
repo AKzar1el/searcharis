@@ -44,6 +44,7 @@ def verify_manifest(
     *,
     require_full_coverage: bool = False,
     check_hreflang_reciprocity: bool = False,
+    check_hreflang_clusters: bool = False,
     check_canonical_consistency: bool = False,
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
@@ -76,13 +77,13 @@ def verify_manifest(
         report = verify_contract(
             entry["contract"],
             _read_limited(html_path),
-            include_hreflang=check_hreflang_reciprocity,
+            include_hreflang=check_hreflang_reciprocity or check_hreflang_clusters,
             include_canonical=check_canonical_consistency,
         )
         if report["checked_url"] in urls:
             raise ValueError(f"Duplicate contract URL: {report['checked_url']}")
         urls.add(report["checked_url"])
-        if check_hreflang_reciprocity:
+        if check_hreflang_reciprocity or check_hreflang_clusters:
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
@@ -136,6 +137,58 @@ def verify_manifest(
             "checked_pairs": checked_pairs,
             "unverified_targets": sorted(
                 unverified_targets, key=lambda item: (item["path"], item["target"])
+            ),
+        }
+
+    cluster_summary = None
+    if check_hreflang_clusters:
+        by_url = {report["checked_url"]: report for report in reports}
+        checked_pairs = 0
+        unverified_targets: list[dict[str, str]] = []
+        for report in reports:
+            source_url = report["checked_url"]
+            links = observed_links[source_url]
+            for language, values in sorted(links.items()):
+                if len(values) != 1:
+                    report["issues"].append({
+                        "code": f"hreflang_cluster_duplicate:{language}",
+                        "expected": "exactly one alternate URL for this locale",
+                        "actual": values,
+                    })
+                for target in values:
+                    if target not in by_url:
+                        unverified_targets.append({
+                            "path": report["path"], "language": language, "target": target,
+                        })
+
+            # Compare only locally supplied destinations. External language
+            # variants are inconclusive, never inferred to be missing or valid.
+            peers = sorted({
+                target for values in links.values() for target in values
+                if target != source_url and target in by_url
+            })
+            for target in peers:
+                checked_pairs += 1
+                peer_links = observed_links[target]
+                for language in sorted(set(links) | set(peer_links)):
+                    expected = links.get(language, [])
+                    actual = peer_links.get(language, [])
+                    if any(value not in by_url for value in expected + actual):
+                        continue
+                    if actual != expected:
+                        report["issues"].append({
+                            "code": f"hreflang_cluster_mismatch:{language}",
+                            "target": target,
+                            "expected": expected,
+                            "actual": actual,
+                        })
+            if report["issues"]:
+                report["status"] = "fail"
+        cluster_summary = {
+            "checked_pairs": checked_pairs,
+            "unverified_targets": sorted(
+                unverified_targets,
+                key=lambda item: (item["path"], item["language"], item["target"]),
             ),
         }
 
@@ -227,6 +280,8 @@ def verify_manifest(
     }
     if hreflang_summary is not None:
         result["hreflang_reciprocity"] = hreflang_summary
+    if cluster_summary is not None:
+        result["hreflang_clusters"] = cluster_summary
     if canonical_summary is not None:
         result["canonical_consistency"] = canonical_summary
     return result

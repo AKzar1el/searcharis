@@ -152,3 +152,30 @@ Google's selected canonical, or live indexing. This is an opt-in strict CI
 policy, not a claim that search engines require a self-canonical tag on
 every page. Both optional site-level checks can be combined, and the default
 manifest exit behavior remains unchanged.
+
+## Strict hreflang locale-cluster consistency (optional)
+
+For sites intending to publish the same *complete* locale map on every page in
+one language cluster, opt into an additional offline policy:
+
+```sh
+uv run python -m searcharis.site_cli \
+  examples/seo-contract/bilingual-manifest.json \
+  examples/seo-contract/bilingual-build \
+  --check-hreflang-reciprocity --check-hreflang-clusters --json
+```
+
+`--check-hreflang-clusters` compares each linked pair of manifest-listed HTML
+pages. For each locale label, including `x-default`, both pages must specify
+the same single manifest-listed target URL. Missing local variants, conflicting
+local destinations and duplicate locale labels fail this strict policy. The
+report lists directed `checked_pairs` and `unverified_targets` with path,
+language and URL. If either side of a comparison mentions an outside-manifest
+URL for a locale, that locale is *not* considered verified; it is not declared
+missing either. Add all relevant local HTML artifacts to the manifest to
+check the complete set, including cross-domain pages when available locally.
+
+This is an **optional team consistency rule**, not a claim that Google requires
+complete hreflang sets. Sites intentionally using partial reciprocal language
+links can use `--check-hreflang-reciprocity` alone. Neither flag checks whether
+the language codes match the content, fetches any URLs or verifies live indexing.
