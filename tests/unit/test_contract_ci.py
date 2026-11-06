@@ -84,3 +84,9 @@ def test_cli_returns_correct_status(tmp_path, capsys):
     assert "canonical" in capsys.readouterr().out
     contract.write_text('{"url": "oops"}')
     assert main([str(contract), str(html)]) == 2
+
+
+def test_blank_html_cannot_pass_indexability_only_contract():
+    report = verify_contract({"url": URL, "indexable": True}, "")
+    assert report["status"] == "fail"
+    assert "html_structure" in {i["code"] for i in report["issues"]}
