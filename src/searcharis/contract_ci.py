@@ -120,7 +120,7 @@ def _types(value: object) -> set[str]:
     return found | _types(value.get("@graph", []))
 
 
-def verify_contract(contract: object, html: str) -> dict:
+def verify_contract(contract: object, html: str, *, include_hreflang: bool = False) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
     page = _SEOParser()
@@ -164,4 +164,11 @@ def verify_contract(contract: object, html: str) -> dict:
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
                 fail("jsonld_type_missing", expected_type, sorted(observed))
-    return {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
+    result = {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
+    if include_hreflang:
+        # Site-level checks need the actual built links, not just contract expectations.
+        result["observed_hreflang"] = {
+            language: [urljoin(url, href) for href in hrefs if href]
+            for language, hrefs in sorted(page.hreflangs.items())
+        }
+    return result

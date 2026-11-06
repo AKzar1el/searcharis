@@ -48,7 +48,8 @@ offline development.
 ## Highest-value backlog
 
 - [x] Multi-page build-manifest verification with clear coverage reporting.
-- [ ] Canonical and hreflang reciprocal-mapping tests using local fixtures.
+- [x] Opt-in reciprocal HTML hreflang return-link tests using local bilingual fixtures.
+- [ ] Cross-page canonical consistency tests and complete locale-cluster diagnostics.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
 - [ ] Artifact comparisons and stable JSON/SARIF reporting.
 - [ ] Usability studies against static Astro and React/Vite build outputs.

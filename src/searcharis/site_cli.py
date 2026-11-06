@@ -19,6 +19,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Fail if the build contains HTML pages absent from the manifest",
     )
+    parser.add_argument(
+        "--check-hreflang-reciprocity",
+        action="store_true",
+        help="Require return links between built pages listed in the manifest",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured JSON findings")
     args = parser.parse_args(argv)
 
@@ -27,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
             read_manifest(args.manifest),
             args.build_dir,
             require_full_coverage=args.require_full_coverage,
+            check_hreflang_reciprocity=args.check_hreflang_reciprocity,
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -55,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
         if coverage["unlisted"]:
             print("  Unlisted HTML: " + ", ".join(coverage["unlisted"]))
+        if args.check_hreflang_reciprocity:
+            links = report["hreflang_reciprocity"]
+            print(
+                f"  Hreflang: {links['checked_pairs']} internal pairs checked, "
+                f"{len(links['unverified_targets'])} targets outside manifest (not verified)"
+            )
     return 0 if report["status"] == "pass" else 1
 
 

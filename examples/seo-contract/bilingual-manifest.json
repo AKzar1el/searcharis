@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "path": "en/index.html",
+      "contract": {
+        "url": "https://example.com/en/",
+        "canonical": "https://example.com/en/",
+        "title_present": true
+      }
+    },
+    {
+      "path": "sl/index.html",
+      "contract": {
+        "url": "https://example.com/sl/",
+        "canonical": "https://example.com/sl/",
+        "title_present": true
+      }
+    }
+  ]
+}
