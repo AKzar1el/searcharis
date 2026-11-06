@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_sarif import build_sarif_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,7 +35,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Check actual canonical links and self-canonical targets among manifest pages",
     )
-    parser.add_argument("--json", action="store_true", help="Print structured JSON findings")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print structured JSON findings")
+    output.add_argument(
+        "--sarif",
+        action="store_true",
+        help="Print SARIF 2.1.0 issues located in built HTML (for code scanning)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -55,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.sarif:
+        print(json.dumps(build_sarif_report(report), indent=2, sort_keys=True))
     else:
         summary = report["summary"]
         coverage = report["coverage"]

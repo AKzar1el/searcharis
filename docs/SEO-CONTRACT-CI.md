@@ -215,3 +215,37 @@ Searcharis: both files must already be present locally. This tool reads
 no live URLs or production credentials, and does not create a GitHub
 workflow, decide whether a baseline is trustworthy or prove real search
 indexing health.
+
+## Optional SARIF findings for artifact-level CI reporting
+
+Export the same offline site checks as SARIF 2.1.0 rather than JSON:
+
+```sh
+uv run python -m searcharis.site_cli \
+  examples/seo-contract/bilingual-manifest.json \
+  examples/seo-contract/bilingual-build \
+  --check-canonical-consistency --require-full-coverage --sarif
+```
+
+`--sarif` and `--json` are mutually exclusive. SARIF is printed to stdout;
+capture it as **UTF-8** when writing a `.sarif` file for a CI consumer.
+The usual process exit codes are unchanged: 0 for pass, 1 for failed checks,
+2 for invalid input. An input error is printed to stderr, **not** as a
+misleading valid SARIF run. When capturing a report in a shell configured to
+abort on exit 1, explicitly retain its output and treat 2 as an input failure.
+
+Each failed page assertion becomes an error result; if
+`--require-full-coverage` is used, unlisted built HTML is also an error.
+The format groups locale-specific check codes under stable rule IDs, includes
+deterministic issue fingerprints and percent-encodes relative artifact paths.
+Ordinary non-strict unlisted pages and **unverified** off-manifest canonical
+or hreflang targets do not become verified/error findings.
+
+SARIF locations refer to generated HTML paths **relative to the supplied build
+root** (SARIF base ID `%BUILDROOT%`), with line 1 used only as a document-level
+anchor (the checker does not
+identify a precise offending HTML line). To obtain useful GitHub code-scanning
+annotations, your CI consumer must map these generated paths to files it can
+access, normally within its checkout; these findings are **not** source
+template locations. No GitHub workflow, SARIF upload, network fetch or
+deployment is performed by Searcharis.

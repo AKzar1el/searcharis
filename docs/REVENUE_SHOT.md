@@ -53,5 +53,6 @@ offline development.
 - [x] Opt-in local locale-cluster consistency diagnostics beyond reciprocal HTML links.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
 - [x] Offline baseline/candidate JSON report comparisons with regression-only exit codes.
-- [ ] SARIF reporting and broader artifact formats.
+- [x] Optional deterministic SARIF 2.1.0 reporting for built HTML findings.
+- [ ] Broader artifact formats and source-template mapping.
 - [ ] Usability studies against static Astro and React/Vite build outputs.
