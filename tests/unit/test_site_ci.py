@@ -60,6 +60,23 @@ def test_an_actual_regression_blocks_even_partial_coverage(tmp_path):
     assert [issue["code"] for issue in report["pages"][1]["issues"]] == ["canonical"]
 
 
+def test_template_only_heading_cannot_pass_static_build_ci(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    page = tmp_path / "en" / "index.html"
+    page.write_text(
+        _page(f"{BASE}en/").replace(
+            "<h1>Heading</h1>", "<template><h1>Not rendered</h1></template>"
+        ),
+        encoding="utf-8",
+    )
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(path), str(tmp_path), "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "fail"
+    assert [issue["code"] for issue in result["pages"][0]["issues"]] == ["h1_min"]
+
+
 def test_unlisted_pages_are_visible_and_optionally_fatal(tmp_path):
     manifest = _setup(tmp_path)
     extra = tmp_path / "extra.html"

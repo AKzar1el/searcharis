@@ -44,6 +44,10 @@ Only fields explicitly specified in the JSON contract are checked. The
   differences; set canonical expected values deliberately.
 * Checks JSON-LD *syntax and presence of types*, not rich-result eligibility
   or all Schema.org constraints.
+* Excludes content inside HTML `<template>` elements from active page SEO
+  assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or
+  H1 appearing only in an inert template cannot satisfy the contract. This is
+  static HTML inspection, not JavaScript rendering or shadow-DOM evaluation.
 * Hreflang checks validate declared entries, not complete reciprocals
   across an entire multilingual site.
 * Do not treat a passing check as proof of production SEO health.

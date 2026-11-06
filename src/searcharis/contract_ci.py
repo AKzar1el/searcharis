@@ -30,8 +30,14 @@ class _SEOParser(HTMLParser):
         self.jsonld_blocks: list[str] = []
         self.in_jsonld = False
         self.jsonld_chunks: list[str] = []
+        self.template_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "template":
+            self.template_depth += 1
+            return
+        if self.template_depth:
+            return  # Inert template descendants are not active page SEO signals.
         values = dict(attrs)
         if tag == "html":
             self.has_html = True
@@ -58,6 +64,11 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "template":
+            self.template_depth = max(0, self.template_depth - 1)
+            return
+        if self.template_depth:
+            return
         if tag == "title":
             self.in_title = False
         if tag == "script" and self.in_jsonld:
@@ -66,6 +77,8 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_data(self, data: str) -> None:
+        if self.template_depth:
+            return
         if self.in_title:
             self.title_chunks.append(data)
         if self.in_jsonld:
