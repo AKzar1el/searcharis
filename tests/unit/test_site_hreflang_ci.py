@@ -155,3 +155,79 @@ def test_reciprocal_check_never_fetches_target_urls(tmp_path, monkeypatch):
 
     monkeypatch.setattr(socket, "create_connection", reject_network)
     assert _check(manifest, tmp_path)["status"] == "pass"
+
+
+def test_complete_local_locale_cluster_passes_and_is_deterministic(tmp_path):
+    manifest = _build(tmp_path)
+    first = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert first == verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert first["status"] == "pass"
+    assert first["hreflang_clusters"] == {"checked_pairs": 2, "unverified_targets": []}
+
+
+def test_missing_local_locale_on_one_peer_fails_strict_cluster_not_reciprocity(tmp_path):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", "</head>", _alternate("de", "/de/") + "</head>")
+    de = tmp_path / "de" / "index.html"
+    de.parent.mkdir()
+    de.write_text(
+        "<!doctype html><html><head><title>Deutsch</title>"
+        + _alternate("de", "/de/") + _alternate("en", "/en/")
+        + "</head><body><h1>Deutsch</h1></body></html>",
+        encoding="utf-8",
+    )
+    manifest["pages"].append({
+        "path": "de/index.html", "contract": {"url": f"{BASE}de/", "title_present": True}
+    })
+    assert _check(manifest, tmp_path)["status"] == "pass"
+    strict = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert strict["status"] == "fail"
+    assert any(issue["code"] == "hreflang_cluster_mismatch:de" for issue in _issues(strict, "en"))
+
+
+def test_conflicting_local_x_default_is_reported(tmp_path):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", "</head>", _alternate("x-default", "/en/") + "</head>")
+    _replace(tmp_path, "sl", "</head>", _alternate("x-default", "/sl/") + "</head>")
+    assert _check(manifest, tmp_path)["status"] == "pass"
+    strict = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert "hreflang_cluster_mismatch:x-default" in {
+        issue["code"] for issue in _issues(strict, "en")
+    }
+
+
+def test_duplicate_locale_on_every_page_fails_strict_policy(tmp_path):
+    manifest = _build(tmp_path)
+    for language in ("en", "sl"):
+        _replace(tmp_path, language, "</head>", _alternate("en", "/en/") + "</head>")
+    strict = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert strict["status"] == "fail"
+    assert any(issue["code"] == "hreflang_cluster_duplicate:en" for issue in _issues(strict, "en"))
+
+
+def test_external_locale_targets_are_explicitly_unverified_not_assumed_missing(tmp_path):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", "</head>", _alternate("de", "https://other.test/de/") + "</head>")
+    strict = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    assert strict["status"] == "pass"
+    assert strict["hreflang_clusters"]["unverified_targets"] == [
+        {"path": "en/index.html", "language": "de", "target": "https://other.test/de/"}
+    ]
+
+
+def test_cluster_cli_exit_status_and_offline_guarantee(tmp_path, capsys, monkeypatch):
+    manifest = _build(tmp_path)
+    file = tmp_path / "manifest.json"
+    file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def reject_network(*_args, **_kwargs):
+        raise AssertionError("No remote site requests permitted")
+
+    monkeypatch.setattr(socket, "create_connection", reject_network)
+    assert main([str(file), str(tmp_path), "--check-hreflang-clusters"]) == 0
+    assert "2 directed peer pairs" in capsys.readouterr().out
+    _replace(tmp_path, "sl", _alternate("en", "/en/"), "")
+    assert main([str(file), str(tmp_path), "--check-hreflang-clusters", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "fail"
+    assert any(issue["code"] == "hreflang_cluster_mismatch:en" for issue in _issues(result, "en"))

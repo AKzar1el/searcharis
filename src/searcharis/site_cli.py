@@ -25,6 +25,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Require return links between built pages listed in the manifest",
     )
     parser.add_argument(
+        "--check-hreflang-clusters",
+        action="store_true",
+        help="Require consistent local locale-to-URL maps across linked built pages",
+    )
+    parser.add_argument(
         "--check-canonical-consistency",
         action="store_true",
         help="Check actual canonical links and self-canonical targets among manifest pages",
@@ -38,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
             args.build_dir,
             require_full_coverage=args.require_full_coverage,
             check_hreflang_reciprocity=args.check_hreflang_reciprocity,
+            check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
         )
     except (OSError, UnicodeError, ValueError) as error:
@@ -72,6 +78,13 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Hreflang: {links['checked_pairs']} internal pairs checked, "
                 f"{len(links['unverified_targets'])} targets outside manifest (not verified)"
+            )
+        if args.check_hreflang_clusters:
+            clusters = report["hreflang_clusters"]
+            print(
+                f"  Hreflang clusters: {clusters['checked_pairs']} directed peer pairs "
+                f"checked, {len(clusters['unverified_targets'])} outside-manifest targets "
+                "(not verified)"
             )
         if args.check_canonical_consistency:
             canonical = report["canonical_consistency"]
