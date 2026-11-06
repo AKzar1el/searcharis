@@ -19,6 +19,8 @@ _ALLOWED = frozenset({
 class _SEOParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
+        self.has_html = False
+        self.has_head = False
         self.title_chunks: list[str] = []
         self.in_title = False
         self.h1_count = 0
@@ -31,6 +33,10 @@ class _SEOParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
+        if tag == "html":
+            self.has_html = True
+        if tag == "head":
+            self.has_head = True
         if tag == "title":
             self.in_title = True
         elif tag == "h1":
@@ -126,6 +132,8 @@ def verify_contract(contract: object, html: str) -> dict:
     def fail(code: str, expected: object, actual: object) -> None:
         issues.append({"code": code, "expected": expected, "actual": actual})
 
+    if not page.has_html or not page.has_head:
+        fail("html_structure", "HTML document with head", {"html": page.has_html, "head": page.has_head})
     if "title_present" in spec:
         actual = bool("".join(page.title_chunks).strip())
         if actual != spec["title_present"]:
