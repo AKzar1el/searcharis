@@ -144,6 +144,27 @@ def test_cli_exits_and_machine_readable_errors(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "error"
 
 
+@pytest.mark.parametrize(
+    "make_duplicate",
+    [
+        lambda raw: raw.replace('"version": 1', '"version": 0, "version": 1', 1),
+        lambda raw: raw.replace(
+            '"title_present": true', '"title_present": false, "title_present": true', 1
+        ),
+    ],
+    ids=["top-level-version", "nested-contract-assertion"],
+)
+def test_manifest_cli_rejects_duplicate_json_keys(tmp_path, capsys, make_duplicate):
+    manifest = _setup(tmp_path)
+    path = tmp_path / "manifest.json"
+    path.write_text(make_duplicate(json.dumps(manifest)), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "error"
+    assert "Duplicate manifest JSON key" in error["error"]
+
+
 def test_declared_url_never_fetched(tmp_path, monkeypatch):
     manifest = _setup(tmp_path)
 
