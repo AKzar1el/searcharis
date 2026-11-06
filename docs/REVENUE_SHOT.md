@@ -47,7 +47,7 @@ offline development.
 
 ## Highest-value backlog
 
-- [ ] Multi-page build-manifest verification with clear coverage reporting.
+- [x] Multi-page build-manifest verification with clear coverage reporting.
 - [ ] Canonical and hreflang reciprocal-mapping tests using local fixtures.
 - [ ] GitHub Action packaging with pinned dependencies, minimal permissions.
 - [ ] Artifact comparisons and stable JSON/SARIF reporting.
