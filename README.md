@@ -104,6 +104,15 @@ uv run python -m searcharis.contract_cli examples/seo-contract/expected.json exa
 See [contract usage and limitations](docs/SEO-CONTRACT-CI.md) and the
 [prepared Revenue Shot worker charter](docs/REVENUE_SHOT.md).
 
+For static builds with multiple routes, run the local manifest verifier:
+
+```sh
+uv run python -m searcharis.site_cli examples/seo-contract/site-manifest.json examples/seo-contract --json
+```
+
+It reports coverage and per-page errors; use `--require-full-coverage` to
+fail on undeclared built HTML. It does not fetch URLs or require GCP.
+
 ## Local development
 
 Requirements:

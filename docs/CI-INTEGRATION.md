@@ -55,8 +55,20 @@ invalid input. Keep a failing result as a failing CI result.
 ## 4. Bounded adoption
 
 Start with the highest-value home, pricing and locale landing pages.
-Use separate contracts per page and expand to a manifest only after
-observing real false positives. CI does not mutate the production site.
+Use separate contracts per page initially. For multiple built pages, a
+versioned JSON manifest provides per-page findings and explicit coverage:
+
+```sh
+uv run python -m searcharis.site_cli \
+  path/to/site-manifest.json path/to/dist --json
+```
+
+The manifest declares relative HTML artifact paths under the build root and
+their inline SEO contracts. Unlisted HTML is visible in the JSON report but
+does not fail CI unless `--require-full-coverage` is supplied. Start with
+important routes before enforcing whole-site coverage. This is a local
+artifact check, not a production crawl; it does not validate cross-page
+reciprocal hreflang. CI does not mutate the production site.
 
 ## 5. Release checks
 
