@@ -101,6 +101,9 @@ document base and compared to these absolute expectations, without fetching.
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or
   H1 appearing only in an inert template cannot satisfy the contract. This is
   static HTML inspection, not JavaScript rendering or shadow-DOM evaluation.
+* Treats HTML `<textarea>` contents as editable text rather than active markup.
+  Heading and JSON-LD examples written inside a textarea cannot satisfy the
+  real page's assertions; headings after the closing textarea remain visible.
 * Hreflang checks validate declared entries, not complete reciprocals
   across an entire multilingual site.
 * Do not treat a passing check as proof of production SEO health.
