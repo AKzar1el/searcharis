@@ -103,10 +103,12 @@ document base and compared to these absolute expectations, without fetching.
   *unverified external target* list. Valid outside-manifest HTTP(S) targets
   remain unverified, never fetched. Default manifest checks still validate
   only the properties explicitly asserted by each page's contract.
-* Checks JSON-LD *syntax and presence of types*, including nested entities
+* Checks strict JSON-LD *syntax and presence of types*, including nested entities
   such as an Article's author or a FAQPage's questions and answers, as well
   as `@graph`. Term/type declarations inside `@context` and typed literal
-  values are not counted as entities. This does not verify rich-result
+  values are not counted as entities. Non-JSON numeric literals (`NaN`,
+  `Infinity`, `-Infinity`) fail syntax validation rather than silently passing
+  via Python's permissive JSON parser. This does not verify rich-result
   eligibility or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or

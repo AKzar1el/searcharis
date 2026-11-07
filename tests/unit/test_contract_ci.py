@@ -278,6 +278,42 @@ def test_invalid_and_missing_jsonld_reported():
     assert {"jsonld_invalid", "jsonld_type_missing"} <= {i["code"] for i in result["issues"]}
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_nonstandard_jsonld_numeric_constant_cannot_pass_schema_assertion(constant):
+    # Python json.loads accepts these identifiers, but none are legal JSON values.
+    invalid = f'{{"@type":"WebPage","rank":{constant}}}'
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', invalid)
+    result = verify_contract(CONTRACT, html)
+    assert {"jsonld_invalid", "jsonld_type_missing"} <= {
+        item["code"] for item in result["issues"]
+    }
+
+
+def test_nonstandard_jsonld_number_fails_single_page_cli(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "jsonld_types": ["WebPage"]}), encoding="utf-8")
+    html_path.write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@type":"WebPage","rank":NaN}</script></head><body></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "fail"
+    assert {item["code"] for item in report["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
+def test_valid_jsonld_numeric_values_remain_accepted():
+    html = HTML.replace(
+        '{"@graph":[{"@type":"WebPage"}]}',
+        '{"@type":"WebPage","rating":1.5,"position":-12,"fraction":2e-3}',
+    )
+    assert verify_contract(CONTRACT, html)["status"] == "pass"
+
+
 def test_nested_jsonld_entities_satisfy_declared_types():
     structured_data = {
         "@context": "https://schema.org",

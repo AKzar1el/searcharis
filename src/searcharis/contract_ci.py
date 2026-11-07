@@ -228,6 +228,11 @@ def _types(value: object) -> set[str]:
     return found
 
 
+def _reject_non_json_number(value: str) -> None:
+    # Python accepts NaN/Infinity by default, but JSON-LD requires valid JSON.
+    raise ValueError(f"Non-JSON numeric constant: {value}")
+
+
 def _resolve_href(base_url: str, href: str) -> str:
     # An empty <link href> is not a URL, even though urljoin maps it to base_url.
     if not href:
@@ -318,8 +323,8 @@ def verify_contract(
         observed: set[str] = set()
         for index, block in enumerate(page.jsonld_blocks):
             try:
-                observed |= _types(json.loads(block))
-            except json.JSONDecodeError:
+                observed |= _types(json.loads(block, parse_constant=_reject_non_json_number))
+            except (json.JSONDecodeError, ValueError):
                 fail("jsonld_invalid", "valid JSON", f"block {index + 1} malformed")
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
