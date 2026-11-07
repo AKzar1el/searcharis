@@ -18,6 +18,15 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _unique_contract_keys(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate contract JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Offline, read-only SEO contract assertions")
     parser.add_argument("contract", type=Path, help="JSON contract file")
@@ -25,7 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable findings")
     args = parser.parse_args(argv)
     try:
-        report = verify_contract(json.loads(_read(args.contract)), _read(args.html))
+        contract = json.loads(_read(args.contract), object_pairs_hook=_unique_contract_keys)
+        report = verify_contract(contract, _read(args.html))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         print(f"Invalid input: {error}", file=sys.stderr)
         return 2

@@ -147,6 +147,24 @@ def test_cli_returns_correct_status(tmp_path, capsys):
     assert main([str(contract), str(html)]) == 2
 
 
+@pytest.mark.parametrize("contract_text", [
+    ('{"url":"https://example.com/en/",'
+     '"canonical":"https://example.com/wrong/",'
+     '"canonical":"https://example.com/en/"}'),
+    ('{"url":"https://example.com/en/",'
+     '"hreflang":{"en":"https://example.com/wrong/",'
+     '"en":"https://example.com/en/"}}'),
+])
+def test_single_page_cli_rejects_duplicate_contract_json_keys(tmp_path, capsys, contract_text):
+    contract = tmp_path / "expected.json"
+    html = tmp_path / "index.html"
+    contract.write_text(contract_text, encoding="utf-8")
+    html.write_text(HTML, encoding="utf-8")
+
+    assert main([str(contract), str(html), "--json"]) == 2
+    assert "Duplicate contract JSON key" in capsys.readouterr().err
+
+
 def test_blank_html_cannot_pass_indexability_only_contract():
     report = verify_contract({"url": URL, "indexable": True}, "")
     assert report["status"] == "fail"
