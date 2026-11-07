@@ -34,6 +34,35 @@ def test_missing_title_detected():
     assert "title_presence" in {i["code"] for i in result["issues"]}
 
 
+@pytest.mark.parametrize("first_title", ["", "   "])
+def test_later_duplicate_title_cannot_rescue_empty_first_title(first_title):
+    html = (
+        f"<html><head><title>{first_title}</title><title>Fallback title</title>"
+        "</head><body></body></html>"
+    )
+    result = verify_contract({"url": URL, "title_present": True}, html)
+    assert result["status"] == "fail"
+    assert {issue["code"] for issue in result["issues"]} == {"title_presence"}
+
+
+def test_later_blank_duplicate_title_does_not_replace_first_head_title():
+    html = "<html><head><title>Primary</title><title></title></head><body></body></html>"
+    result = verify_contract({"url": URL, "title_present": True}, html)
+    assert result["status"] == "pass"
+
+
+def test_cli_rejects_duplicate_title_false_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    html = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "title_present": True}))
+    html.write_text(
+        "<html><head><title></title><title>Fallback</title></head><body></body></html>"
+    )
+    assert main([str(contract), str(html), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["issues"][0]["code"] == "title_presence"
+
+
 def test_noindex_and_none_detected():
     for robots in ("noindex,follow", "none"):
         result = verify_contract(CONTRACT, HTML.replace("</head>", f'<meta name="robots" content="{robots}"></head>'))

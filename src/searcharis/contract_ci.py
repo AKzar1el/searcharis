@@ -25,6 +25,7 @@ class _SEOParser(HTMLParser):
         self.body_seen = False
         self.title_chunks: list[str] = []
         self.in_title = False
+        self.title_seen = False
         self.h1_count = 0
         self.canonicals: list[str] = []
         self.hreflangs: dict[str, list[str]] = {}
@@ -55,7 +56,10 @@ class _SEOParser(HTMLParser):
             self.body_seen = True
             self.in_head = False  # HTML can omit an explicit closing </head>.
             self.in_title = False
-        if tag == "title" and self.in_head:
+        if tag == "title" and self.in_head and not self.title_seen:
+            # The first head title is the document title; later duplicates
+            # must not turn an empty first title into a false presence pass.
+            self.title_seen = True
             self.in_title = True
         elif tag == "base" and self.in_head and self.base_href is None and "href" in values:
             # HTML uses the first head <base href> to resolve relative links.
