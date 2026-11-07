@@ -306,6 +306,36 @@ def test_nonstandard_jsonld_number_fails_single_page_cli(tmp_path, capsys):
     }
 
 
+@pytest.mark.parametrize("structured_data", [
+    '{"@type":"Thing","@type":"WebPage"}',
+    '{"@type":"WebPage","name":"First","name":"Second"}',
+    '{"@type":"WebPage","author":{"@type":"Person","@type":"Organization"}}',
+])
+def test_duplicate_jsonld_object_keys_cannot_satisfy_schema_assertions(structured_data):
+    # Python's default JSON decoder silently takes the last duplicate key.
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', structured_data)
+    result = verify_contract(CONTRACT, html)
+    assert {item["code"] for item in result["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
+def test_duplicate_jsonld_keys_fail_single_page_cli(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "jsonld_types": ["WebPage"]}), encoding="utf-8")
+    html_path.write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@type":"Other","@type":"WebPage"}</script></head><body></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {item["code"] for item in report["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
 def test_valid_jsonld_numeric_values_remain_accepted():
     html = HTML.replace(
         '{"@graph":[{"@type":"WebPage"}]}',
