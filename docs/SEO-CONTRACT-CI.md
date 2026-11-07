@@ -324,7 +324,10 @@ explicitly named Astro templates. Unit and integration tests enforce the
 expected exit statuses, including a failure when an HTML heading would exist
 only after JavaScript hydration.
 
-These are synthetic snapshots with the same relative HTML path layout as
-common `dist/` directories, **not** artifacts verified by running Astro or
-Vite builds. Integrators must supply their own compiled output and route
-contracts; dynamic SPA content is outside the offline parser's scope.
+The Astro pages are synthetic snapshots with the relative path layout of
+common `dist/` directories; they have **not** been compiled with Astro.
+The Vite multipage pages and their hashed JS asset were built from checked-in
+fixture sources with Vite 5.4.21 and are verified by static integration tests.
+Searcharis tests do not install or invoke either compiler. Integrators must
+supply their own compiled output and route contracts; dynamic SPA content
+is outside the offline parser's scope.

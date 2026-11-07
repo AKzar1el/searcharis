@@ -1,9 +1,12 @@
 """Exercise offline SEO CI against representative Astro and Vite output layouts."""
 
 import json
+import re
 import shutil
 import socket
 from pathlib import Path
+
+import pytest
 
 from searcharis.site_cli import main
 
@@ -77,8 +80,14 @@ def test_astro_regression_fails_with_explicit_sarif_source_location(
     }
 
 
-def test_vite_static_multipage_build_and_unrendered_regression(tmp_path, capsys):
+def test_vite_static_multipage_build_and_unrendered_regression(tmp_path, capsys, monkeypatch):
     project = FIXTURES / "vite"
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("Checking a Vite bundle must not fetch remote resources")
+
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    monkeypatch.setattr(socket, "create_connection", no_network)
     exit_code, report = _run_json(
         project, project / "artifacts", capsys, "--require-full-coverage",
         "--check-canonical-consistency",
@@ -100,3 +109,17 @@ def test_vite_static_multipage_build_and_unrendered_regression(tmp_path, capsys)
     assert exit_code == 1
     failed = next(page for page in report["pages"] if page["path"] == "pricing/index.html")
     assert "h1_min" in [issue["code"] for issue in failed["issues"]]
+
+
+@pytest.mark.parametrize("page", ["index.html", "pricing/index.html"])
+def test_vite_compiled_html_references_its_checked_in_bundle(page):
+    project = FIXTURES / "vite"
+    # The tracked source imports main.js; Vite replaces it with a hashed bundle.
+    source = (project / "site" / page).read_text(encoding="utf-8")
+    html = (project / "artifacts" / page).read_text(encoding="utf-8")
+    assert '<script type="module" src="/main.js"></script>' in source
+    match = re.search(r'<script type="module" crossorigin src="/assets/(main-[\w-]+\.js)"></script>', html)
+    assert match is not None
+    asset = project / "artifacts" / "assets" / match.group(1)
+    assert asset.is_file()
+    assert 'document.documentElement.dataset.fixture="vite-static-mpa"' in asset.read_text(encoding="utf-8")
