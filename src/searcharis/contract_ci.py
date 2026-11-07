@@ -160,7 +160,28 @@ def _types(value: object) -> set[str]:
 
 def _resolve_href(base_url: str, href: str) -> str:
     # An empty <link href> is not a URL, even though urljoin maps it to base_url.
-    return urljoin(base_url, href) if href else ""
+    if not href:
+        return ""
+    try:
+        return urljoin(base_url, href)
+    except ValueError:
+        # Malformed built HTML is a failed assertion, not an invalid contract.
+        return href
+
+
+def _is_http_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and (parsed.port is None or 0 < parsed.port <= 65535)
+            and not any(char.isspace() or ord(char) < 32 for char in value)
+        )
+    except ValueError:
+        return False
 
 
 def verify_contract(
@@ -209,7 +230,7 @@ def verify_contract(
             fail("title_presence", spec["title_present"], actual)
     if "canonical" in spec:
         actual = [_resolve_href(base_url, item) for item in page.canonicals]
-        if actual != [spec["canonical"]]:
+        if actual != [spec["canonical"]] or any(not _is_http_url(item) for item in actual):
             fail("canonical", [spec["canonical"]], actual)
     if "indexable" in spec:
         directives = {x.strip().lower() for content in page.robots for x in content.split(",")}
@@ -221,7 +242,7 @@ def verify_contract(
             fail(bound, spec[bound], page.h1_count)
     for language, expected in spec.get("hreflang", {}).items():
         actual = [_resolve_href(base_url, href) for href in page.hreflangs.get(language.lower(), [])]
-        if actual != [expected]:
+        if actual != [expected] or any(not _is_http_url(item) for item in actual):
             fail(f"hreflang:{language}", [expected], actual)
     if "jsonld_types" in spec:
         observed: set[str] = set()
@@ -233,24 +254,25 @@ def verify_contract(
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
                 fail("jsonld_type_missing", expected_type, sorted(observed))
+    resolved_hreflang: dict[str, list[str]] = {}
     if include_hreflang:
         for language, hrefs in sorted(page.hreflangs.items()):
+            valid_targets = []
             if "" in hrefs:
                 fail(f"hreflang_empty_href:{language}", "non-empty href", hrefs)
+            for href in hrefs:
+                if href:
+                    target = _resolve_href(base_url, href)
+                    if _is_http_url(target):
+                        valid_targets.append(target)
+                    else:
+                        fail(f"hreflang_invalid_url:{language}", "absolute HTTP(S) URL", target)
+            resolved_hreflang[language] = valid_targets
     result = {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.
-        result["observed_hreflang"] = {
-            language: [urljoin(base_url, href) for href in hrefs if href]
-            for language, hrefs in sorted(page.hreflangs.items())
-        }
+        result["observed_hreflang"] = resolved_hreflang
     if include_canonical:
         # Expose observed HTML values for optional cross-page checks; never fetch URLs.
-        observed = []
-        for href in page.canonicals:
-            try:
-                observed.append(urljoin(base_url, href) if href else "")
-            except ValueError:
-                observed.append(href)  # Malformed URLs become assertion failures.
-        result["observed_canonical"] = observed
+        result["observed_canonical"] = [_resolve_href(base_url, href) for href in page.canonicals]
     return result
