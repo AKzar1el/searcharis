@@ -45,10 +45,13 @@ Only fields explicitly specified in the JSON contract are checked. The
   `<base>` inside the body or an inert template is ignored. The build artifact's
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.
-* Counts HTML titles, canonical and hreflang links, and robots/googlebot meta
+* Reads HTML titles, canonical and hreflang links, and robots/googlebot meta
   directives only inside the document `<head>`. Identically named elements
   in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
   may appear in the head or body; visible headings are checked separately.
+  `title_present` examines the first active head `<title>` only; a later
+  duplicate cannot rescue a blank first title. HTML permits only one title
+  element per document; this checker does not separately enforce uniqueness.
 * When generated HTML repeats an attribute on one tag, uses its **first**
   value and ignores later duplicates, as required by the
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
