@@ -209,6 +209,53 @@ def test_cli_rejects_duplicate_title_false_pass(tmp_path, capsys):
     assert report["issues"][0]["code"] == "title_presence"
 
 
+def test_title_rcdata_examples_cannot_satisfy_h1_or_jsonld():
+    html = (
+        '<html><head><title>Literal <h1>heading</h1> and '
+        '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+        '</title></head><body></body></html>'
+    )
+    report = verify_contract({"url": URL, "title_present": True, "h1_min": 1,
+                              "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in report["issues"]} == {
+        "h1_min", "jsonld_type_missing",
+    }
+
+
+def test_duplicate_or_body_title_rcdata_examples_cannot_supply_h1():
+    html = (
+        '<html><head><title>First</title><title>Example <h1>fake</h1></title>'
+        '</head><body><title>More <h1>fake</h1></title></body></html>'
+    )
+    report = verify_contract({"url": URL, "h1_min": 1}, html)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
+def test_title_rcdata_does_not_swallow_following_real_h1_or_head_links():
+    html = (
+        '<html><head><title>Literal <script>example without closing script'
+        '</title><link rel="canonical" href="/en/"></head>'
+        '<body><h1>Real heading</h1></body></html>'
+    )
+    report = verify_contract({"url": URL, "canonical": URL, "h1_min": 1,
+                              "h1_max": 1}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+def test_cli_title_rcdata_example_does_not_pass_h1(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head><title>Example <h1>fake heading</h1></title></head>'
+        '<body></body></html>', encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert {issue["code"] for issue in json.loads(capsys.readouterr().out)["issues"]} == {
+        "h1_min",
+    }
+
+
 def test_noindex_and_none_detected():
     for robots in ("noindex,follow", "none"):
         result = verify_contract(CONTRACT, HTML.replace("</head>", f'<meta name="robots" content="{robots}"></head>'))

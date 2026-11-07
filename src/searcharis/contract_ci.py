@@ -29,6 +29,7 @@ class _SEOParser(HTMLParser):
         self.body_seen = False
         self.title_chunks: list[str] = []
         self.in_title = False
+        self.in_title_element = False
         self.title_seen = False
         self.h1_count = 0
         self.canonicals: list[str] = []
@@ -42,9 +43,9 @@ class _SEOParser(HTMLParser):
         self.in_textarea = False
 
     def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
-        # HTMLParser tokenizes markup inside <textarea>, unlike the browser's
-        # RCDATA mode. A literal <script> example must not hide </textarea>.
-        if not self.in_textarea:
+        # HTMLParser tokenizes markup inside RCDATA elements, unlike browsers.
+        # A literal <script> must not hide their actual closing tag.
+        if not self.in_textarea and not self.in_title_element:
             super().set_cdata_mode(elem, **kwargs)
 
     def handle_decl(self, decl: str) -> None:
@@ -55,8 +56,8 @@ class _SEOParser(HTMLParser):
             self.has_html = True
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if self.in_textarea:
-            return  # The markup is editable text, not active page elements.
+        if self.in_textarea or self.in_title_element:
+            return  # RCDATA markup is text, not active page elements.
         if tag == "template":
             if self.has_html and not self.has_head and not self.body_seen:
                 self.has_head = self.in_head = True
@@ -92,6 +93,8 @@ class _SEOParser(HTMLParser):
             self.in_title = False
         if tag == "textarea":
             self.in_textarea = True
+        elif tag == "title":
+            self.in_title_element = True
         elif tag in _RAWTEXT_ELEMENTS:
             # HTMLParser does not natively tokenize these HTML raw-text
             # elements as text, so literal examples could spoof page SEO.
@@ -127,6 +130,11 @@ class _SEOParser(HTMLParser):
             if tag == "textarea":
                 self.in_textarea = False
             return
+        if self.in_title_element:
+            if tag == "title":
+                self.in_title_element = False
+                self.in_title = False
+            return
         if tag == "template":
             self.template_depth = max(0, self.template_depth - 1)
             return
@@ -144,6 +152,10 @@ class _SEOParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self.template_depth or self.in_textarea:
+            return
+        if self.in_title_element:
+            if self.in_title:
+                self.title_chunks.append(data)
             return
         if self.has_html and not self.has_head and not self.body_seen and data.strip(" \t\n\r\f"):
             # Non-ASCII-whitespace content before an omitted <head> creates
