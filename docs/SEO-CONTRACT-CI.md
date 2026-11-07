@@ -74,6 +74,9 @@ document base and compared to these absolute expectations, without fetching.
   `title_present` examines the first active head `<title>` only; a later
   duplicate cannot rescue a blank first title. HTML permits only one title
   element per document; this checker does not separately enforce uniqueness.
+  The text inside any `<title>` follows HTML RCDATA rules: literal tag-looking
+  examples do not create active H1 or JSON-LD elements, and an example
+  `<script>` does not hide real page metadata or headings after `</title>`.
 * When generated HTML repeats an attribute on one tag, uses its **first**
   value and ignores later duplicates, as required by the
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
