@@ -49,6 +49,11 @@ Only fields explicitly specified in the JSON contract are checked. The
   directives only inside the document `<head>`. Identically named elements
   in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
   may appear in the head or body; visible headings are checked separately.
+* When generated HTML repeats an attribute on one tag, uses its **first**
+  value and ignores later duplicates, as required by the
+  [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
+  This avoids passing SEO assertions using an attribute browsers discard;
+  it is not a general HTML validity checker.
 * Checks JSON-LD *syntax and presence of types*, not rich-result eligibility
   or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO

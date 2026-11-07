@@ -214,3 +214,36 @@ def test_invalid_document_base_fails_closed():
     <link rel="canonical" href="/en/"></head><body></body></html>'''
     result = verify_contract({"url": URL, "canonical": URL}, html)
     assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
+
+
+def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():
+    # Browsers ignore duplicate attributes after the first; Python dict(attrs) does not.
+    wrong_first = '''<html><head><link rel="canonical" href="/wrong/" href="/en/">
+    </head><body></body></html>'''
+    result = verify_contract({"url": URL, "canonical": URL}, wrong_first)
+    assert {issue["code"] for issue in result["issues"]} == {"canonical"}
+    assert result["issues"][0]["actual"] == ["https://example.com/wrong/"]
+
+    correct_first = '''<html><head><link rel="canonical" rel="alternate"
+    href="/en/" href="/wrong/"></head><body></body></html>'''
+    result = verify_contract({"url": URL, "canonical": URL}, correct_first, include_canonical=True)
+    assert result["status"] == "pass"
+    assert result["observed_canonical"] == [URL]
+
+
+def test_duplicate_hreflang_and_robots_values_do_not_hide_first_value():
+    html = '''<html><head><link rel="alternate" hreflang="fr" hreflang="sl" href="/fr/">
+    <meta name="robots" content="noindex" content="index"></head><body></body></html>'''
+    spec = {"url": URL, "hreflang": {"sl": "https://example.com/fr/"}, "indexable": True}
+    result = verify_contract(spec, html, include_hreflang=True)
+    assert {issue["code"] for issue in result["issues"]} == {"hreflang:sl", "indexability_meta"}
+    assert result["observed_hreflang"] == {"fr": ["https://example.com/fr/"]}
+
+
+def test_duplicate_base_href_uses_first_value():
+    html = '''<html><head><base href="/original/" href="/ignored/">
+    <link rel="canonical" href="child.html"></head><body></body></html>'''
+    result = verify_contract(
+        {"url": URL, "canonical": "https://example.com/original/child.html"}, html,
+    )
+    assert result["status"] == "pass"
