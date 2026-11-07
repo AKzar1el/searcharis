@@ -330,7 +330,9 @@ def test_cli_rejects_noop_jsonld_types_as_invalid_contract(tmp_path, capsys):
     html.write_text('<html><head><title>No schema</title></head><body></body></html>', encoding="utf-8")
 
     assert main([str(contract), str(html), "--json"]) == 2
-    assert "jsonld_types" in capsys.readouterr().err
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "jsonld_types" in report["error"]
 
 
 def test_unsupported_check_is_rejected():
@@ -386,7 +388,9 @@ def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
     html.write_text(HTML)
 
     assert main([str(contract), str(html), "--json"]) == 2
-    assert "canonical" in capsys.readouterr().err
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "canonical" in report["error"]
 
 
 def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys):
@@ -396,7 +400,9 @@ def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys):
     html.write_text(HTML)
 
     assert main([str(contract), str(html), "--json"]) == 2
-    assert "HTTP(S) URL" in capsys.readouterr().err
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "HTTP(S) URL" in report["error"]
 
 
 def test_cli_returns_correct_status(tmp_path, capsys):
@@ -411,6 +417,28 @@ def test_cli_returns_correct_status(tmp_path, capsys):
     assert "canonical" in capsys.readouterr().out
     contract.write_text('{"url": "oops"}')
     assert main([str(contract), str(html)]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure", ["malformed_json", "invalid_contract", "missing_html"])
+def test_json_cli_input_errors_are_machine_readable(tmp_path, capsys, failure):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "page.html"
+    contracts = {
+        "malformed_json": "{not json",
+        "invalid_contract": json.dumps({"url": URL, "jsonld_types": []}),
+        "missing_html": json.dumps({"url": URL, "title_present": True}),
+    }
+    contract.write_text(contracts[failure], encoding="utf-8")
+    if failure != "missing_html":
+        artifact.write_text(HTML, encoding="utf-8")
+
+    assert main([str(contract), str(artifact), "--json"]) == 2
+    output = capsys.readouterr()
+    report = json.loads(output.out)
+    assert report["status"] == "error"
+    assert isinstance(report["error"], str) and report["error"]
+    assert output.err == ""
 
 
 @pytest.mark.parametrize("contract_text", [
@@ -428,7 +456,9 @@ def test_single_page_cli_rejects_duplicate_contract_json_keys(tmp_path, capsys, 
     html.write_text(HTML, encoding="utf-8")
 
     assert main([str(contract), str(html), "--json"]) == 2
-    assert "Duplicate contract JSON key" in capsys.readouterr().err
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "Duplicate contract JSON key" in report["error"]
 
 
 def test_blank_html_cannot_pass_indexability_only_contract():

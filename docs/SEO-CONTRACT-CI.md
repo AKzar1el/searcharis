@@ -19,6 +19,10 @@ Integrate into CI by running the CLI against the artifact your site's
 build produces. Exit codes: **0** contract passed; **1** mismatch; **2**
 invalid contract, unreadable file, or other input failure. A mismatch blocks
 CI only if you configure CI to execute this checker.
+With `--json`, all three exit outcomes print one JSON object to stdout:
+passing/failing findings have a `status` of `pass`/`fail`, while input
+errors return `{"status":"error","error":"..."}` (exit 2). Without `--json`,
+input errors continue to go to stderr.
 
 Only fields explicitly specified in the JSON contract are checked. The
 `url` is an absolute base for resolving relative canonical/hreflang URLs;

@@ -37,7 +37,10 @@ def main(argv: list[str] | None = None) -> int:
         contract = json.loads(_read(args.contract), object_pairs_hook=_unique_contract_keys)
         report = verify_contract(contract, _read(args.html))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
-        print(f"Invalid input: {error}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
+        else:
+            print(f"Invalid input: {error}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
