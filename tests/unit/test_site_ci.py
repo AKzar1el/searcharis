@@ -125,6 +125,18 @@ def test_duplicate_contract_urls_rejected(tmp_path):
         verify_manifest(manifest, tmp_path)
 
 
+def test_site_cli_rejects_invalid_url_before_cross_page_checks(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://example.com:invalid/sl/"
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--json", "--check-canonical-consistency"]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "HTTP(S) URL" in report["error"]
+
+
 def test_invalid_manifest_shapes_or_missing_page_fail_closed(tmp_path):
     manifest = _setup(tmp_path)
     for invalid in (
