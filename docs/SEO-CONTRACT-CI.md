@@ -37,6 +37,10 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `hreflang` | Require exactly one alternate for each named language |
 | `jsonld_types` | Require Schema.org `@type` values in valid JSON-LD blocks |
 
+`jsonld_types` must name at least one non-blank type. An empty array would
+otherwise silently pass even when the built page contains no JSON-LD, so it is
+rejected as an invalid contract (exit 2) rather than disabling the assertion.
+
 The declared `url` must be a syntactically valid absolute HTTP(S) URL, without
 embedded whitespace, credentials, or a malformed/out-of-range port. Both CLI
 entry points reject invalid declared URLs as input errors (exit 2), including

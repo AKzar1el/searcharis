@@ -202,10 +202,10 @@ def _check_contract(spec: object) -> dict:
         raise ValueError("'hreflang' must be a non-empty mapping of language to URL")
     if "hreflang" in spec and any(not _is_http_url(v) for v in spec["hreflang"].values()):
         raise ValueError("'hreflang' values must be absolute HTTP(S) URLs")
-    if "jsonld_types" in spec and (not isinstance(spec["jsonld_types"], list) or any(
-        not isinstance(v, str) or not v for v in spec["jsonld_types"]
+    if "jsonld_types" in spec and (not isinstance(spec["jsonld_types"], list) or not spec["jsonld_types"] or any(
+        not isinstance(v, str) or not v.strip() for v in spec["jsonld_types"]
     )):
-        raise ValueError("'jsonld_types' must be an array of non-empty strings")
+        raise ValueError("'jsonld_types' must be a non-empty array of non-blank strings")
     return spec
 
 

@@ -149,6 +149,20 @@ def test_site_cli_rejects_invalid_expected_hreflang_url(tmp_path, capsys):
     assert "hreflang" in error["error"]
 
 
+def test_site_cli_rejects_empty_jsonld_type_assertion(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"] = {
+        "url": f"{BASE}sl/", "jsonld_types": [],
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--json"]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "jsonld_types" in report["error"]
+
+
 def test_invalid_manifest_shapes_or_missing_page_fail_closed(tmp_path):
     manifest = _setup(tmp_path)
     for invalid in (
