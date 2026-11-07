@@ -40,11 +40,11 @@ class _SEOParser(HTMLParser):
         self.template_depth = 0
         self.in_textarea = False
 
-    def set_cdata_mode(self, elem: str) -> None:
+    def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
         # HTMLParser tokenizes markup inside <textarea>, unlike the browser's
         # RCDATA mode. A literal <script> example must not hide </textarea>.
         if not self.in_textarea:
-            super().set_cdata_mode(elem)
+            super().set_cdata_mode(elem, **kwargs)
 
     def handle_decl(self, decl: str) -> None:
         if self.in_textarea:
