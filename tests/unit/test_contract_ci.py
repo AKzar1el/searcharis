@@ -148,6 +148,36 @@ def test_non_default_valid_contract_port_is_accepted():
     assert result["status"] == "pass"
 
 
+@pytest.mark.parametrize("bad_url", [
+    "/en/",
+    "javascript:alert(1)",
+    "https://example.com:99999/en/",
+    "https://example.com/en/with space",
+])
+@pytest.mark.parametrize("field", ["canonical", "hreflang"])
+def test_invalid_expected_seo_link_url_is_contract_input_error(field, bad_url):
+    value = bad_url if field == "canonical" else {"en": bad_url}
+    with pytest.raises(ValueError, match="absolute HTTP\\(S\\) URL"):
+        verify_contract({"url": URL, field: value}, HTML)
+
+
+def test_valid_nondefault_port_expected_seo_urls_remain_supported():
+    port_url = "https://example.com:8443/en/"
+    html = HTML.replace('href="/en/"', f'href="{port_url}"')
+    spec = {"url": URL, "canonical": port_url, "hreflang": {"en": port_url}}
+    assert verify_contract(spec, html)["status"] == "pass"
+
+
+def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    html = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "canonical": "javascript:alert(1)"}))
+    html.write_text(HTML)
+
+    assert main([str(contract), str(html), "--json"]) == 2
+    assert "canonical" in capsys.readouterr().err
+
+
 def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     html = tmp_path / "index.html"
@@ -389,7 +419,7 @@ def test_malformed_link_url_is_a_contract_failure_not_an_input_error(property_na
 
 
 @pytest.mark.parametrize("property_name", ["canonical", "hreflang"])
-def test_broken_link_cannot_pass_when_contract_repeats_its_invalid_url(property_name):
+def test_invalid_observed_url_cannot_be_laundered_by_same_invalid_expectation(property_name):
     malformed = "javascript:alert(1)"
     if property_name == "canonical":
         spec = {"url": URL, "canonical": malformed}
@@ -397,6 +427,5 @@ def test_broken_link_cannot_pass_when_contract_repeats_its_invalid_url(property_
     else:
         spec = {"url": URL, "hreflang": {"en": malformed}}
         link = f'<link rel="alternate" hreflang="en" href="{malformed}">'
-    report = verify_contract(spec, f"<html><head>{link}</head><body></body></html>")
-    assert report["status"] == "fail"
-    assert report["issues"][0]["actual"] == [malformed]
+    with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
+        verify_contract(spec, f"<html><head>{link}</head><body></body></html>")

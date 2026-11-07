@@ -137,6 +137,18 @@ def test_site_cli_rejects_invalid_url_before_cross_page_checks(tmp_path, capsys)
     assert "HTTP(S) URL" in report["error"]
 
 
+def test_site_cli_rejects_invalid_expected_hreflang_url(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["hreflang"] = {"sl": "https://example.com:invalid/sl/"}
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "error"
+    assert "hreflang" in error["error"]
+
+
 def test_invalid_manifest_shapes_or_missing_page_fail_closed(tmp_path):
     manifest = _setup(tmp_path)
     for invalid in (

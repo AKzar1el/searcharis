@@ -42,6 +42,12 @@ embedded whitespace, credentials, or a malformed/out-of-range port. Both CLI
 entry points reject invalid declared URLs as input errors (exit 2), including
 for contracts that assert only a page title. This validates URL syntax only;
 it does not fetch or check whether the URL resolves.
+Expected `canonical` and `hreflang` destinations in contracts must also be
+absolute HTTP(S) URLs with valid syntax. Invalid expected destinations (such as
+relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are
+contract input errors (exit 2), not failures attributed to the built page.
+HTML `<link href>` values may still be relative; they are resolved against the
+document base and compared to these absolute expectations, without fetching.
 
 ## Limits and interpretation
 
