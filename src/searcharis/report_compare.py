@@ -111,11 +111,16 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
     return report, options
 
 
-def _issues(report: dict) -> dict[tuple[str, str, str], dict]:
+def _issues(report: dict) -> dict[tuple[str, str, str, int], dict]:
     results = {}
     for page in report["pages"]:
+        occurrences: dict[tuple[str, str, str], int] = {}
         for issue in page["issues"]:
-            key = (page["path"], page["checked_url"], json.dumps(issue, sort_keys=True))
+            signature = (page["path"], page["checked_url"], json.dumps(issue, sort_keys=True))
+            # Multiple identical findings are distinct failures, not a set.
+            ordinal = occurrences.get(signature, 0)
+            occurrences[signature] = ordinal + 1
+            key = (*signature, ordinal)
             results[key] = {
                 "path": page["path"],
                 "checked_url": page["checked_url"],

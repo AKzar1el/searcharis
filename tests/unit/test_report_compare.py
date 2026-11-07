@@ -73,6 +73,44 @@ def test_changed_observed_value_is_a_new_failure_not_silently_existing():
     assert diff["summary"]["resolved_issues"] == 1
 
 
+def test_repeated_identical_findings_are_counted_as_new_regressions():
+    baseline = _report([("en/index.html", [_issue()])])
+    candidate = _report([("en/index.html", [_issue(), _issue()])])
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["new_issues"] == 1
+    assert result["summary"]["existing_issues"] == 1
+    assert len(result["new_issues"]) == 1
+    assert compare_reports(candidate, baseline)["summary"]["resolved_issues"] == 1
+
+
+def test_repeated_invalid_html_hreflang_links_are_not_hidden_in_comparison(tmp_path):
+    html = tmp_path / "index.html"
+    manifest = {
+        "version": 1,
+        "pages": [{
+            "path": "index.html",
+            "contract": {"url": "https://example.test/", "title_present": True},
+        }],
+    }
+    invalid_link = '<link rel="alternate" hreflang="en" href="javascript:bad">'
+    html.write_text(f"<html><head><title>OK</title>{invalid_link}</head></html>", encoding="utf-8")
+    baseline = verify_manifest(manifest, tmp_path, check_hreflang_reciprocity=True)
+    html.write_text(
+        f"<html><head><title>OK</title>{invalid_link}{invalid_link}</head></html>",
+        encoding="utf-8",
+    )
+    candidate = verify_manifest(manifest, tmp_path, check_hreflang_reciprocity=True)
+
+    assert sum(issue["code"] == "hreflang_invalid_url:en" for issue in baseline["pages"][0]["issues"]) == 1
+    assert sum(issue["code"] == "hreflang_invalid_url:en" for issue in candidate["pages"][0]["issues"]) == 2
+    diff = compare_reports(baseline, candidate)
+    assert diff["status"] == "regression"
+    assert diff["summary"]["new_issues"] == 1
+    assert diff["new_issues"][0]["issue"]["code"] == "hreflang_invalid_url:en"
+
+
 def test_missing_or_changed_baseline_page_cannot_hide_an_existing_failure():
     baseline = _report([("en/index.html", [_issue()]), ("sl/index.html", [])])
     for candidate in (

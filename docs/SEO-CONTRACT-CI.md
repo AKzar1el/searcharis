@@ -280,7 +280,9 @@ is enabled, and **2** for unreadable, malformed or incompatible reports.
 
 Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue
-does not. A route present in the baseline but missing from the candidate fails
+does not. Repeated identical findings are counted individually: a second
+invalid hreflang link cannot hide behind an existing identical failure.
+A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
 New outside-manifest canonical/hreflang targets are surfaced as **unverified**,
