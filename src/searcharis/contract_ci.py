@@ -38,13 +38,24 @@ class _SEOParser(HTMLParser):
         self.in_jsonld = False
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
+        self.in_textarea = False
+
+    def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
+        # HTMLParser tokenizes markup inside <textarea>, unlike the browser's
+        # RCDATA mode. A literal <script> example must not hide </textarea>.
+        if not self.in_textarea:
+            super().set_cdata_mode(elem, **kwargs)
 
     def handle_decl(self, decl: str) -> None:
+        if self.in_textarea:
+            return
         # A full HTML document may legally omit its <html> start tag.
         if decl.lower().split()[:2] == ["doctype", "html"]:
             self.has_html = True
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.in_textarea:
+            return  # The markup is editable text, not active page elements.
         if tag == "template":
             if self.has_html and not self.has_head and not self.body_seen:
                 self.has_head = self.in_head = True
@@ -78,6 +89,8 @@ class _SEOParser(HTMLParser):
             self.body_seen = True
             self.in_head = False  # HTML can omit an explicit closing </head>.
             self.in_title = False
+        if tag == "textarea":
+            self.in_textarea = True
         if tag == "title" and self.in_head and not self.title_seen:
             # The first head title is the document title; later duplicates
             # must not turn an empty first title into a false presence pass.
@@ -105,6 +118,10 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_endtag(self, tag: str) -> None:
+        if self.in_textarea:
+            if tag == "textarea":
+                self.in_textarea = False
+            return
         if tag == "template":
             self.template_depth = max(0, self.template_depth - 1)
             return
@@ -121,7 +138,7 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_data(self, data: str) -> None:
-        if self.template_depth:
+        if self.template_depth or self.in_textarea:
             return
         if self.has_html and not self.has_head and not self.body_seen and data.strip(" \t\n\r\f"):
             # Non-ASCII-whitespace content before an omitted <head> creates

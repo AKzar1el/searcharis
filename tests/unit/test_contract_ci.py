@@ -99,6 +99,44 @@ def test_cli_does_not_accept_body_metadata_after_leading_text(tmp_path, capsys):
     }
 
 
+def test_textarea_example_markup_cannot_satisfy_headings_or_jsonld():
+    html = (
+        '<html><head><title>Examples</title></head><body><textarea>'
+        '<h1>Example only</h1>'
+        '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+        '</textarea></body></html>'
+    )
+    result = verify_contract({"url": URL, "h1_min": 1, "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in result["issues"]} == {
+        "h1_min", "jsonld_type_missing",
+    }
+
+
+def test_textarea_example_does_not_hide_real_following_heading():
+    html = (
+        '<html><head></head><body><textarea>'
+        '<template><h1>Not a heading</h1></template>'
+        '<script>Literal example with no closing script tag'
+        '</textarea><h1>Real heading</h1></body></html>'
+    )
+    assert verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)[
+        "status"
+    ] == "pass"
+
+
+def test_textarea_example_cannot_rescue_heading_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><textarea><h1>Example only</h1></textarea></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
 def test_missing_title_detected():
     result = verify_contract(CONTRACT, HTML.replace("<title>Proper page</title>", ""))
     assert "title_presence" in {i["code"] for i in result["issues"]}
