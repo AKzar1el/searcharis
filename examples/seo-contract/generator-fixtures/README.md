@@ -1,9 +1,11 @@
 # Static-generator artifact fixtures
 
-These **synthetic, checked-in HTML snapshots** represent the output path
-shapes of Astro's static locale routes and a Vite-served multipage static
-site. They are not built by Astro or Vite in the Searcharis test suite, and
-they do not prove compatibility with every generator configuration.
+These checked-in HTML snapshots represent Astro's static locale routes and
+a Vite multipage static site. The **Astro snapshots are synthetic**; the
+**Vite snapshots are compiled** from the checked-in `vite/site/` sources
+using Vite 5.4.21 on Node.js 22.22.2. Tests do not execute Astro, Vite, or
+client-side JavaScript, and these fixtures do not prove compatibility with
+every generator configuration.
 The `artifacts/` directories stand in for each site's `dist/` output;
 the alternate name keeps fixtures versioned without changing the repository's
 global `dist/` ignore rule.
@@ -32,7 +34,42 @@ source files rather than the build artifact, use `--sarif` and
 `--sarif-source-map examples/seo-contract/generator-fixtures/astro/source-map.json`
 from the repository root.
 
-For a real site, replace these snapshots with its actual compiled HTML,
+The Vite sample was built locally, offline, using two HTML entry points
+(`vite/site/index.html` and `vite/site/pricing/index.html`) and the shared
+`vite/site/main.js` import. The compiled HTML references the actual hashed
+bundle in `vite/artifacts/assets/`. The integration tests verify this
+source-to-output transformation, the artifact's presence, both SEO contracts,
+and missing server-rendered headings. No package manifest, lockfile, workflow,
+or dependency was added to Searcharis.
+
+To reproduce the Vite output with the pinned compiler, create a *temporary*
+Vite config outside `vite/site/` containing the following (run from the
+Searcharis repository root):
+
+```js
+import { resolve } from "node:path";
+const root = resolve(process.cwd(), "examples/seo-contract/generator-fixtures/vite/site");
+export default {
+  root,
+  build: {
+    outDir: resolve(process.cwd(), ".revenue-shot/vite-rebuild-output"),
+    emptyOutDir: false,
+    rollupOptions: {
+      input: {
+        home: resolve(root, "index.html"),
+        pricing: resolve(root, "pricing/index.html"),
+      },
+    },
+  },
+};
+```
+
+Run `npm exec --offline --yes --package=vite@5.4.21 -- vite build --config <temporary-config-path>`
+with the pinned package already present in the local npm cache. Review the
+output before updating checked-in artifacts. The command never targets the
+published site, and normal Python CI does not require Node.js.
+
+For a real site, replace these snapshots with its own compiled HTML,
 write its own URL/route manifest, and explicitly map output files to
 checked-in sources. Searcharis never runs the site generator or JavaScript,
 fetches public URLs, detects response headers, or proves live indexing.
