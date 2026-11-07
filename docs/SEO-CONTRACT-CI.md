@@ -67,7 +67,9 @@ document base and compared to these absolute expectations, without fetching.
   The checker also recognizes valid HTML5 documents that omit `<html>` and/or
   `<head>` start tags (as minifiers can do). A leading HTML doctype identifies
   the implied document root; only metadata before body content is treated as
-  belonging to the implied head. See the
+  belonging to the implied head. Non-whitespace text before an omitted head
+  starts the body and cannot turn later `<title>` or `<link>` elements into
+  head metadata. ASCII whitespace before the omitted head remains permissible. See the
   [HTML optional-tag rules](https://html.spec.whatwg.org/multipage/syntax.html#optional-tags).
   `title_present` examines the first active head `<title>` only; a later
   duplicate cannot rescue a blank first title. HTML permits only one title

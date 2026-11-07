@@ -123,6 +123,11 @@ class _SEOParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.template_depth:
             return
+        if self.has_html and not self.has_head and not self.body_seen and data.strip(" \t\n\r\f"):
+            # Non-ASCII-whitespace content before an omitted <head> creates
+            # an empty implicit head and starts the body in HTML5 parsing.
+            self.has_head = True
+            self.body_seen = True
         if self.in_title:
             self.title_chunks.append(data)
         if self.in_jsonld:

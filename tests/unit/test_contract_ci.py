@@ -58,6 +58,24 @@ def test_body_content_before_implicit_head_does_not_create_head_metadata():
     assert "title_presence" in {issue["code"] for issue in result["issues"]}
 
 
+@pytest.mark.parametrize("opening", ["<!doctype html><html>", "<!doctype html>"])
+def test_text_before_omitted_head_keeps_later_metadata_in_body(opening):
+    html = (opening + 'Visible content<title>Body title</title>'
+            '<link rel="canonical" href="/en/">')
+    result = verify_contract({"url": URL, "title_present": True, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {
+        "title_presence", "canonical",
+    }
+
+
+def test_ascii_whitespace_before_omitted_head_still_allows_head_metadata():
+    html = ('<!doctype html><html> \n\t<title>Head title</title>'
+            '<link rel="canonical" href="/en/">')
+    assert verify_contract({"url": URL, "title_present": True, "canonical": URL}, html)[
+        "status"
+    ] == "pass"
+
+
 def test_minified_implicit_head_passes_single_page_cli(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     artifact = tmp_path / "index.html"
@@ -66,6 +84,19 @@ def test_minified_implicit_head_passes_single_page_cli(tmp_path, capsys):
                         '<link rel="canonical" href="/en/"><h1>Content</h1>')
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+def test_cli_does_not_accept_body_metadata_after_leading_text(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "title_present": True, "canonical": URL}))
+    artifact.write_text('<!doctype html>Visible text<title>Body title</title>'
+                        '<link rel="canonical" href="/en/">')
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {
+        "title_presence", "canonical",
+    }
 
 
 def test_missing_title_detected():
