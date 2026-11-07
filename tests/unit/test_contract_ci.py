@@ -293,3 +293,38 @@ def test_blank_hreflang_href_cannot_pass_as_self_alternate():
     result = verify_contract({"url": URL, "hreflang": {"en": URL}}, html)
     assert result["status"] == "fail"
     assert result["issues"] == [{"code": "hreflang:en", "expected": [URL], "actual": [""]}]
+
+
+@pytest.mark.parametrize("property_name", ["canonical", "hreflang"])
+def test_malformed_link_url_is_a_contract_failure_not_an_input_error(property_name):
+    malformed = "https://[broken"
+    if property_name == "canonical":
+        html = f'<html><head><link rel="canonical" href="{malformed}"></head></html>'
+        spec = {"url": URL, "canonical": URL}
+        expected_code = "canonical"
+    else:
+        html = (
+            '<html><head><link rel="alternate" hreflang="en" '
+            f'href="{malformed}"></head></html>'
+        )
+        spec = {"url": URL, "hreflang": {"en": URL}}
+        expected_code = "hreflang:en"
+    result = verify_contract(spec, html)
+    assert result["status"] == "fail"
+    assert result["issues"] == [{
+        "code": expected_code, "expected": [URL], "actual": [malformed],
+    }]
+
+
+@pytest.mark.parametrize("property_name", ["canonical", "hreflang"])
+def test_broken_link_cannot_pass_when_contract_repeats_its_invalid_url(property_name):
+    malformed = "javascript:alert(1)"
+    if property_name == "canonical":
+        spec = {"url": URL, "canonical": malformed}
+        link = f'<link rel="canonical" href="{malformed}">'
+    else:
+        spec = {"url": URL, "hreflang": {"en": malformed}}
+        link = f'<link rel="alternate" hreflang="en" href="{malformed}">'
+    report = verify_contract(spec, f"<html><head>{link}</head><body></body></html>")
+    assert report["status"] == "fail"
+    assert report["issues"][0]["actual"] == [malformed]

@@ -59,6 +59,14 @@ Only fields explicitly specified in the JSON contract are checked. The
   cross-page hreflang checks also fail on blank destinations even without a
   per-page hreflang contract. The HTML standard requires a
   [non-empty link URL](https://html.spec.whatwg.org/dev/semantics.html#the-link-element).
+* Malformed canonical or hreflang destinations (for example, invalid IPv6 URL
+  syntax) are assertion failures rather than input/manifest errors. Explicit
+  URL assertions also reject matching non-HTTP(S) destinations. Opt-in
+  cross-page hreflang checks flag non-HTTP(S), malformed, or otherwise invalid
+  destinations as `hreflang_invalid_url:<language>` and exclude them from the
+  *unverified external target* list. Valid outside-manifest HTTP(S) targets
+  remain unverified, never fetched. Default manifest checks still validate
+  only the properties explicitly asserted by each page's contract.
 * Checks JSON-LD *syntax and presence of types*, including nested entities
   such as an Article's author or a FAQPage's questions and answers, as well
   as `@graph`. Term/type declarations inside `@context` and typed literal

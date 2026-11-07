@@ -225,6 +225,36 @@ def test_blank_hreflang_href_fails_opt_in_checks_without_contract_assertion(tmp_
         assert any(issue["code"] == "hreflang_empty_href:fr" for issue in _issues(report, "en"))
 
 
+def test_malformed_hreflang_url_fails_opt_in_checks_as_page_issue(tmp_path, capsys):
+    manifest = _build(tmp_path)
+    bad = "https://[broken"
+    _replace(tmp_path, "en", "</head>", _alternate("fr", bad) + "</head>")
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+    for option in ("check_hreflang_reciprocity", "check_hreflang_clusters"):
+        report = verify_manifest(manifest, tmp_path, **{option: True})
+        assert report["status"] == "fail"
+        assert {issue["code"] for issue in _issues(report, "en")} >= {
+            "hreflang_invalid_url:fr",
+        }
+        summary = "hreflang_reciprocity" if option == "check_hreflang_reciprocity" else "hreflang_clusters"
+        assert not report[summary]["unverified_targets"]
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(path), str(tmp_path), "--check-hreflang-reciprocity", "--json"]) == 1
+    assert "hreflang_invalid_url:fr" in {
+        issue["code"] for issue in _issues(json.loads(capsys.readouterr().out), "en")
+    }
+
+
+def test_non_http_hreflang_url_does_not_count_as_unverified(tmp_path):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", "</head>", _alternate("fr", "javascript:alert(1)") + "</head>")
+    report = _check(manifest, tmp_path)
+    assert report["status"] == "fail"
+    assert any(issue["code"] == "hreflang_invalid_url:fr" for issue in _issues(report, "en"))
+    assert not report["hreflang_reciprocity"]["unverified_targets"]
+
+
 def test_cluster_cli_exit_status_and_offline_guarantee(tmp_path, capsys, monkeypatch):
     manifest = _build(tmp_path)
     file = tmp_path / "manifest.json"
