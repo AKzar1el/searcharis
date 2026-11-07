@@ -215,6 +215,16 @@ def test_external_locale_targets_are_explicitly_unverified_not_assumed_missing(t
     ]
 
 
+def test_blank_hreflang_href_fails_opt_in_checks_without_contract_assertion(tmp_path):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", "</head>", _alternate("fr", "") + "</head>")
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+    for option in ("check_hreflang_reciprocity", "check_hreflang_clusters"):
+        report = verify_manifest(manifest, tmp_path, **{option: True})
+        assert report["status"] == "fail"
+        assert any(issue["code"] == "hreflang_empty_href:fr" for issue in _issues(report, "en"))
+
+
 def test_cluster_cli_exit_status_and_offline_guarantee(tmp_path, capsys, monkeypatch):
     manifest = _build(tmp_path)
     file = tmp_path / "manifest.json"

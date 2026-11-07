@@ -247,3 +247,17 @@ def test_duplicate_base_href_uses_first_value():
         {"url": URL, "canonical": "https://example.com/original/child.html"}, html,
     )
     assert result["status"] == "pass"
+
+
+def test_blank_canonical_href_cannot_pass_as_self_canonical():
+    html = '<html><head><link rel="canonical" href=" "></head><body></body></html>'
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert result["status"] == "fail"
+    assert result["issues"] == [{"code": "canonical", "expected": [URL], "actual": [""]}]
+
+
+def test_blank_hreflang_href_cannot_pass_as_self_alternate():
+    html = '<html><head><link rel="alternate" hreflang="en" href=""></head><body></body></html>'
+    result = verify_contract({"url": URL, "hreflang": {"en": URL}}, html)
+    assert result["status"] == "fail"
+    assert result["issues"] == [{"code": "hreflang:en", "expected": [URL], "actual": [""]}]

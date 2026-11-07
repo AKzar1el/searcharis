@@ -54,6 +54,11 @@ Only fields explicitly specified in the JSON contract are checked. The
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
   This avoids passing SEO assertions using an attribute browsers discard;
   it is not a general HTML validity checker.
+* A blank or whitespace-only `<link href>` cannot satisfy an explicit canonical
+  or hreflang URL assertion merely by resolving to the document URL. Optional
+  cross-page hreflang checks also fail on blank destinations even without a
+  per-page hreflang contract. The HTML standard requires a
+  [non-empty link URL](https://html.spec.whatwg.org/dev/semantics.html#the-link-element).
 * Checks JSON-LD *syntax and presence of types*, not rich-result eligibility
   or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO
