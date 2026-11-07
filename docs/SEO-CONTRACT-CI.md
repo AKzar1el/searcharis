@@ -293,6 +293,9 @@ Searcharis: both files must already be present locally. This tool reads
 no live URLs or production credentials, and does not create a GitHub
 workflow, decide whether a baseline is trustworthy or prove real search
 indexing health.
+Non-finite numeric values in report data (such as `NaN`, `Infinity`, or a
+number overflowing to infinity during JSON decoding) are invalid input
+(exit 2), not a successful no-regression comparison.
 
 ## Optional SARIF findings for artifact-level CI reporting
 
