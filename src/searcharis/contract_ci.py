@@ -29,6 +29,7 @@ class _SEOParser(HTMLParser):
         self.canonicals: list[str] = []
         self.hreflangs: dict[str, list[str]] = {}
         self.robots: list[str] = []
+        self.base_href: str | None = None
         self.jsonld_blocks: list[str] = []
         self.in_jsonld = False
         self.jsonld_chunks: list[str] = []
@@ -52,6 +53,9 @@ class _SEOParser(HTMLParser):
             self.in_title = False
         if tag == "title" and self.in_head:
             self.in_title = True
+        elif tag == "base" and self.in_head and self.base_href is None and "href" in values:
+            # HTML uses the first head <base href> to resolve relative links.
+            self.base_href = (values["href"] or "").strip()
         elif tag == "h1":
             self.h1_count += 1
         elif tag == "meta" and self.in_head and (values.get("name") or "").lower() in {
@@ -161,6 +165,26 @@ def verify_contract(
     def fail(code: str, expected: object, actual: object) -> None:
         issues.append({"code": code, "expected": expected, "actual": actual})
 
+    base_url = url
+    if page.base_href is not None:
+        try:
+            candidate = urljoin(url, page.base_href)
+            parsed_base = urlsplit(candidate)
+            valid_base = (
+                parsed_base.scheme in {"http", "https"}
+                and bool(parsed_base.hostname)
+                and parsed_base.username is None
+                and parsed_base.password is None
+                and (parsed_base.port is None or 0 < parsed_base.port <= 65535)
+                and not any(char.isspace() or ord(char) < 32 for char in candidate)
+            )
+        except ValueError:
+            valid_base = False
+        if valid_base:
+            base_url = candidate
+        else:
+            fail("document_base_invalid", "an HTTP(S) document base URL", page.base_href)
+
     if not page.has_html or not page.has_head:
         fail("html_structure", "HTML document with head", {"html": page.has_html, "head": page.has_head})
     if "title_present" in spec:
@@ -168,7 +192,7 @@ def verify_contract(
         if actual != spec["title_present"]:
             fail("title_presence", spec["title_present"], actual)
     if "canonical" in spec:
-        actual = [urljoin(url, item) for item in page.canonicals]
+        actual = [urljoin(base_url, item) for item in page.canonicals]
         if actual != [spec["canonical"]]:
             fail("canonical", [spec["canonical"]], actual)
     if "indexable" in spec:
@@ -180,7 +204,7 @@ def verify_contract(
         if bound in spec and not condition(page.h1_count, spec[bound]):
             fail(bound, spec[bound], page.h1_count)
     for language, expected in spec.get("hreflang", {}).items():
-        actual = [urljoin(url, href) for href in page.hreflangs.get(language.lower(), [])]
+        actual = [urljoin(base_url, href) for href in page.hreflangs.get(language.lower(), [])]
         if actual != [expected]:
             fail(f"hreflang:{language}", [expected], actual)
     if "jsonld_types" in spec:
@@ -197,7 +221,7 @@ def verify_contract(
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.
         result["observed_hreflang"] = {
-            language: [urljoin(url, href) for href in hrefs if href]
+            language: [urljoin(base_url, href) for href in hrefs if href]
             for language, hrefs in sorted(page.hreflangs.items())
         }
     if include_canonical:
@@ -205,7 +229,7 @@ def verify_contract(
         observed = []
         for href in page.canonicals:
             try:
-                observed.append(urljoin(url, href) if href else "")
+                observed.append(urljoin(base_url, href) if href else "")
             except ValueError:
                 observed.append(href)  # Malformed URLs become assertion failures.
         result["observed_canonical"] = observed

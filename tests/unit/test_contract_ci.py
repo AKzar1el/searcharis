@@ -168,3 +168,49 @@ def test_body_metadata_does_not_poison_valid_head_or_body_jsonld():
     assert result["observed_hreflang"] == {
         "en": [URL], "sl": ["https://example.com/sl/"],
     }
+
+
+def test_document_base_href_resolves_relative_canonical_and_hreflang():
+    html = '''<html><head><title>Page</title>
+    <base href="https://assets.example.test/pages/">
+    <link rel="canonical" href="article.html">
+    <link rel="alternate" hreflang="en" href="article.html">
+    </head><body></body></html>'''
+    target = "https://assets.example.test/pages/article.html"
+    result = verify_contract(
+        {"url": URL, "canonical": target, "hreflang": {"en": target}},
+        html, include_canonical=True, include_hreflang=True,
+    )
+    assert result["status"] == "pass"
+    assert result["observed_canonical"] == [target]
+    assert result["observed_hreflang"] == {"en": [target]}
+
+
+def test_document_base_prevents_false_pass_with_relative_canonical():
+    html = '''<html><head><base href="https://other.example.test/subdir/">
+    <link rel="canonical" href="article.html"></head><body></body></html>'''
+    result = verify_contract(
+        {"url": URL, "canonical": "https://example.com/en/article.html"}, html,
+    )
+    assert result["status"] == "fail"
+    assert result["issues"][0]["actual"] == ["https://other.example.test/subdir/article.html"]
+
+
+def test_first_head_base_wins_and_body_template_bases_are_ignored():
+    html = '''<html><head><template><base href="https://wrong.example.test/"></template>
+    <base target="_blank"><base href="/nested/"><base href="/ignored/">
+    <link rel="canonical" href="child.html"></head><body>
+    <base href="/wrong/"></body></html>'''
+    result = verify_contract(
+        {"url": URL, "canonical": "https://example.com/nested/child.html"}, html,
+        include_canonical=True,
+    )
+    assert result["status"] == "pass"
+    assert result["observed_canonical"] == ["https://example.com/nested/child.html"]
+
+
+def test_invalid_document_base_fails_closed():
+    html = '''<html><head><base href="javascript:alert(1)">
+    <link rel="canonical" href="/en/"></head><body></body></html>'''
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}

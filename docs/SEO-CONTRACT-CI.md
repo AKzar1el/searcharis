@@ -39,9 +39,12 @@ Only fields explicitly specified in the JSON contract are checked. The
 * Validates the supplied HTML **only**; not HTTP status, X-Robots-Tag
   headers, robots.txt, redirects, JavaScript-rendered output, or actual
   search indexing.
-* Checks relative URL resolution against the declared URL, not the
-  build artifact's local path. Does not normalize away meaningful URL
-  differences; set canonical expected values deliberately.
+* Resolves relative canonical and hreflang URLs against the first `<base href>`
+  inside the HTML `<head>` (when present); otherwise uses the declared URL.
+  An invalid or non-HTTP(S) document base fails as `document_base_invalid`.
+  `<base>` inside the body or an inert template is ignored. The build artifact's
+  local path is never the URL base. No URL is fetched, and meaningful URL
+  differences are preserved; set canonical expected values deliberately.
 * Counts HTML titles, canonical and hreflang links, and robots/googlebot meta
   directives only inside the document `<head>`. Identically named elements
   in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
