@@ -140,15 +140,22 @@ def _check_contract(spec: object) -> dict:
 
 
 def _types(value: object) -> set[str]:
-    if isinstance(value, list):
-        return set().union(*(_types(item) for item in value)) if value else set()
-    if not isinstance(value, dict):
-        return set()
-    types = value.get("@type", [])
-    found = {types} if isinstance(types, str) else {
-        item for item in types if isinstance(item, str)
-    } if isinstance(types, list) else set()
-    return found | _types(value.get("@graph", []))
+    found: set[str] = set()
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, list):
+            pending.extend(current)
+        elif isinstance(current, dict):
+            # @context describes terms/type coercion, not page entities.
+            types = current.get("@type", [])
+            if "@value" not in current:
+                if isinstance(types, str):
+                    found.add(types)
+                elif isinstance(types, list):
+                    found.update(item for item in types if isinstance(item, str))
+            pending.extend(item for key, item in current.items() if key not in {"@context", "@type"})
+    return found
 
 
 def _resolve_href(base_url: str, href: str) -> str:

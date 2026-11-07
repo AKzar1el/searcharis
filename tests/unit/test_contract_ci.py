@@ -56,6 +56,38 @@ def test_invalid_and_missing_jsonld_reported():
     assert {"jsonld_invalid", "jsonld_type_missing"} <= {i["code"] for i in result["issues"]}
 
 
+def test_nested_jsonld_entities_satisfy_declared_types():
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [{
+            "@type": "Question",
+            "acceptedAnswer": {"@type": "Answer", "text": "Available"},
+        }],
+    }
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + json.dumps(structured_data)
+        + '</script></head><body></body></html>'
+    )
+    contract = {"url": URL, "jsonld_types": ["FAQPage", "Question", "Answer"]}
+    assert verify_contract(contract, html)["status"] == "pass"
+
+
+def test_jsonld_context_type_mapping_is_not_an_entity():
+    structured_data = {
+        "@context": {"author": {"@type": "Person"}},
+        "@type": "Article",
+    }
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + json.dumps(structured_data)
+        + '</script></head><body></body></html>'
+    )
+    result = verify_contract({"url": URL, "jsonld_types": ["Person"]}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"jsonld_type_missing"}
+
+
 def test_empty_contract_is_not_silent_pass():
     with pytest.raises(ValueError, match="at least one"):
         verify_contract({"url": URL}, HTML)
