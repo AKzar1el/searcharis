@@ -125,8 +125,10 @@ def _check_contract(spec: object) -> dict:
     for field in ("title_present", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
-    if "canonical" in spec and (not isinstance(spec["canonical"], str) or not spec["canonical"]):
-        raise ValueError("'canonical' must be a non-empty URL string")
+    if "canonical" in spec and (
+        not isinstance(spec["canonical"], str) or not _is_http_url(spec["canonical"])
+    ):
+        raise ValueError("'canonical' must be an absolute HTTP(S) URL")
     for field in ("h1_min", "h1_max"):
         if field in spec and (type(spec[field]) is not int or spec[field] < 0):
             raise ValueError(f"'{field}' must be a non-negative integer")
@@ -137,6 +139,8 @@ def _check_contract(spec: object) -> dict:
         for k, v in spec["hreflang"].items()
     )):
         raise ValueError("'hreflang' must be a non-empty mapping of language to URL")
+    if "hreflang" in spec and any(not _is_http_url(v) for v in spec["hreflang"].values()):
+        raise ValueError("'hreflang' values must be absolute HTTP(S) URLs")
     if "jsonld_types" in spec and (not isinstance(spec["jsonld_types"], list) or any(
         not isinstance(v, str) or not v for v in spec["jsonld_types"]
     )):
