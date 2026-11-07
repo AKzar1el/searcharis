@@ -1,5 +1,6 @@
 """SARIF export for local build artifacts; no cloud or source-code claims."""
 
+import hashlib
 import json
 import socket
 
@@ -115,6 +116,55 @@ def test_sarif_normalizes_language_codes_and_is_deterministic():
     ]
     assert len(first["runs"][0]["results"]) == 2
     assert "hreflang:en" in first["runs"][0]["results"][0]["message"]["text"]
+
+
+def test_sarif_repeated_identical_findings_have_distinct_stable_fingerprints():
+    repeated = {
+        "code": "hreflang_invalid_url:sl",
+        "expected": "absolute HTTP(S) URL",
+        "actual": "javascript:bad()",
+    }
+    different = {"code": "h1_min", "expected": 1, "actual": 0}
+    report = {
+        "status": "fail",
+        "pages": [{
+            "path": "en/index.html",
+            "checked_url": "https://example.test/en/",
+            "status": "fail",
+            "issues": [repeated, different, repeated],
+        }],
+        "coverage": {"unlisted": [], "require_full_coverage": False},
+    }
+    results = build_sarif_report(report)["runs"][0]["results"]
+    fingerprints = [result["partialFingerprints"]["searcharis/issue/v1"] for result in results]
+    assert len(fingerprints) == len(set(fingerprints))
+    legacy = hashlib.sha256(json.dumps(
+        ["en/index.html", repeated], sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+    assert legacy in fingerprints  # The first matching alert retains its old identity.
+
+    report["pages"][0]["issues"].reverse()
+    assert build_sarif_report(report)["runs"][0]["results"] == results
+
+
+def test_sarif_cli_keeps_independent_repeated_invalid_hreflang_findings(tmp_path, capsys):
+    manifest = _fixture(tmp_path)
+    path = tmp_path / "en" / "index.html"
+    path.write_text(
+        '<!doctype html><html><head><title>Test</title>'
+        '<link rel="alternate" hreflang="sl" href="javascript:bad()">'
+        '<link rel="alternate" hreflang="sl" href="javascript:bad()">'
+        '</head><body><h1>Test</h1></body></html>',
+        encoding="utf-8",
+    )
+    code, report = _run(manifest, tmp_path, capsys, "--check-hreflang-reciprocity")
+    assert code == 1
+    results = [
+        result for result in report["runs"][0]["results"]
+        if result["ruleId"] == "hreflang_invalid_url"
+    ]
+    assert len(results) == 2
+    assert len({r["partialFingerprints"]["searcharis/issue/v1"] for r in results}) == 2
 
 
 def test_sarif_message_is_bounded_for_large_observed_values():
