@@ -219,6 +219,56 @@ def test_rawtext_example_cannot_rescue_heading_cli(tmp_path, capsys):
     assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
 
 
+def test_plaintext_examples_cannot_supply_heading_or_jsonld():
+    html = (
+        '<html><head><title>Example</title></head><body><plaintext>'
+        '<h1>Text example only</h1>'
+        '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+        '</body></html>'
+    )
+    result = verify_contract({"url": URL, "h1_min": 1, "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in result["issues"]} == {
+        "h1_min", "jsonld_type_missing",
+    }
+
+
+def test_plaintext_cannot_be_closed_by_literal_end_tag():
+    html = (
+        '<html><head></head><body><plaintext>Example'
+        '</plaintext><h1>Still text, not an element</h1></body></html>'
+    )
+    result = verify_contract({"url": URL, "h1_min": 1}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"h1_min"}
+
+
+def test_plaintext_inside_template_still_consumes_remaining_html():
+    html = (
+        '<html><head></head><body><template><plaintext>Example'
+        '</template><h1>Still plain text</h1></body></html>'
+    )
+    result = verify_contract({"url": URL, "h1_min": 1}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"h1_min"}
+
+
+def test_plaintext_does_not_hide_real_earlier_heading():
+    html = '<html><head></head><body><h1>Real heading</h1><plaintext><h1>Text</h1>'
+    result = verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+def test_plaintext_example_cannot_rescue_heading_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><plaintext><h1>Only text</h1></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
 def test_missing_title_detected():
     result = verify_contract(CONTRACT, HTML.replace("<title>Proper page</title>", ""))
     assert "title_presence" in {i["code"] for i in result["issues"]}

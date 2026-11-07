@@ -41,6 +41,7 @@ class _SEOParser(HTMLParser):
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
         self.in_textarea = False
+        self.in_plaintext = False
 
     def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
         # HTMLParser tokenizes markup inside RCDATA elements, unlike browsers.
@@ -49,19 +50,24 @@ class _SEOParser(HTMLParser):
             super().set_cdata_mode(elem, **kwargs)
 
     def handle_decl(self, decl: str) -> None:
-        if self.in_textarea:
+        if self.in_textarea or self.in_plaintext:
             return
         # A full HTML document may legally omit its <html> start tag.
         if decl.lower().split()[:2] == ["doctype", "html"]:
             self.has_html = True
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if self.in_textarea or self.in_title_element:
-            return  # RCDATA markup is text, not active page elements.
+        if self.in_textarea or self.in_title_element or self.in_plaintext:
+            return  # Markup in text-only contexts is not active page content.
         if tag == "template":
             if self.has_html and not self.has_head and not self.body_seen:
                 self.has_head = self.in_head = True
             self.template_depth += 1
+            return
+        if tag == "plaintext" and self.template_depth:
+            # Even an inert template cannot terminate the plaintext tokenizer;
+            # all following apparent tags, including </template>, are text.
+            self.in_plaintext = True
             return
         if self.template_depth:
             return  # Inert template descendants are not active page SEO signals.
@@ -93,6 +99,10 @@ class _SEOParser(HTMLParser):
             self.in_title = False
         if tag == "textarea":
             self.in_textarea = True
+        elif tag == "plaintext":
+            # HTML treats everything after <plaintext> as text, including a
+            # literal </plaintext>; no later tag can become an SEO signal.
+            self.in_plaintext = True
         elif tag == "title":
             self.in_title_element = True
         elif tag in _RAWTEXT_ELEMENTS:
@@ -126,6 +136,8 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_endtag(self, tag: str) -> None:
+        if self.in_plaintext:
+            return
         if self.in_textarea:
             if tag == "textarea":
                 self.in_textarea = False
@@ -151,7 +163,7 @@ class _SEOParser(HTMLParser):
             self.jsonld_chunks = []
 
     def handle_data(self, data: str) -> None:
-        if self.template_depth or self.in_textarea:
+        if self.template_depth or self.in_textarea or self.in_plaintext:
             return
         if self.in_title_element:
             if self.in_title:
