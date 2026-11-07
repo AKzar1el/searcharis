@@ -59,8 +59,11 @@ Only fields explicitly specified in the JSON contract are checked. The
   cross-page hreflang checks also fail on blank destinations even without a
   per-page hreflang contract. The HTML standard requires a
   [non-empty link URL](https://html.spec.whatwg.org/dev/semantics.html#the-link-element).
-* Checks JSON-LD *syntax and presence of types*, not rich-result eligibility
-  or all Schema.org constraints.
+* Checks JSON-LD *syntax and presence of types*, including nested entities
+  such as an Article's author or a FAQPage's questions and answers, as well
+  as `@graph`. Term/type declarations inside `@context` and typed literal
+  values are not counted as entities. This does not verify rich-result
+  eligibility or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or
   H1 appearing only in an inert template cannot satisfy the contract. This is
