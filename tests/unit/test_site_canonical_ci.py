@@ -161,6 +161,22 @@ def test_base_href_changes_offline_cross_page_canonical_target(tmp_path, capsys)
     assert cli_result["canonical_consistency"]["unverified_targets"] == result["canonical_consistency"]["unverified_targets"]
 
 
+def test_duplicate_href_uses_browser_first_value_for_local_target(tmp_path, capsys):
+    manifest = _build(tmp_path)
+    (tmp_path / "en" / "index.html").write_text(
+        '<html><head><title>Page</title>'
+        '<link rel="canonical" href="/sl/" href="/en/">'
+        '</head><body></body></html>',
+        encoding="utf-8",
+    )
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_file), str(tmp_path), "--check-canonical-consistency", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "pass"
+    assert report["canonical_consistency"]["internal_targets_checked"] == 1
+
+
 def test_opt_in_preserves_existing_checker_default(tmp_path):
     manifest = _build(tmp_path)
     _change(tmp_path, "en", [])

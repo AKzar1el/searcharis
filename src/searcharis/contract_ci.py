@@ -41,7 +41,11 @@ class _SEOParser(HTMLParser):
             return
         if self.template_depth:
             return  # Inert template descendants are not active page SEO signals.
-        values = dict(attrs)
+        # HTML parsing retains the first occurrence of a duplicated attribute.
+        # dict(attrs) would silently let a later value spoof SEO assertions.
+        values: dict[str, str | None] = {}
+        for name, value in attrs:
+            values.setdefault(name, value)
         if tag == "html":
             self.has_html = True
         if tag == "head" and not self.body_seen:
