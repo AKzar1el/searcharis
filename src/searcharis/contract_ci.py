@@ -151,6 +151,11 @@ def _types(value: object) -> set[str]:
     return found | _types(value.get("@graph", []))
 
 
+def _resolve_href(base_url: str, href: str) -> str:
+    # An empty <link href> is not a URL, even though urljoin maps it to base_url.
+    return urljoin(base_url, href) if href else ""
+
+
 def verify_contract(
     contract: object,
     html: str,
@@ -196,7 +201,7 @@ def verify_contract(
         if actual != spec["title_present"]:
             fail("title_presence", spec["title_present"], actual)
     if "canonical" in spec:
-        actual = [urljoin(base_url, item) for item in page.canonicals]
+        actual = [_resolve_href(base_url, item) for item in page.canonicals]
         if actual != [spec["canonical"]]:
             fail("canonical", [spec["canonical"]], actual)
     if "indexable" in spec:
@@ -208,7 +213,7 @@ def verify_contract(
         if bound in spec and not condition(page.h1_count, spec[bound]):
             fail(bound, spec[bound], page.h1_count)
     for language, expected in spec.get("hreflang", {}).items():
-        actual = [urljoin(base_url, href) for href in page.hreflangs.get(language.lower(), [])]
+        actual = [_resolve_href(base_url, href) for href in page.hreflangs.get(language.lower(), [])]
         if actual != [expected]:
             fail(f"hreflang:{language}", [expected], actual)
     if "jsonld_types" in spec:
@@ -221,6 +226,10 @@ def verify_contract(
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
                 fail("jsonld_type_missing", expected_type, sorted(observed))
+    if include_hreflang:
+        for language, hrefs in sorted(page.hreflangs.items()):
+            if "" in hrefs:
+                fail(f"hreflang_empty_href:{language}", "non-empty href", hrefs)
     result = {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.
