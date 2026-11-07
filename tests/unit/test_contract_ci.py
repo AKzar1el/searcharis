@@ -315,6 +315,24 @@ def test_empty_contract_is_not_silent_pass():
         verify_contract({"url": URL}, HTML)
 
 
+@pytest.mark.parametrize("types", [[], ["   "], ["WebPage", " \t "]])
+def test_jsonld_contract_must_assert_at_least_one_nonblank_type(types):
+    # A no-op type list must not make a build without structured data pass CI.
+    html = '<html><head><title>No schema</title></head><body></body></html>'
+    with pytest.raises(ValueError, match="jsonld_types"):
+        verify_contract({"url": URL, "jsonld_types": types}, html)
+
+
+def test_cli_rejects_noop_jsonld_types_as_invalid_contract(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    html = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "jsonld_types": []}), encoding="utf-8")
+    html.write_text('<html><head><title>No schema</title></head><body></body></html>', encoding="utf-8")
+
+    assert main([str(contract), str(html), "--json"]) == 2
+    assert "jsonld_types" in capsys.readouterr().err
+
+
 def test_unsupported_check_is_rejected():
     with pytest.raises(ValueError, match="Unsupported"):
         verify_contract({"url": URL, "magic": True}, HTML)
