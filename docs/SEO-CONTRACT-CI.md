@@ -104,6 +104,10 @@ document base and compared to these absolute expectations, without fetching.
 * Treats HTML `<textarea>` contents as editable text rather than active markup.
   Heading and JSON-LD examples written inside a textarea cannot satisfy the
   real page's assertions; headings after the closing textarea remain visible.
+  Likewise, markup text inside `<iframe>`, `<xmp>`, `<noembed>` and `<noframes>`
+  is not counted as active headings or JSON-LD. Real headings after these
+  elements are still checked. This reflects HTML raw-text parsing, not a
+  browser rendering or JavaScript execution test.
 * Hreflang checks validate declared entries, not complete reciprocals
   across an entire multilingual site.
 * Do not treat a passing check as proof of production SEO health.
