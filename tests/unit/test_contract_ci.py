@@ -29,6 +29,45 @@ def test_good_page_passes():
     assert verify_contract(CONTRACT, HTML)["status"] == "pass"
 
 
+@pytest.mark.parametrize("omit_html_and_body", [False, True])
+def test_valid_optional_head_start_tag_keeps_seo_assertions(omit_html_and_body):
+    # HTML5 permits the head start tag to be omitted; minifiers may also omit
+    # html/body tags if their surrounding whitespace is removed.
+    if omit_html_and_body:
+        html = (HTML.replace("<html><head>", "")
+                .replace("</head><body>", "")
+                .replace("</body></html>", ""))
+    else:
+        html = HTML.replace("<head>", "")
+    result = verify_contract(CONTRACT, html, include_hreflang=True, include_canonical=True)
+    assert result["status"] == "pass", result["issues"]
+    assert result["observed_canonical"] == [URL]
+    assert result["observed_hreflang"]["en"] == [URL]
+
+
+def test_implicit_head_closes_at_first_body_content_without_body_start_tag():
+    html = ("<!doctype html><html><title>Good</title><h1>Heading</h1>"
+            '<link rel="canonical" href="/en/">')
+    result = verify_contract({"url": URL, "title_present": True, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"canonical"}
+
+
+def test_body_content_before_implicit_head_does_not_create_head_metadata():
+    html = "<!doctype html><html><div>Content</div><title>Not in head</title>"
+    result = verify_contract({"url": URL, "title_present": True}, html)
+    assert "title_presence" in {issue["code"] for issue in result["issues"]}
+
+
+def test_minified_implicit_head_passes_single_page_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "title_present": True, "canonical": URL}))
+    artifact.write_text('<!doctype html><title>Minified</title>'
+                        '<link rel="canonical" href="/en/"><h1>Content</h1>')
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 def test_missing_title_detected():
     result = verify_contract(CONTRACT, HTML.replace("<title>Proper page</title>", ""))
     assert "title_presence" in {i["code"] for i in result["issues"]}

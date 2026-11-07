@@ -14,6 +14,9 @@ _ALLOWED = frozenset({
     "url", "title_present", "canonical", "indexable", "h1_min", "h1_max",
     "hreflang", "jsonld_types",
 })
+_HEAD_ELEMENTS = frozenset({
+    "base", "link", "meta", "noscript", "script", "style", "template", "title",
+})
 
 
 class _SEOParser(HTMLParser):
@@ -36,8 +39,15 @@ class _SEOParser(HTMLParser):
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
 
+    def handle_decl(self, decl: str) -> None:
+        # A full HTML document may legally omit its <html> start tag.
+        if decl.lower().split()[:2] == ["doctype", "html"]:
+            self.has_html = True
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "template":
+            if self.has_html and not self.has_head and not self.body_seen:
+                self.has_head = self.in_head = True
             self.template_depth += 1
             return
         if self.template_depth:
@@ -52,6 +62,18 @@ class _SEOParser(HTMLParser):
         if tag == "head" and not self.body_seen:
             self.has_head = True
             self.in_head = True
+        elif self.has_html and not self.has_head and not self.body_seen:
+            # HTML5 allows an omitted <head> start tag, commonly emitted by
+            # minifiers. The first metadata element opens an implicit head.
+            if tag in _HEAD_ELEMENTS:
+                self.has_head = self.in_head = True
+            elif tag != "html":
+                self.body_seen = True
+        elif self.in_head and tag not in _HEAD_ELEMENTS and tag != "head":
+            # An omitted </head>/<body> must not let body metadata pass checks.
+            self.in_head = False
+            self.body_seen = True
+            self.in_title = False
         if tag == "body":
             self.body_seen = True
             self.in_head = False  # HTML can omit an explicit closing </head>.
