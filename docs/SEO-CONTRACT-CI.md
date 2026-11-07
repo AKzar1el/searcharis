@@ -64,6 +64,11 @@ document base and compared to these absolute expectations, without fetching.
   directives only inside the document `<head>`. Identically named elements
   in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
   may appear in the head or body; visible headings are checked separately.
+  The checker also recognizes valid HTML5 documents that omit `<html>` and/or
+  `<head>` start tags (as minifiers can do). A leading HTML doctype identifies
+  the implied document root; only metadata before body content is treated as
+  belonging to the implied head. See the
+  [HTML optional-tag rules](https://html.spec.whatwg.org/multipage/syntax.html#optional-tags).
   `title_present` examines the first active head `<title>` only; a later
   duplicate cannot rescue a blank first title. HTML permits only one title
   element per document; this checker does not separately enforce uniqueness.
