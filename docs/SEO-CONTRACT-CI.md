@@ -126,6 +126,10 @@ document base and compared to these absolute expectations, without fetching.
   is not counted as active headings or JSON-LD. Real headings after these
   elements are still checked. This reflects HTML raw-text parsing, not a
   browser rendering or JavaScript execution test.
+* Treats everything after the obsolete HTML `<plaintext>` start tag as text,
+  including apparent closing tags. Markup-looking headings and JSON-LD after
+  it cannot satisfy SEO assertions; earlier genuine headings still count.
+  This follows the HTML tokenizer's plaintext state, not a rendering test.
 * Hreflang checks validate declared entries, not complete reciprocals
   across an entire multilingual site.
 * Do not treat a passing check as proof of production SEO health.
