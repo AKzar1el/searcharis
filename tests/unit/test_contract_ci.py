@@ -137,6 +137,44 @@ def test_textarea_example_cannot_rescue_heading_cli(tmp_path, capsys):
     assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
 
 
+@pytest.mark.parametrize("rawtext_tag", ["iframe", "xmp", "noembed", "noframes"])
+def test_rawtext_embedded_examples_cannot_satisfy_heading_or_jsonld(rawtext_tag):
+    html = (
+        '<html><head><title>Example</title></head><body>'
+        f'<{rawtext_tag}><h1>Not a real heading</h1>'
+        '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+        f'</{rawtext_tag}></body></html>'
+    )
+    result = verify_contract({"url": URL, "h1_min": 1, "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in result["issues"]} == {
+        "h1_min", "jsonld_type_missing",
+    }
+
+
+def test_rawtext_example_does_not_hide_following_heading():
+    html = (
+        '<html><head></head><body><iframe>'
+        '<script>Literal example with no closing script tag'
+        '</iframe><h1>Real heading</h1></body></html>'
+    )
+    assert verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)[
+        "status"
+    ] == "pass"
+
+
+def test_rawtext_example_cannot_rescue_heading_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><iframe><h1>Not a heading</h1></iframe></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
 def test_missing_title_detected():
     result = verify_contract(CONTRACT, HTML.replace("<title>Proper page</title>", ""))
     assert "title_presence" in {i["code"] for i in result["issues"]}

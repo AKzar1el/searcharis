@@ -17,6 +17,7 @@ _ALLOWED = frozenset({
 _HEAD_ELEMENTS = frozenset({
     "base", "link", "meta", "noscript", "script", "style", "template", "title",
 })
+_RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes"})
 
 
 class _SEOParser(HTMLParser):
@@ -91,6 +92,10 @@ class _SEOParser(HTMLParser):
             self.in_title = False
         if tag == "textarea":
             self.in_textarea = True
+        elif tag in _RAWTEXT_ELEMENTS:
+            # HTMLParser does not natively tokenize these HTML raw-text
+            # elements as text, so literal examples could spoof page SEO.
+            self.set_cdata_mode(tag)
         if tag == "title" and self.in_head and not self.title_seen:
             # The first head title is the document title; later duplicates
             # must not turn an empty first title into a false presence pass.
