@@ -164,6 +164,27 @@ def test_cli_regression_exit_codes_and_offline_behavior(tmp_path, capsys, monkey
     assert json.loads(capsys.readouterr().out)["status"] == "error"
 
 
+@pytest.mark.parametrize("nonfinite", ["NaN", "Infinity", "-Infinity", "1e999"])
+def test_cli_rejects_nonfinite_values_in_local_reports(tmp_path, capsys, nonfinite):
+    report = _report([("en/index.html", [_issue()])])
+    raw = json.dumps(report).replace('"actual": "missing"', f'"actual": {nonfinite}')
+    before = tmp_path / "baseline.json"
+    after = tmp_path / "candidate.json"
+    before.write_text(raw, encoding="utf-8")
+    after.write_text(raw, encoding="utf-8")
+
+    assert main([str(before), str(after), "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+def test_compare_reports_rejects_nonfinite_python_values_but_accepts_finite_numbers():
+    report = _report([("en/index.html", [_issue(1.25)])])
+    assert compare_reports(report, report)["status"] == "pass"
+    report["pages"][0]["issues"][0]["actual"] = float("nan")
+    with pytest.raises(ValueError, match="non-finite"):
+        compare_reports(report, report)
+
+
 def test_comparison_tracks_actual_local_html_build_regression(tmp_path):
     html = tmp_path / "index.html"
     manifest = {

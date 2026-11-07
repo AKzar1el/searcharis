@@ -22,6 +22,12 @@ def _int(value: object) -> bool:
 def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
     if not isinstance(report, dict):
         raise ValueError(f"{name}: report must be a JSON object")
+    try:
+        # Python's JSON decoder accepts NaN/Infinity and can overflow 1e999
+        # to infinity. Such values must not turn invalid CI input into PASS.
+        json.dumps(report, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name}: report contains non-finite or invalid JSON values") from error
     pages = report.get("pages")
     summary = report.get("summary")
     coverage = report.get("coverage")
