@@ -133,6 +133,31 @@ def test_invalid_bounds_and_url_rejected():
             verify_contract(contract, HTML)
 
 
+@pytest.mark.parametrize("bad_url", [
+    "https://example.com:99999/en/",
+    "https://example.com:invalid/en/",
+    "https://example.com/path with space",
+])
+def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
+    with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
+        verify_contract({"url": bad_url, "title_present": True}, HTML)
+
+
+def test_non_default_valid_contract_port_is_accepted():
+    result = verify_contract({"url": "https://example.com:8443/en/", "title_present": True}, HTML)
+    assert result["status"] == "pass"
+
+
+def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    html = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": "https://example.com:99999/en/", "title_present": True}))
+    html.write_text(HTML)
+
+    assert main([str(contract), str(html), "--json"]) == 2
+    assert "HTTP(S) URL" in capsys.readouterr().err
+
+
 def test_cli_returns_correct_status(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     html = tmp_path / "index.html"

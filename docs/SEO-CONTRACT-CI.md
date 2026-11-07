@@ -37,6 +37,12 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `hreflang` | Require exactly one alternate for each named language |
 | `jsonld_types` | Require Schema.org `@type` values in valid JSON-LD blocks |
 
+The declared `url` must be a syntactically valid absolute HTTP(S) URL, without
+embedded whitespace, credentials, or a malformed/out-of-range port. Both CLI
+entry points reject invalid declared URLs as input errors (exit 2), including
+for contracts that assert only a page title. This validates URL syntax only;
+it does not fetch or check whether the URL resolves.
+
 ## Limits and interpretation
 
 * Validates the supplied HTML **only**; not HTTP status, X-Robots-Tag

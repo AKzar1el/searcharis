@@ -116,8 +116,9 @@ def _check_contract(spec: object) -> dict:
     url = spec.get("url")
     if not isinstance(url, str) or not url:
         raise ValueError("Contract requires a non-empty absolute 'url'")
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+    # A malformed declared URL can make title-only contracts falsely pass and
+    # corrupt the URL identities used by cross-page consistency checks.
+    if not _is_http_url(url):
         raise ValueError("Contract 'url' must be an absolute public-format HTTP(S) URL")
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
