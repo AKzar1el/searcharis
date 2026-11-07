@@ -108,7 +108,9 @@ document base and compared to these absolute expectations, without fetching.
   as `@graph`. Term/type declarations inside `@context` and typed literal
   values are not counted as entities. Non-JSON numeric literals (`NaN`,
   `Infinity`, `-Infinity`) fail syntax validation rather than silently passing
-  via Python's permissive JSON parser. This does not verify rich-result
+  via Python's permissive JSON parser. Duplicate JSON object keys, including
+  nested JSON-LD keys, also fail validation rather than silently letting the
+  last duplicate value satisfy an assertion. This does not verify rich-result
   eligibility or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or

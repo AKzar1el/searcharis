@@ -233,6 +233,15 @@ def _reject_non_json_number(value: str) -> None:
     raise ValueError(f"Non-JSON numeric constant: {value}")
 
 
+def _unique_jsonld_keys(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON-LD key: {key}")
+        result[key] = value
+    return result
+
+
 def _resolve_href(base_url: str, href: str) -> str:
     # An empty <link href> is not a URL, even though urljoin maps it to base_url.
     if not href:
@@ -323,7 +332,11 @@ def verify_contract(
         observed: set[str] = set()
         for index, block in enumerate(page.jsonld_blocks):
             try:
-                observed |= _types(json.loads(block, parse_constant=_reject_non_json_number))
+                observed |= _types(json.loads(
+                    block,
+                    parse_constant=_reject_non_json_number,
+                    object_pairs_hook=_unique_jsonld_keys,
+                ))
             except (json.JSONDecodeError, ValueError):
                 fail("jsonld_invalid", "valid JSON", f"block {index + 1} malformed")
         for expected_type in spec["jsonld_types"]:
