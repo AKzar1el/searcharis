@@ -23,6 +23,9 @@ CI only if you configure CI to execute this checker.
 Only fields explicitly specified in the JSON contract are checked. The
 `url` is an absolute base for resolving relative canonical/hreflang URLs;
 **it is never fetched**.
+Both the single-page contract CLI and the multi-page manifest CLI reject
+duplicate JSON object keys, including nested hreflang mappings, as input
+errors (exit 2) rather than silently overwriting an SEO assertion.
 
 | Contract field | Meaning |
 | --- | --- |
