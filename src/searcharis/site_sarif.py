@@ -21,13 +21,16 @@ def _preview(value: object) -> str:
     return serialized
 
 
-def _fingerprint(path: str, issue: dict) -> str:
-    raw = json.dumps([path, issue], sort_keys=True, separators=(",", ":"))
+def _fingerprint(path: str, issue: dict, occurrence: int) -> str:
+    # Keep the historical fingerprint for the first finding; distinguish
+    # repeated identical findings without changing existing alert identities.
+    identity = [path, issue] if occurrence == 0 else [path, issue, occurrence]
+    raw = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _result(
-    path: str, code: str, message: str, issue: dict, sources: dict[str, str]
+    path: str, code: str, message: str, issue: dict, sources: dict[str, str], occurrence: int
 ) -> dict:
     build_location = {"uri": quote(path, safe="/"), "uriBaseId": "%BUILDROOT%"}
     source = sources.get(path)
@@ -45,7 +48,7 @@ def _result(
                 },
             }
         ],
-        "partialFingerprints": {"searcharis/issue/v1": _fingerprint(path, issue)},
+        "partialFingerprints": {"searcharis/issue/v1": _fingerprint(path, issue, occurrence)},
     }
     if source:
         result["relatedLocations"] = [{
@@ -94,6 +97,13 @@ def build_sarif_report(report: dict, *, sources: dict[str, str] | None = None) -
         item[0], item[1], json.dumps(item[2], sort_keys=True, ensure_ascii=True)
     ))
     rules = sorted({code.split(":", 1)[0] for _path, code, _issue, _message in findings})
+    occurrences: dict[tuple[str, str], int] = {}
+    results = []
+    for path, code, issue, message in findings:
+        key = (path, json.dumps(issue, sort_keys=True, separators=(",", ":")))
+        occurrence = occurrences.get(key, 0)
+        occurrences[key] = occurrence + 1
+        results.append(_result(path, code, message, issue, sources, occurrence))
     return {
         "$schema": _SCHEMA,
         "version": "2.1.0",
@@ -111,10 +121,7 @@ def build_sarif_report(report: dict, *, sources: dict[str, str] | None = None) -
                         ],
                     }
                 },
-                "results": [
-                    _result(path, code, message, issue, sources)
-                    for path, code, issue, message in findings
-                ],
+                "results": results,
             }
         ],
     }

@@ -321,6 +321,11 @@ Each failed page assertion becomes an error result; if
 `--require-full-coverage` is used, unlisted built HTML is also an error.
 The format groups locale-specific check codes under stable rule IDs, includes
 deterministic issue fingerprints and percent-encodes relative artifact paths.
+Repeated identical findings in one built artifact receive distinct,
+deterministic occurrence-based partial fingerprints, so separate failures do
+not share a fingerprint. The first occurrence keeps its prior fingerprint.
+SARIF consumers can apply their own additional matching rules; this does not
+guarantee a separate alert for every occurrence in every consumer.
 Ordinary non-strict unlisted pages and **unverified** off-manifest canonical
 or hreflang targets do not become verified/error findings.
 
