@@ -157,10 +157,12 @@ class _SEOParser(HTMLParser):
             if self.in_title:
                 self.title_chunks.append(data)
             return
-        if self.has_html and not self.has_head and not self.body_seen and data.strip(" \t\n\r\f"):
-            # Non-ASCII-whitespace content before an omitted <head> creates
-            # an empty implicit head and starts the body in HTML5 parsing.
+        if self.has_html and not self.body_seen and not self.cdata_elem and data.strip(" \t\n\r\f"):
+            # Visible text starts the body even when <head> was explicitly
+            # opened or implicitly opened by preceding metadata. Script/style
+            # raw text, title RCDATA and inert template content are excluded.
             self.has_head = True
+            self.in_head = False
             self.body_seen = True
         if self.in_title:
             self.title_chunks.append(data)

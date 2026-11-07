@@ -76,6 +76,50 @@ def test_ascii_whitespace_before_omitted_head_still_allows_head_metadata():
     ] == "pass"
 
 
+@pytest.mark.parametrize("head_start", ["<head>", ""])
+def test_visible_text_in_head_closes_metadata_scope(head_start):
+    # Non-whitespace text makes the browser implicitly close the head. The
+    # following link is not a head canonical, even without a <body> tag.
+    html = ('<!doctype html><html>' + head_start + '<title>Real title</title>'
+            'Visible content<link rel="canonical" href="/en/">')
+    result = verify_contract({"url": URL, "title_present": True, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"canonical"}
+
+
+def test_visible_text_in_explicit_head_cannot_supply_later_title():
+    html = '<!doctype html><html><head>Visible content<title>Body title</title></head>'
+    result = verify_contract({"url": URL, "title_present": True}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"title_presence"}
+
+
+def test_visible_text_after_closed_head_cannot_reopen_head():
+    html = ('<!doctype html><html><head><title>First</title></head>'
+            'Body text<head><link rel="canonical" href="/en/">')
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"canonical"}
+
+
+def test_script_and_style_contents_do_not_implicitly_close_head():
+    html = ('<!doctype html><html><head><style>body { display: block }</style>'
+            '<script>const text = "Visible text";</script>'
+            '<title>Head title</title><link rel="canonical" href="/en/"></head>')
+    assert verify_contract({"url": URL, "title_present": True, "canonical": URL}, html)[
+        "status"
+    ] == "pass"
+
+
+def test_cli_rejects_head_canonical_after_visible_text(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "canonical": URL}), encoding="utf-8")
+    artifact.write_text('<!doctype html><title>Head title</title>Visible text'
+                        '<link rel="canonical" href="/en/">', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert {item["code"] for item in json.loads(capsys.readouterr().out)["issues"]} == {
+        "canonical",
+    }
+
+
 def test_minified_implicit_head_passes_single_page_cli(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     artifact = tmp_path / "index.html"

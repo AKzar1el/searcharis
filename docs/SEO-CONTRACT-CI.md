@@ -77,7 +77,10 @@ document base and compared to these absolute expectations, without fetching.
   the implied document root; only metadata before body content is treated as
   belonging to the implied head. Non-whitespace text before an omitted head
   starts the body and cannot turn later `<title>` or `<link>` elements into
-  head metadata. ASCII whitespace before the omitted head remains permissible. See the
+  head metadata. Non-whitespace text inside an already opened head also starts
+  the body, so a later `<link>` cannot supply a false canonical. Text inside
+  head `<script>`, `<style>` or `<title>` does not prematurely close the head.
+  ASCII whitespace before the omitted head remains permissible. See the
   [HTML optional-tag rules](https://html.spec.whatwg.org/multipage/syntax.html#optional-tags).
   `title_present` examines the first active head `<title>` only; a later
   duplicate cannot rescue a blank first title. HTML permits only one title
