@@ -130,6 +130,12 @@ document base and compared to these absolute expectations, without fetching.
   including apparent closing tags. Markup-looking headings and JSON-LD after
   it cannot satisfy SEO assertions; earlier genuine headings still count.
   This follows the HTML tokenizer's plaintext state, not a rendering test.
+* A trailing `/>` does not close state-bearing non-void HTML elements such as
+  `<template/>`, `<textarea/>`, `<title/>`, or `<script/>`. Their content remains
+  inert or text-only until the matching end tag, rather than falsely satisfying
+  H1/JSON-LD assertions. Head metadata after `<head/>` is still in the head;
+  ordinary void tags such as `<link ... />` retain their normal behavior. Such
+  non-void trailing slashes are HTML parse errors, not a recommended syntax.
 * Hreflang checks validate declared entries, not complete reciprocals
   across an entire multilingual site.
 * Do not treat a passing check as proof of production SEO health.
