@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "description_present", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
-    "hreflang", "jsonld_types",
+    "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
     "base", "link", "meta", "noscript", "script", "style", "template", "title",
@@ -40,6 +40,7 @@ class _SEOParser(HTMLParser):
         self.title_seen = False
         self.description_content: str | None = None
         self.h1_count = 0
+        self.img_missing_alt_count = 0
         self.canonicals: list[str] = []
         self.hreflangs: dict[str, list[str]] = {}
         self.robots: list[str] = []
@@ -151,6 +152,10 @@ class _SEOParser(HTMLParser):
             self.base_href = (values["href"] or "").strip()
         elif tag == "h1":
             self.h1_count += 1
+        elif tag == "img" and "alt" not in values:
+            # An empty alt="" is valid for decorative images; absence is
+            # different from a deliberately empty attribute.
+            self.img_missing_alt_count += 1
         elif tag == "meta" and self.in_head:
             name = (values.get("name") or "").lower()
             if name in {"robots", "googlebot"}:
@@ -246,7 +251,7 @@ def _check_contract(spec: object) -> dict:
         not isinstance(spec["canonical"], str) or not _is_http_url(spec["canonical"])
     ):
         raise ValueError("'canonical' must be an absolute HTTP(S) URL")
-    for field in ("h1_min", "h1_max"):
+    for field in ("h1_min", "h1_max", "img_missing_alt_max"):
         if field in spec and (type(spec[field]) is not int or spec[field] < 0):
             raise ValueError(f"'{field}' must be a non-negative integer")
     if "h1_min" in spec and "h1_max" in spec and spec["h1_min"] > spec["h1_max"]:
@@ -418,6 +423,8 @@ def verify_contract(
     for bound, condition in (("h1_min", lambda a, b: a >= b), ("h1_max", lambda a, b: a <= b)):
         if bound in spec and not condition(page.h1_count, spec[bound]):
             fail(bound, spec[bound], page.h1_count)
+    if "img_missing_alt_max" in spec and page.img_missing_alt_count > spec["img_missing_alt_max"]:
+        fail("img_missing_alt_max", spec["img_missing_alt_max"], page.img_missing_alt_count)
     for language, expected in spec.get("hreflang", {}).items():
         actual = [_resolve_href(base_url, href) for href in page.hreflangs.get(language.lower(), [])]
         if actual != [expected] or any(not _is_http_url(item) for item in actual):
