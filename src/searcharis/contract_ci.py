@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "viewport_device_width", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
+    "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -248,7 +248,8 @@ def _check_contract(spec: object) -> dict:
         raise ValueError("Contract 'url' must be an absolute public-format HTTP(S) URL")
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
-    for field in ("title_present", "description_present", "viewport_device_width", "indexable"):
+    for field in ("title_present", "description_present", "viewport_device_width",
+                  "canonical_present", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals"):
@@ -450,10 +451,19 @@ def verify_contract(
         actual = page.html_lang
         if actual is None or actual.lower() != spec["html_lang"].lower():
             fail("html_lang", spec["html_lang"], actual)
-    if "canonical" in spec:
-        actual = [_resolve_href(base_url, item) for item in page.canonicals]
-        if actual != [spec["canonical"]] or any(not _is_http_url(item) for item in actual):
-            fail("canonical", [spec["canonical"]], actual)
+    if "canonical" in spec or "canonical_present" in spec:
+        observed = [_resolve_href(base_url, item) for item in page.canonicals]
+        if "canonical" in spec and (
+            observed != [spec["canonical"]] or any(not _is_http_url(item) for item in observed)
+        ):
+            fail("canonical", [spec["canonical"]], observed)
+        if "canonical_present" in spec:
+            # Presence means exactly one usable canonical, not any number of
+            # declarations; false means no active canonical destinations.
+            valid_single = len(observed) == 1 and _is_http_url(observed[0])
+            matches = valid_single if spec["canonical_present"] else not observed
+            if not matches:
+                fail("canonical_presence", spec["canonical_present"], observed)
     if "indexable" in spec:
         directives = {x.strip().lower() for content in page.robots for x in content.split(",")}
         actual = not bool({"noindex", "none"} & directives)

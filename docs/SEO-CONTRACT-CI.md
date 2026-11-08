@@ -41,6 +41,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
+| `canonical_present` | Require exactly one valid canonical URL (`true`) or no active canonical destination (`false`) |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
 | `img_missing_alt_max` | Maximum number of active HTML images without an `alt` attribute (0 requires full attribute coverage) |
@@ -151,6 +152,18 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
   This avoids passing SEO assertions using an attribute browsers discard;
   it is not a general HTML validity checker.
+* `canonical_present` is an optional guard for CI pipelines that cannot know
+  the intended canonical URL ahead of time. `true` requires **exactly one**
+  active `<link rel="canonical" href="...">` in the head, whose non-empty
+  destination resolves to a syntactically valid HTTP(S) URL. Missing, blank,
+  malformed, non-HTTP(S), and duplicate canonical destinations fail, with
+  the observed resolved URLs included in the finding. `false` requires no
+  active canonical destinations. Body and inert-template links do not count;
+  the document's first head `<base href>` is honored without fetching it.
+  This is only a presence and URL-syntax assertion: it does **not** prove
+  that a canonical is self-referential, points to indexable content, or is
+  accepted by Google. Use `canonical` for an expected exact target or the
+  opt-in multi-page canonical-consistency check to verify known local targets.
 * A blank or whitespace-only `<link href>` cannot satisfy an explicit canonical
   or hreflang URL assertion merely by resolving to the document URL. Optional
   cross-page hreflang checks also fail on blank destinations even without a
