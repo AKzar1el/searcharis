@@ -119,6 +119,9 @@ document base and compared to these absolute expectations, without fetching.
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or
   H1 appearing only in an inert template cannot satisfy the contract. This is
   static HTML inspection, not JavaScript rendering or shadow-DOM evaluation.
+  Inside templates, literal `</template>` text in `<title>`, `<textarea>`,
+  `<xmp>`, `<iframe>`, `<noembed>` or `<noframes>` does not prematurely end the
+  inert content and expose ghost headings, metadata or structured data.
 * Treats HTML `<textarea>` contents as editable text rather than active markup.
   Heading and JSON-LD examples written inside a textarea cannot satisfy the
   real page's assertions; headings after the closing textarea remain visible.
