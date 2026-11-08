@@ -136,6 +136,52 @@ def test_strict_new_unlisted_artifact_blocks_only_when_new():
     assert new["new_unlisted"] == ["extra.html"]
 
 
+def test_strict_comparison_accepts_case_distinct_unlisted_build_artifact():
+    # On a case-sensitive build these are two different HTML files. The
+    # manifest checker reports the second one as unlisted, not a duplicate.
+    baseline = _report([("en/index.html", [])], strict=True)
+    candidate = _report(
+        [("en/index.html", [])], unlisted=("en/INDEX.HTML",), strict=True,
+    )
+    diff = compare_reports(baseline, candidate)
+    assert diff["status"] == "regression"
+    assert diff["new_unlisted"] == ["en/INDEX.HTML"]
+    assert compare_reports(candidate, candidate)["status"] == "pass"
+
+
+def test_comparison_counts_case_distinct_unlisted_artifacts_separately():
+    baseline = _report([("index.html", [])], strict=True)
+    candidate = _report(
+        [("index.html", [])], unlisted=("en/index.html", "en/INDEX.HTML"), strict=True,
+    )
+    diff = compare_reports(baseline, candidate)
+    assert diff["status"] == "regression"
+    assert diff["summary"]["new_unlisted"] == 2
+
+
+def test_cli_handles_case_distinct_unlisted_artifact_as_regression(tmp_path, capsys):
+    baseline = _report([("en/index.html", [])], strict=True)
+    candidate = _report(
+        [("en/index.html", [])], unlisted=("en/INDEX.HTML",), strict=True,
+    )
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+
+    assert main([str(before), str(after), "--json"]) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "regression"
+    assert output["new_unlisted"] == ["en/INDEX.HTML"]
+
+
+@pytest.mark.parametrize("unlisted", [("index.html",), ("extra.html", "extra.html")])
+def test_comparison_still_rejects_exact_duplicate_coverage_paths(unlisted):
+    report = _report([("index.html", [])], unlisted=unlisted)
+    with pytest.raises(ValueError, match="coverage|unlisted"):
+        compare_reports(report, report)
+
+
 def test_different_check_options_are_not_comparable():
     baseline = _report([("en/index.html", [])])
     changed = _report([("en/index.html", [])], checks=("hreflang_reciprocity",))

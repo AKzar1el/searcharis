@@ -77,7 +77,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
     if (
         not isinstance(unlisted, list)
         or any(not isinstance(path, str) or not path for path in unlisted)
-        or len({path.casefold() for path in unlisted}) != len(unlisted)
+        or len(set(unlisted)) != len(unlisted)
         or not isinstance(strict, bool)
         or not _int(coverage.get("checked"))
         or not _int(coverage.get("discovered"))
@@ -86,7 +86,10 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         or coverage["discovered"] != len(pages) + len(unlisted)
     ):
         raise ValueError(f"{name}: invalid coverage data")
-    if any(path.casefold() in paths for path in unlisted):
+    # The site checker counts case-distinct HTML artifacts separately on
+    # case-sensitive builds; only exact duplicates invalidate its coverage.
+    listed_paths = {page["path"] for page in pages}
+    if any(path in listed_paths for path in unlisted):
         raise ValueError(f"{name}: listed page also appears as unlisted")
     expected_status = "fail" if failed or (strict and unlisted) else "pass"
     if report.get("status") != expected_status:
