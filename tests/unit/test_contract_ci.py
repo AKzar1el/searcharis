@@ -475,6 +475,49 @@ def test_invalid_and_missing_jsonld_reported():
     assert {"jsonld_invalid", "jsonld_type_missing"} <= {i["code"] for i in result["issues"]}
 
 
+@pytest.mark.parametrize("depth", [256, 6000, 12000])
+def test_excessively_nested_jsonld_fails_as_finding_instead_of_crashing(depth):
+    nested = "[" * depth + '{"@type":"WebPage"}' + "]" * depth
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', nested)
+    report = verify_contract(CONTRACT, html)
+    assert report["status"] == "fail"
+    assert {issue["code"] for issue in report["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
+def test_nested_jsonld_within_parser_limit_still_satisfies_type():
+    nested = "[" * 255 + '{"@type":"WebPage"}' + "]" * 255
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', nested)
+    assert verify_contract(CONTRACT, html)["status"] == "pass"
+
+
+def test_jsonld_brackets_and_escaped_quotes_in_strings_are_not_counted_as_nesting():
+    payload = json.dumps({
+        "@type": "WebPage",
+        "name": "[" * 500 + 'escaped \\" quotation ' + "}" * 500,
+    })
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', payload)
+    assert verify_contract(CONTRACT, html)["status"] == "pass"
+
+
+def test_deeply_nested_jsonld_is_machine_readable_cli_failure(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    nested = "[" * 6000 + '{"@type":"WebPage"}' + "]" * 6000
+    contract_path.write_text(json.dumps({"url": URL, "jsonld_types": ["WebPage"]}), encoding="utf-8")
+    html_path.write_text(
+        '<html><head><script type="application/ld+json">' + nested
+        + '</script></head><body></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
 @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
 def test_nonstandard_jsonld_numeric_constant_cannot_pass_schema_assertion(constant):
     # Python json.loads accepts these identifiers, but none are legal JSON values.
