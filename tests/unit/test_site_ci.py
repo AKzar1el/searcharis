@@ -78,6 +78,30 @@ def test_template_only_heading_cannot_pass_static_build_ci(tmp_path, capsys):
     assert [issue["code"] for issue in result["pages"][0]["issues"]] == ["h1_min"]
 
 
+def test_deep_jsonld_fails_static_build_cli_without_traceback(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry in manifest["pages"]:
+        if entry["path"] == "en/index.html":
+            entry["contract"]["jsonld_types"] = ["WebPage"]
+    nested = "[" * 6000 + '{"@type":"WebPage"}' + "]" * 6000
+    page = tmp_path / "en" / "index.html"
+    page.write_text(
+        _page(f"{BASE}en/").replace(
+            "</head>", f'<script type="application/ld+json">{nested}</script></head>'
+        ),
+        encoding="utf-8",
+    )
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(path), str(tmp_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "fail"
+    en_page = next(entry for entry in report["pages"] if entry["path"] == "en/index.html")
+    assert {issue["code"] for issue in en_page["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
 def test_unlisted_pages_are_visible_and_optionally_fatal(tmp_path):
     manifest = _setup(tmp_path)
     extra = tmp_path / "extra.html"

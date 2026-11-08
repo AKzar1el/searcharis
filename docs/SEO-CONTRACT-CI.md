@@ -118,6 +118,8 @@ document base and compared to these absolute expectations, without fetching.
   Python would otherwise decode them as infinity, allowing an unsupported
   non-finite value to pass an asserted type. This does not verify rich-result
   eligibility or all Schema.org constraints.
+  Excessively nested JSON-LD that exceeds the JSON decoder's recursion limit
+  is reported as an invalid JSON-LD finding instead of crashing the checker.
 * Excludes content inside HTML `<template>` elements from active page SEO
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or
   H1 appearing only in an inert template cannot satisfy the contract. This is

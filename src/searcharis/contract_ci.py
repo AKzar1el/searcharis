@@ -383,7 +383,9 @@ def verify_contract(
                     parse_float=_finite_json_float,
                     object_pairs_hook=_unique_jsonld_keys,
                 ))
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                # Deeply nested supplied JSON-LD may exceed Python's decoder
+                # recursion limit; it is an invalid finding, not a CI crash.
                 fail("jsonld_invalid", "valid JSON", f"block {index + 1} malformed")
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
