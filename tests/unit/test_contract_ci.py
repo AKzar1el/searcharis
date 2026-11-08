@@ -1394,6 +1394,56 @@ def test_description_presence_contract_cli_json(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+@pytest.mark.parametrize("expected,metadata", [
+    ("Specific page summary", '<meta name="description" content="Specific page summary">'),
+    ("Specific page summary", '<meta NAME="DESCRIPTION" content=" Specific  page\nsummary ">'),
+    ("Tea & Coffee", '<meta name="description" content="Tea &amp; Coffee">'),
+    ("Specific page summary", '<template><meta name="description" content="Wrong"></template>'
+                              '<meta name="description" content="Specific page summary">'),
+])
+def test_description_equals_accepts_normalized_first_active_head_description(expected, metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    report = verify_contract({"url": URL, "description_equals": expected}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta name="description" content="Incorrect summary">', "Incorrect summary"),
+    ('<meta name="description" content="specific page summary">', "specific page summary"),
+    ('<meta name="description" content="">', ""),
+    ('<meta name="description" content="Incorrect first">'
+     '<meta name="description" content="Specific page summary">', "Incorrect first"),
+    ('<template><meta name="description" content="Specific page summary"></template>', ""),
+    ("", ""),
+])
+def test_description_equals_detects_copy_regressions_even_when_presence_passes(metadata, actual):
+    html = f'<html><head>{metadata}</head><body>' \
+           '<meta name="description" content="Specific page summary"></body></html>'
+    report = verify_contract({"url": URL, "description_equals": "Specific page summary"}, html)
+    assert report["issues"] == [{
+        "code": "description_equals", "expected": "Specific page summary", "actual": actual,
+    }]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  \t\n", [], {}])
+def test_description_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="description_equals"):
+        verify_contract({"url": URL, "description_equals": value}, HTML)
+
+
+def test_description_equals_cli_reports_mismatch(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "description_equals": "Expected summary"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta name="description" content="Actual summary">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "description_equals", "expected": "Expected summary", "actual": "Actual summary",
+    }]
+
+
 @pytest.mark.parametrize(
     ("html_open", "expected", "actual"),
     [
