@@ -1262,3 +1262,68 @@ def test_html_language_contract_cli_json(tmp_path, capsys):
     artifact.write_text('<html lang="SL"><head></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("images", "limit", "missing"),
+    [
+        ('<img src="/hero.webp">', 0, 1),
+        ('<img src="/hero.webp" alt="">', 0, None),
+        ('<img alt="Product photo" src="/hero.webp">', 0, None),
+        ('<img alt src="/decorative.svg">', 0, None),
+        ('<picture><source srcset="/hero.webp"><img src="/hero.jpg"></picture>', 0, 1),
+        ('<img src="/a.webp"><img src="/b.webp" alt="">', 1, None),
+        ('<img src="/a.webp"><img src="/b.webp">', 1, 2),
+    ],
+)
+def test_opt_in_image_alt_attribute_coverage(images, limit, missing):
+    html = f"<html><head></head><body>{images}</body></html>"
+    report = verify_contract({"url": URL, "img_missing_alt_max": limit}, html)
+    expected = (
+        [{"code": "img_missing_alt_max", "expected": limit, "actual": missing}]
+        if missing is not None else []
+    )
+    assert report["issues"] == expected
+
+
+def test_image_alt_coverage_ignores_inert_examples_and_non_image_sources():
+    html = (
+        "<html><head></head><body>"
+        '<template><img src="/template.webp"></template>'
+        '<noscript><img src="/fallback.webp"></noscript>'
+        '<textarea><img src="/literal.webp"></textarea>'
+        '<script>const sample = "<img src=/fake.webp>";</script>'
+        '<picture><source srcset="/responsive.webp"><img src="/real.webp" alt=""></picture>'
+        "</body></html>"
+    )
+    assert verify_contract({"url": URL, "img_missing_alt_max": 0}, html)["status"] == "pass"
+
+
+def test_image_alt_coverage_first_duplicate_alt_attribute_wins():
+    html = '<html><head></head><body><img alt="" alt="Ignored" src="/a.webp"></body></html>'
+    assert verify_contract({"url": URL, "img_missing_alt_max": 0}, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("invalid", [-1, True, 0.5, "0", None])
+def test_image_alt_coverage_rejects_invalid_threshold(invalid):
+    with pytest.raises(ValueError, match="'img_missing_alt_max'"):
+        verify_contract({"url": URL, "img_missing_alt_max": invalid}, "<html><head></head>")
+
+
+def test_image_alt_coverage_cli_json_reports_missing_attribute(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "img_missing_alt_max": 0}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><img src="/hero.webp"></body></html>', encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [
+        {"code": "img_missing_alt_max", "expected": 0, "actual": 1},
+    ]
+    artifact.write_text(
+        '<html><head></head><body><img alt="" src="/hero.webp"></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

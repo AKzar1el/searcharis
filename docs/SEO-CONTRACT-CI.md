@@ -40,6 +40,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `canonical` | Require exactly one matching canonical link |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
+| `img_missing_alt_max` | Maximum number of active HTML images without an `alt` attribute (0 requires full attribute coverage) |
 | `hreflang` | Require exactly one alternate for each named language |
 | `jsonld_types` | Require Schema.org `@type` values in valid JSON-LD blocks |
 
@@ -106,6 +107,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   not supply a fallback. This checks an explicit authoring policy, not the
   page's actual language, a complete BCP 47 validity check, or a Google
   ranking/indexing signal. Expected tags must be non-empty without whitespace.
+* `img_missing_alt_max` is an optional non-negative threshold for `<img>`
+  elements that omit the `alt` attribute. For example, `0` enforces attribute
+  coverage on every active image, while `2` allows up to two omissions in a
+  legacy build. Empty `alt=""` attributes count as present (legitimate for
+  decorative images); `<picture><source>` does not count as an image.
+  Images in inert templates, scripting-enabled `<noscript>`, or text-only
+  examples are excluded. The checker neither fetches image URLs nor evaluates
+  alternative-text quality, accessibility conformance, or search ranking.
 * When generated HTML repeats an attribute on one tag, uses its **first**
   value and ignores later duplicates, as required by the
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).
