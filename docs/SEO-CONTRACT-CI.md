@@ -36,6 +36,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `url` | Absolute HTTP(S) base URL (required) |
 | `title_present` | Require a non-empty HTML title (true/false) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
+| `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
@@ -106,6 +107,15 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   duplicate cannot rescue a blank first description. Body/template metadata
   is ignored. This optional agency policy does not mean Google requires a
   meta description or guarantees that it uses one as the search snippet.
+  `viewport_device_width` is an optional mobile layout guard. `true` requires
+  the first active `<meta name="viewport">` in the head to include exactly one
+  comma-separated `width=device-width` setting (case-insensitive, spaces around
+  `=` allowed); missing, fixed-width, malformed or duplicate width settings
+  fail. Head templates, `<noscript>` and body metadata cannot satisfy it; a
+  later viewport tag cannot rescue an incorrect first one. `false` asserts
+  that this explicit setting is absent. This catches a common mobile layout
+  configuration regression, not computed responsiveness, accessibility, or a
+  search ranking outcome. See [MDN viewport guidance](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/viewport).
   `html_lang` is an optional multilingual publishing assertion against the
   root `<html lang="...">` attribute. Language-tag casing is ignored, but
   region subtags are not interchangeable (`en` and `en-US` differ). A missing

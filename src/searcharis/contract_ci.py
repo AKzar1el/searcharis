@@ -12,7 +12,7 @@ from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
-    "url", "title_present", "description_present", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
+    "url", "title_present", "description_present", "viewport_device_width", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -39,6 +39,7 @@ class _SEOParser(HTMLParser):
         self.in_title_element = False
         self.title_seen = False
         self.description_content: str | None = None
+        self.viewport_content: str | None = None
         self.h1_count = 0
         self.img_missing_alt_count = 0
         self.canonicals: list[str] = []
@@ -164,6 +165,10 @@ class _SEOParser(HTMLParser):
             if name in {"robots", "googlebot"}:
                 # Google honors robots meta in the body as well as the head.
                 self.robots.append(values.get("content") or "")
+            elif name == "viewport" and self.in_head and self.viewport_content is None:
+                # A later duplicate or body metadata cannot rescue a bad first
+                # head viewport policy.
+                self.viewport_content = values.get("content") or ""
             elif name == "description" and self.in_head and self.description_content is None:
                 # The first head description is authoritative for this opt-in
                 # policy; a later duplicate cannot mask an empty first value.
@@ -242,7 +247,7 @@ def _check_contract(spec: object) -> dict:
         raise ValueError("Contract 'url' must be an absolute public-format HTTP(S) URL")
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
-    for field in ("title_present", "description_present", "indexable"):
+    for field in ("title_present", "description_present", "viewport_device_width", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     if "html_lang" in spec and (
@@ -353,6 +358,17 @@ def _resolve_href(base_url: str, href: str) -> str:
         return href
 
 
+def _viewport_uses_device_width(content: str) -> bool:
+    widths = []
+    for directive in content.split(","):
+        key, separator, value = directive.partition("=")
+        if separator and key.strip().lower() == "width":
+            widths.append(value.strip().lower())
+    # Reject ambiguous duplicate width settings rather than accepting a
+    # device-width token that may not be the effective browser instruction.
+    return widths == ["device-width"]
+
+
 def _is_http_url(value: str) -> bool:
     try:
         parsed = urlsplit(value)
@@ -411,6 +427,10 @@ def verify_contract(
         actual = bool((page.description_content or "").strip())
         if actual != spec["description_present"]:
             fail("description_presence", spec["description_present"], actual)
+    if "viewport_device_width" in spec:
+        actual = _viewport_uses_device_width(page.viewport_content or "")
+        if actual != spec["viewport_device_width"]:
+            fail("viewport_device_width", spec["viewport_device_width"], actual)
     if "html_lang" in spec:
         actual = page.html_lang
         if actual is None or actual.lower() != spec["html_lang"].lower():
