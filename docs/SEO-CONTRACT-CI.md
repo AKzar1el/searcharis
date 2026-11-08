@@ -405,6 +405,9 @@ duplicate JSON keys, unknown artifact paths, unsupported versions and maps
 larger than 1 MB fail with exit code 2. Maps can cover only a subset of the
 build; unmapped findings continue to point to generated HTML. Multiple
 artifacts may map to the same source template for statically generated routes.
+Artifact paths must match the build **exactly**, including case. On a
+case-sensitive build, both `en/index.html` and `en/INDEX.HTML` may be mapped
+independently; a wrong-cased name absent from the build remains invalid.
 
 Mapped SARIF findings use the repository-relative source path as their primary
 location and preserve the original built HTML in `relatedLocations`; the

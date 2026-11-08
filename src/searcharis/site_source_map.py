@@ -58,9 +58,11 @@ def read_source_map(file: Path, report: dict, *, source_root: Path) -> dict[str,
     for artifact, source in sources.items():
         artifact = _relative_posix(artifact)
         source = _relative_posix(source)
-        if artifact.casefold() in checked:
+        # Build artifacts are distinct by exact spelling on case-sensitive CI
+        # runners; the site checker and comparator preserve that distinction.
+        if artifact in checked:
             raise ValueError(f"Duplicate source-map artifact path: {artifact}")
-        checked.add(artifact.casefold())
+        checked.add(artifact)
         if artifact not in known_paths:
             raise ValueError(f"Source map refers to an unknown build artifact: {artifact}")
         path = (root / source).resolve(strict=True)
