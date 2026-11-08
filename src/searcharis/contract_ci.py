@@ -47,7 +47,6 @@ class _SEOParser(HTMLParser):
         self.template_depth = 0
         self.in_textarea = False
         self.in_plaintext = False
-        self.in_select = False
 
     def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
         # HTMLParser tokenizes markup inside RCDATA and some raw-text elements,
@@ -96,16 +95,6 @@ class _SEOParser(HTMLParser):
                 # Otherwise a fake </template> exposes later ghost SEO tags.
                 self.set_cdata_mode(tag)
             return  # Inert template descendants are not active page SEO signals.
-        if self.in_select:
-            # The HTML tree builder ignores heading start tags in select menus.
-            # A nested select closes the existing menu without opening another.
-            if tag == "h1":
-                return
-            if tag == "select":
-                self.in_select = False
-                return
-            if tag in {"input", "keygen", "textarea"}:
-                self.in_select = False  # These implicitly close the menu.
         # HTML parsing retains the first occurrence of a duplicated attribute.
         # dict(attrs) would silently let a later value spoof SEO assertions.
         values: dict[str, str | None] = {}
@@ -132,8 +121,6 @@ class _SEOParser(HTMLParser):
             self.body_seen = True
             self.in_head = False  # HTML can omit an explicit closing </head>.
             self.in_title = False
-        if tag == "select":
-            self.in_select = True
         if tag == "textarea":
             self.in_textarea = True
         elif tag == "plaintext":
@@ -189,9 +176,6 @@ class _SEOParser(HTMLParser):
             self.template_depth = max(0, self.template_depth - 1)
             return
         if self.template_depth:
-            return
-        if tag == "select":
-            self.in_select = False
             return
         if tag == "head":
             self.in_head = False

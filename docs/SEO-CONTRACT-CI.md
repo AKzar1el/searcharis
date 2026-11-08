@@ -135,10 +135,12 @@ document base and compared to these absolute expectations, without fetching.
   is not counted as active headings or JSON-LD. Real headings after these
   elements are still checked. This reflects HTML raw-text parsing, not a
   browser rendering or JavaScript execution test.
-* Ignores heading start tags inside HTML `<select>` menus: browsers discard
-  unexpected `<h1>` markup in select insertion mode, so it cannot satisfy an
-  H1 contract. Real headings after `</select>` or an implicitly closed select
-  still count; a self-closing `<select/>` slash does not end a select element.
+* Counts parsed `<h1>` elements within `<select>` as well as outside it.
+  The [current HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inbody)
+  uses in-body rules for customizable selects, rather than the older insertion mode that discarded unexpected
+  markup. The checker counts static DOM headings, not CSS visibility or
+  whether browsers render them in a native picker. A self-closing `<select/>`
+  slash does not end the element.
 * Parses `<noscript>` content using the **scripting-enabled** HTML tokenizer:
   headings, canonical/hreflang links, robots metadata and JSON-LD markup
   inside it cannot satisfy active-page assertions. Content after the matching
