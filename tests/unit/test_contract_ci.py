@@ -757,6 +757,7 @@ def test_invalid_bounds_and_url_rejected():
     "https://example.com:99999/en/",
     "https://example.com:invalid/en/",
     "https://example.com/path with space",
+    r"https://example.com\en/",
 ])
 def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
     with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
@@ -773,6 +774,7 @@ def test_non_default_valid_contract_port_is_accepted():
     "javascript:alert(1)",
     "https://example.com:99999/en/",
     "https://example.com/en/with space",
+    r"https://example.com\en/",
 ])
 @pytest.mark.parametrize("field", ["canonical", "hreflang"])
 def test_invalid_expected_seo_link_url_is_contract_input_error(field, bad_url):
@@ -1036,9 +1038,10 @@ def test_first_head_base_wins_and_body_template_bases_are_ignored():
     assert result["observed_canonical"] == ["https://example.com/nested/child.html"]
 
 
-def test_invalid_document_base_fails_closed():
-    html = '''<html><head><base href="javascript:alert(1)">
-    <link rel="canonical" href="/en/"></head><body></body></html>'''
+@pytest.mark.parametrize("base", ["javascript:alert(1)", r"https://example.com\wrong/"])
+def test_invalid_document_base_fails_closed(base):
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="/en/"></head><body></body></html>')
     result = verify_contract({"url": URL, "canonical": URL}, html)
     assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
 
