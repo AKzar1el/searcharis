@@ -87,6 +87,11 @@ class _SEOParser(HTMLParser):
             self.in_plaintext = True
             return
         if self.template_depth:
+            if tag in _RAWTEXT_ELEMENTS | {"title", "textarea"}:
+                # Template contents are inert, but the HTML tokenizer still
+                # treats RCDATA/RAWTEXT end-tag lookalikes as literal text.
+                # Otherwise a fake </template> exposes later ghost SEO tags.
+                self.set_cdata_mode(tag)
             return  # Inert template descendants are not active page SEO signals.
         # HTML parsing retains the first occurrence of a duplicated attribute.
         # dict(attrs) would silently let a later value spoof SEO assertions.

@@ -714,6 +714,51 @@ def test_nested_templates_do_not_add_ghost_links_or_headings():
     }
 
 
+@pytest.mark.parametrize("tag", ["title", "textarea", "xmp", "iframe", "noembed", "noframes"])
+@pytest.mark.parametrize("assertion", ["h1", "jsonld"])
+def test_raw_text_inside_template_cannot_end_template_early(tag, assertion):
+    # A literal </template> inside RCDATA/RAWTEXT is text, not an end tag.
+    ghost = ('<h1>Ghost heading</h1>' if assertion == "h1" else
+             '<script type="application/ld+json">{"@type":"FAQPage"}</script>')
+    html = ('<html><head></head><body><template>'
+            f'<{tag}>Code example </template> still text</{tag}>'
+            f'{ghost}</template></body></html>')
+    contract = ({"url": URL, "h1_min": 1} if assertion == "h1" else
+                {"url": URL, "jsonld_types": ["FAQPage"]})
+    report = verify_contract(contract, html)
+    expected_code = "h1_min" if assertion == "h1" else "jsonld_type_missing"
+    assert expected_code in {issue["code"] for issue in report["issues"]}
+
+
+def test_template_raw_text_closure_preserves_real_heading_after_template():
+    html = ('<html><head></head><body><template><xmp>Example </template>'
+            '</xmp><h1>Inert</h1></template><h1>Visible</h1></body></html>')
+    assert verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)[
+        "status"
+    ] == "pass"
+
+
+def test_template_raw_text_cannot_expose_fake_head_title():
+    html = ('<html><head><template><textarea>Literal </template>'
+            '</textarea><title>Inert</title></template></head><body></body></html>')
+    report = verify_contract({"url": URL, "title_present": True}, html)
+    assert "title_presence" in {issue["code"] for issue in report["issues"]}
+
+
+def test_template_raw_text_false_heading_is_reported_by_json_cli(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><template><iframe>Literal </template>'
+        '</iframe><h1>Ghost</h1></template></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert "h1_min" in {issue["code"] for issue in report["issues"]}
+
+
 def test_body_only_head_metadata_cannot_satisfy_contract():
     html = '''<html><head></head><body>
     <title>Not a head title</title>
