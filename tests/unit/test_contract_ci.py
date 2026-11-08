@@ -1015,22 +1015,60 @@ def test_body_only_head_metadata_cannot_satisfy_contract():
     <link rel="canonical" href="/en/">
     <link rel="alternate" hreflang="en" href="/en/">
     <link rel="alternate" hreflang="sl" href="/sl/">
+    <meta name="description" content="Not a head description">
     <meta name="robots" content="noindex">
     <h1>Visible heading</h1>
     <script type="application/ld+json">{"@type":"WebPage"}</script>
     </body></html>'''
     result = verify_contract(
-        {**CONTRACT, "indexable": False}, html,
+        {**CONTRACT, "indexable": False, "description_present": True}, html,
         include_hreflang=True, include_canonical=True,
     )
     assert {issue["code"] for issue in result["issues"]} == {
-        "title_presence", "canonical", "indexability_meta", "hreflang:en", "hreflang:sl",
+        "title_presence", "description_presence", "canonical", "hreflang:en", "hreflang:sl",
     }
     assert result["observed_canonical"] == []
     assert result["observed_hreflang"] == {}
 
 
-def test_body_metadata_does_not_poison_valid_head_or_body_jsonld():
+@pytest.mark.parametrize("name", ["robots", "googlebot"])
+@pytest.mark.parametrize("directive", ["noindex", "none", "NoInDeX, follow"])
+def test_body_robots_meta_restricts_google_indexability(name, directive):
+    # Google honors body robots meta even though other head-only SEO signals
+    # do not move into the body.
+    html = (f'<html><head></head><body><main><meta name="{name}" '
+            f'content="{directive}"><h1>Visible</h1></main></body></html>')
+    assert verify_contract({"url": URL, "indexable": False}, html)["status"] == "pass"
+    report = verify_contract({"url": URL, "indexable": True}, html)
+    assert report["issues"] == [{
+        "code": "indexability_meta", "expected": True, "actual": False,
+    }]
+
+
+@pytest.mark.parametrize("wrapper", ["template", "noscript"])
+def test_body_robots_meta_in_inert_content_is_not_active(wrapper):
+    html = (f'<html><head></head><body><{wrapper}>'
+            '<meta name="robots" content="noindex">'
+            f'</{wrapper}><h1>Visible</h1></body></html>')
+    assert verify_contract({"url": URL, "indexable": True}, html)["status"] == "pass"
+
+
+def test_body_robots_noindex_fails_single_page_json_cli(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "indexable": True}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><meta name="robots" content="noindex"></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["issues"] == [{
+        "code": "indexability_meta", "expected": True, "actual": False,
+    }]
+
+
+def test_body_metadata_preserves_head_links_but_robots_meta_restricts_indexing():
     html = HTML.replace(
         '<script type="application/ld+json">{"@graph":[{"@type":"WebPage"}]}</script>',
         "",
@@ -1044,7 +1082,9 @@ def test_body_metadata_does_not_poison_valid_head_or_body_jsonld():
         <script type="application/ld+json">{"@type":"WebPage"}</script>''',
     )
     result = verify_contract(CONTRACT, html, include_hreflang=True, include_canonical=True)
-    assert result["status"] == "pass"
+    assert result["issues"] == [{
+        "code": "indexability_meta", "expected": True, "actual": False,
+    }]
     assert result["observed_canonical"] == [URL]
     assert result["observed_hreflang"] == {
         "en": [URL], "sl": ["https://example.com/sl/"],

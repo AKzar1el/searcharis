@@ -75,10 +75,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   `<base>` inside the body or an inert template is ignored. The build artifact's
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.
-* Reads HTML titles, canonical and hreflang links, and robots/googlebot meta
-  directives only inside the document `<head>`. Identically named elements
-  in `<body>` cannot satisfy or override those SEO assertions. JSON-LD scripts
-  may appear in the head or body; visible headings are checked separately.
+* Reads titles, descriptions, canonical and hreflang links only inside the
+  document `<head>`. Unlike those head-only assertions, `indexable` also
+  respects active `<meta name="robots">` and `<meta name="googlebot">` in the
+  `<body>`: [Google explicitly honors body robots meta](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag).
+  Inert template and scripting-enabled noscript content does not contribute.
+  JSON-LD scripts may appear in the head or body; visible headings are
+  checked separately.
   The checker also recognizes valid HTML5 documents that omit `<html>` and/or
   `<head>` start tags (as minifiers can do). A leading HTML doctype identifies
   the implied document root; only metadata before body content is treated as
