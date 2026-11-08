@@ -113,7 +113,10 @@ document base and compared to these absolute expectations, without fetching.
   `Infinity`, `-Infinity`) fail syntax validation rather than silently passing
   via Python's permissive JSON parser. Duplicate JSON object keys, including
   nested JSON-LD keys, also fail validation rather than silently letting the
-  last duplicate value satisfy an assertion. This does not verify rich-result
+  last duplicate value satisfy an assertion. Exponents that overflow the
+  checker's floating-point range (for example `1e9999`) also fail closed:
+  Python would otherwise decode them as infinity, allowing an unsupported
+  non-finite value to pass an asserted type. This does not verify rich-result
   eligibility or all Schema.org constraints.
 * Excludes content inside HTML `<template>` elements from active page SEO
   assertions. A title, canonical, hreflang link, robots meta, JSON-LD block or

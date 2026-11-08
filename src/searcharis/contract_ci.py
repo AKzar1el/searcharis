@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from html.parser import HTMLParser
+from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
@@ -269,6 +270,13 @@ def _reject_non_json_number(value: str) -> None:
     raise ValueError(f"Non-JSON numeric constant: {value}")
 
 
+def _finite_json_float(value: str) -> float:
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(f"JSON-LD number exceeds finite float range: {value}")
+    return number
+
+
 def _unique_jsonld_keys(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
@@ -371,6 +379,7 @@ def verify_contract(
                 observed |= _types(json.loads(
                     block,
                     parse_constant=_reject_non_json_number,
+                    parse_float=_finite_json_float,
                     object_pairs_hook=_unique_jsonld_keys,
                 ))
             except (json.JSONDecodeError, ValueError):

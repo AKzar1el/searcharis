@@ -451,6 +451,37 @@ def test_nonstandard_jsonld_number_fails_single_page_cli(tmp_path, capsys):
     }
 
 
+@pytest.mark.parametrize("number", ["1e9999", "-1e9999", "2.5e10000"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_overflowing_jsonld_float_cannot_pass_schema_assertion(number, nested):
+    # json.loads accepts JSON exponents that overflow a Python float to infinity.
+    payload = (
+        f'{{"@type":"WebPage","metric":{{"items":[{number}]}}}}'
+        if nested else f'{{"@type":"WebPage","metric":{number}}}'
+    )
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', payload)
+    result = verify_contract(CONTRACT, html)
+    assert {issue["code"] for issue in result["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
+def test_overflowing_jsonld_float_fails_single_page_cli(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "jsonld_types": ["WebPage"]}), encoding="utf-8")
+    html_path.write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@type":"WebPage","metric":1e9999}</script></head><body></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {
+        "jsonld_invalid", "jsonld_type_missing",
+    }
+
+
 @pytest.mark.parametrize("structured_data", [
     '{"@type":"Thing","@type":"WebPage"}',
     '{"@type":"WebPage","name":"First","name":"Second"}',
@@ -484,7 +515,7 @@ def test_duplicate_jsonld_keys_fail_single_page_cli(tmp_path, capsys):
 def test_valid_jsonld_numeric_values_remain_accepted():
     html = HTML.replace(
         '{"@graph":[{"@type":"WebPage"}]}',
-        '{"@type":"WebPage","rating":1.5,"position":-12,"fraction":2e-3}',
+        '{"@type":"WebPage","rating":1.5,"position":-12,"fraction":2e-3,"large":1e308}',
     )
     assert verify_contract(CONTRACT, html)["status"] == "pass"
 
