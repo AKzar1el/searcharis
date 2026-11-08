@@ -159,11 +159,12 @@ class _SEOParser(HTMLParser):
             # An empty alt="" is valid for decorative images; absence is
             # different from a deliberately empty attribute.
             self.img_missing_alt_count += 1
-        elif tag == "meta" and self.in_head:
+        elif tag == "meta":
             name = (values.get("name") or "").lower()
             if name in {"robots", "googlebot"}:
+                # Google honors robots meta in the body as well as the head.
                 self.robots.append(values.get("content") or "")
-            elif name == "description" and self.description_content is None:
+            elif name == "description" and self.in_head and self.description_content is None:
                 # The first head description is authoritative for this opt-in
                 # policy; a later duplicate cannot mask an empty first value.
                 self.description_content = values.get("content") or ""
