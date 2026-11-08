@@ -54,6 +54,75 @@ def test_persistent_existing_failure_does_not_block_candidate():
     assert diff["new_issues"] == []
 
 
+def test_comparison_rejects_weakened_contract_for_same_route(tmp_path):
+    (tmp_path / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
+    baseline_manifest = {
+        "version": 1,
+        "pages": [{"path": "index.html", "contract": {
+            "url": "https://example.test/", "title_present": True, "h1_max": 0,
+        }}],
+    }
+    candidate_manifest = {
+        "version": 1,
+        "pages": [{"path": "index.html", "contract": {
+            "url": "https://example.test/", "h1_max": 0,
+        }}],
+    }
+    baseline = verify_manifest(baseline_manifest, tmp_path)
+    candidate = verify_manifest(candidate_manifest, tmp_path)
+    assert baseline["status"] == candidate["status"] == "pass"
+
+    with pytest.raises(ValueError, match="contract"):
+        compare_reports(baseline, candidate)
+
+
+def test_contract_fingerprints_ignore_json_key_order(tmp_path):
+    (tmp_path / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
+    contract_a = {"url": "https://example.test/", "title_present": True, "h1_max": 0}
+    contract_b = {"h1_max": 0, "title_present": True, "url": "https://example.test/"}
+    def manifest(contract):
+        return {"version": 1, "pages": [{
+            "path": "index.html", "contract": contract,
+        }]}
+    before = verify_manifest(manifest(contract_a), tmp_path)
+    after = verify_manifest(manifest(contract_b), tmp_path)
+
+    digest = before["pages"][0]["contract_sha256"]
+    assert len(digest) == 64
+    assert digest == after["pages"][0]["contract_sha256"]
+    assert compare_reports(before, after)["status"] == "pass"
+
+
+def test_comparison_rejects_mixed_or_invalid_contract_fingerprints():
+    legacy = _report([("index.html", [])])
+    fingerprinted = _report([("index.html", [])])
+    fingerprinted["pages"][0]["contract_sha256"] = "a" * 64
+
+    # Saved reports predating fingerprints remain readable as a pair.
+    assert compare_reports(legacy, legacy)["status"] == "pass"
+    with pytest.raises(ValueError, match="fingerprint formats"):
+        compare_reports(legacy, fingerprinted)
+    fingerprinted["pages"][0]["contract_sha256"] = "bad"
+    with pytest.raises(ValueError, match="invalid contract fingerprint"):
+        compare_reports(fingerprinted, fingerprinted)
+
+
+def test_new_route_with_fingerprint_does_not_require_baseline_update(tmp_path):
+    (tmp_path / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
+    extra = tmp_path / "new.html"
+    extra.write_text("<html><head><title>New</title></head></html>", encoding="utf-8")
+    root = {"path": "index.html", "contract": {
+        "url": "https://example.test/", "title_present": True,
+    }}
+    added = {"path": "new.html", "contract": {
+        "url": "https://example.test/new", "title_present": True,
+    }}
+    before = verify_manifest({"version": 1, "pages": [root]}, tmp_path)
+    after = verify_manifest({"version": 1, "pages": [root, added]}, tmp_path)
+
+    assert compare_reports(before, after)["status"] == "pass"
+
+
 def test_new_and_resolved_failures_have_stable_route_scoped_detail():
     baseline = _report([("sl/index.html", [_issue()]), ("en/index.html", [])])
     candidate = _report([("en/index.html", [_issue()]), ("sl/index.html", [])])

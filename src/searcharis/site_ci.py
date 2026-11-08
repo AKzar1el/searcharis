@@ -6,6 +6,7 @@ never fetches a contract URL or invokes the deployed incident workflow.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
@@ -87,7 +88,17 @@ def verify_manifest(
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
-        reports.append({"path": path, **report})
+        # Bind this route's findings to the assertions that produced them.
+        # Key ordering and JSON whitespace do not change the fingerprint.
+        contract_json = json.dumps(
+            entry["contract"], sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        )
+        reports.append({
+            "path": path,
+            "contract_sha256": hashlib.sha256(contract_json.encode("utf-8")).hexdigest(),
+            **report,
+        })
 
     hreflang_summary = None
     if check_hreflang_reciprocity:

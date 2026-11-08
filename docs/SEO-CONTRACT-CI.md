@@ -330,6 +330,14 @@ Searcharis: both files must already be present locally. This tool reads
 no live URLs or production credentials, and does not create a GitHub
 workflow, decide whether a baseline is trustworthy or prove real search
 indexing health.
+Each newly generated page report also includes a deterministic SHA-256 of its
+declared SEO contract (not the HTML). The comparator rejects different
+assertions for the same artifact between baseline and candidate, instead of
+silently passing when a candidate drops a check. JSON property order does not
+change the fingerprint; adding new routes remains supported. Two older reports
+without fingerprints can still be compared, but cannot prove their assertions
+were identical. Mixing fingerprinted and legacy reports fails as incompatible:
+regenerate both reports with the same checker version and approved manifest.
 Non-finite numeric values in report data (such as `NaN`, `Infinity`, or a
 number overflowing to infinity during JSON decoding) are invalid input
 (exit 2), not a successful no-regression comparison.

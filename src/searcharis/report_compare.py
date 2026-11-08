@@ -38,6 +38,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
 
     paths: set[str] = set()
     urls: set[str] = set()
+    fingerprints: set[bool] = set()
     failed = 0
     for page in pages:
         if not isinstance(page, dict):
@@ -49,6 +50,16 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             raise ValueError(f"{name}: duplicate page path or URL")
         paths.add(path.casefold())
         urls.add(url)
+        has_fingerprint = "contract_sha256" in page
+        fingerprints.add(has_fingerprint)
+        if has_fingerprint:
+            digest = page["contract_sha256"]
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(char not in "0123456789abcdef" for char in digest)
+            ):
+                raise ValueError(f"{name}: invalid contract fingerprint for {path}")
         if not isinstance(issues, list) or any(
             not isinstance(issue, dict)
             or not isinstance(issue.get("code"), str)
@@ -62,6 +73,9 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         if page.get("status") != status:
             raise ValueError(f"{name}: page status disagrees with its issues")
         failed += bool(issues)
+
+    if len(fingerprints) != 1:
+        raise ValueError(f"{name}: inconsistent per-page contract fingerprints")
 
     if any(not _int(summary.get(key)) for key in ("checked", "passed", "failed")):
         raise ValueError(f"{name}: invalid summary counts")
@@ -152,6 +166,19 @@ def compare_reports(baseline: object, candidate: object) -> dict:
             "Reports use different check options; regenerate both with identical "
             "coverage, canonical and hreflang flags"
         )
+
+    old_fingerprints = {p["path"]: p["contract_sha256"] for p in before["pages"]
+                        if "contract_sha256" in p}
+    new_fingerprints = {p["path"]: p["contract_sha256"] for p in after["pages"]
+                        if "contract_sha256" in p}
+    if bool(old_fingerprints) != bool(new_fingerprints):
+        raise ValueError("Reports use different contract fingerprint formats; regenerate both")
+    for path in sorted(old_fingerprints.keys() & new_fingerprints.keys()):
+        if old_fingerprints[path] != new_fingerprints[path]:
+            raise ValueError(
+                f"Reports use different SEO contracts for {path}; "
+                "regenerate the approved baseline with matching assertions"
+            )
 
     old_issues, current_issues = _issues(before), _issues(after)
     new_keys = sorted(current_issues.keys() - old_issues.keys())
