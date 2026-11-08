@@ -29,6 +29,73 @@ def test_good_page_passes():
     assert verify_contract(CONTRACT, HTML)["status"] == "pass"
 
 
+@pytest.mark.parametrize("viewport", [
+    '<meta name="viewport" content="width=device-width">',
+    '<meta NAME="VIEWPORT" content="initial-scale=1, width = DEVICE-WIDTH">',
+    '<meta name="viewport" content="width=device-width, viewport-fit=cover">',
+])
+def test_device_width_viewport_contract_accepts_active_head_metadata(viewport):
+    html = HTML.replace("</head>", viewport + "</head>")
+    result = verify_contract({"url": URL, "viewport_device_width": True}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("viewport", [
+    "",
+    '<meta name="viewport">',
+    '<meta name="viewport" content="initial-scale=1">',
+    '<meta name="viewport" content="width=980">',
+    '<meta name="viewport" content="data-width=device-width">',
+    '<meta name="viewport" content="width=device-width-ish">',
+    '<meta name="viewport" content="width=980,width=device-width">',
+])
+def test_device_width_viewport_contract_flags_missing_or_wrong_width(viewport):
+    html = HTML.replace("</head>", viewport + "</head>")
+    result = verify_contract({"url": URL, "viewport_device_width": True}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"viewport_device_width"}
+
+
+def test_device_width_viewport_first_head_tag_wins_and_body_cannot_rescue():
+    html = (HTML.replace("</head>", '<meta name="viewport" content="width=980">'
+                         '<meta name="viewport" content="width=device-width"></head>')
+            .replace("<h1>Welcome</h1>", '<meta name="viewport" content="width=device-width">'
+                     '<h1>Welcome</h1>'))
+    result = verify_contract({"url": URL, "viewport_device_width": True}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"viewport_device_width"}
+
+
+def test_device_width_viewport_ignores_inert_template_and_body_only_metadata():
+    html = (HTML.replace("</head>", '<template><meta name="viewport" '
+                         'content="width=device-width"></template></head>')
+            .replace("<h1>Welcome</h1>", '<meta name="viewport" content="width=device-width">'
+                     '<h1>Welcome</h1>'))
+    result = verify_contract({"url": URL, "viewport_device_width": True}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"viewport_device_width"}
+
+
+def test_device_width_viewport_in_implicit_head_and_opt_in_false():
+    html = '<!doctype html><meta name="viewport" content="width=device-width"><h1>Page</h1>'
+    assert verify_contract({"url": URL, "viewport_device_width": True}, html)["status"] == "pass"
+    assert verify_contract({"url": URL, "viewport_device_width": False}, HTML)["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true", [], {}])
+def test_device_width_viewport_contract_rejects_nonboolean_config(value):
+    with pytest.raises(ValueError, match="viewport_device_width"):
+        verify_contract({"url": URL, "viewport_device_width": value}, HTML)
+
+
+def test_device_width_viewport_cli_returns_json_finding(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "viewport_device_width": True}), encoding="utf-8")
+    html_path.write_text(HTML, encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    assert {issue["code"] for issue in json.loads(capsys.readouterr().out)["issues"]} == {
+        "viewport_device_width",
+    }
+
+
 @pytest.mark.parametrize("omit_html_and_body", [False, True])
 def test_valid_optional_head_start_tag_keeps_seo_assertions(omit_html_and_body):
     # HTML5 permits the head start tag to be omitted; minifiers may also omit
