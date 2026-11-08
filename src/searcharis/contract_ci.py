@@ -12,7 +12,7 @@ from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
-    "url", "title_present", "description_present", "canonical", "indexable", "h1_min", "h1_max",
+    "url", "title_present", "description_present", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
     "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -29,6 +29,8 @@ class _SEOParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.has_html = False
+        self.html_tag_seen = False
+        self.html_lang: str | None = None
         self.has_head = False
         self.in_head = False
         self.body_seen = False
@@ -102,6 +104,10 @@ class _SEOParser(HTMLParser):
         for name, value in attrs:
             values.setdefault(name, value)
         if tag == "html":
+            if not self.html_tag_seen and not self.has_head and not self.body_seen:
+                # Only the root start tag may supply the declared document language.
+                self.html_lang = (values.get("lang") or "") if "lang" in values else None
+                self.html_tag_seen = True
             self.has_html = True
         if tag == "head" and not self.body_seen:
             self.has_head = True
@@ -230,6 +236,12 @@ def _check_contract(spec: object) -> dict:
     for field in ("title_present", "description_present", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
+    if "html_lang" in spec and (
+        not isinstance(spec["html_lang"], str)
+        or not spec["html_lang"]
+        or any(char.isspace() for char in spec["html_lang"])
+    ):
+        raise ValueError("'html_lang' must be a non-empty language tag without whitespace")
     if "canonical" in spec and (
         not isinstance(spec["canonical"], str) or not _is_http_url(spec["canonical"])
     ):
@@ -390,6 +402,10 @@ def verify_contract(
         actual = bool((page.description_content or "").strip())
         if actual != spec["description_present"]:
             fail("description_presence", spec["description_present"], actual)
+    if "html_lang" in spec:
+        actual = page.html_lang
+        if actual is None or actual.lower() != spec["html_lang"].lower():
+            fail("html_lang", spec["html_lang"], actual)
     if "canonical" in spec:
         actual = [_resolve_href(base_url, item) for item in page.canonicals]
         if actual != [spec["canonical"]] or any(not _is_http_url(item) for item in actual):

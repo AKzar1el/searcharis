@@ -36,6 +36,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `url` | Absolute HTTP(S) base URL (required) |
 | `title_present` | Require a non-empty HTML title (true/false) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
+| `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
@@ -98,6 +99,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   duplicate cannot rescue a blank first description. Body/template metadata
   is ignored. This optional agency policy does not mean Google requires a
   meta description or guarantees that it uses one as the search snippet.
+  `html_lang` is an optional multilingual publishing assertion against the
+  root `<html lang="...">` attribute. Language-tag casing is ignored, but
+  region subtags are not interchangeable (`en` and `en-US` differ). A missing
+  or blank root attribute fails; later `<html>` tags and template content do
+  not supply a fallback. This checks an explicit authoring policy, not the
+  page's actual language, a complete BCP 47 validity check, or a Google
+  ranking/indexing signal. Expected tags must be non-empty without whitespace.
 * When generated HTML repeats an attribute on one tag, uses its **first**
   value and ignores later duplicates, as required by the
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).

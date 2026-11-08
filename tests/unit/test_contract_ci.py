@@ -1208,3 +1208,57 @@ def test_description_presence_contract_cli_json(tmp_path, capsys):
     )
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("html_open", "expected", "actual"),
+    [
+        ('<html lang="en-US">', "en-us", None),
+        ('<html LANG="EN-us">', "en-US", None),
+        ('<html lang="sl">', "en", "sl"),
+        ('<html lang="">', "en", ""),
+        ("<html>", "en", None),
+    ],
+)
+def test_opt_in_html_language_matches_root_attribute(html_open, expected, actual):
+    html = f"<!doctype html>{html_open}<head></head><body></body></html>"
+    report = verify_contract({"url": URL, "html_lang": expected}, html)
+    if actual is None and "lang=" in html_open.lower():
+        assert report["status"] == "pass", report["issues"]
+    else:
+        assert report["issues"] == [{
+            "code": "html_lang", "expected": expected, "actual": actual,
+        }]
+
+
+def test_html_language_uses_first_duplicate_attribute():
+    html = '<html lang="sl" lang="en"><head></head><body></body></html>'
+    report = verify_contract({"url": URL, "html_lang": "en"}, html)
+    assert report["issues"] == [{"code": "html_lang", "expected": "en", "actual": "sl"}]
+
+
+def test_html_language_ignores_nested_or_late_html_tags():
+    html = ('<!doctype html><head><template><html lang="en"></html></template>'
+            '</head><body><html lang="en"></html></body>')
+    report = verify_contract({"url": URL, "html_lang": "en"}, html)
+    assert report["issues"] == [{"code": "html_lang", "expected": "en", "actual": None}]
+
+
+@pytest.mark.parametrize("invalid", ["", "  ", " en", "en ", 42, True, None])
+def test_html_language_contract_rejects_invalid_expected_value(invalid):
+    with pytest.raises(ValueError, match="'html_lang'"):
+        verify_contract({"url": URL, "html_lang": invalid}, '<html lang="en"><head></head>')
+
+
+def test_html_language_contract_cli_json(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "html_lang": "sl"}), encoding="utf-8")
+    artifact.write_text('<html lang="en"><head></head><body></body></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [
+        {"code": "html_lang", "expected": "sl", "actual": "en"},
+    ]
+    artifact.write_text('<html lang="SL"><head></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
