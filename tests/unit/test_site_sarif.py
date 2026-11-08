@@ -8,6 +8,7 @@ import pytest
 
 from searcharis.site_cli import main
 from searcharis.site_sarif import build_sarif_report
+from searcharis.site_source_map import read_source_map
 
 BASE = "https://example.test/"
 
@@ -299,7 +300,7 @@ def test_sarif_source_map_rejects_duplicate_artifact_keys(tmp_path, capsys, monk
     assert "Invalid input:" in capsys.readouterr().err
 
 
-def test_sarif_source_map_rejects_casefold_duplicate_artifact_keys(tmp_path, capsys, monkeypatch):
+def test_sarif_source_map_rejects_wrong_cased_unknown_artifact(tmp_path, capsys, monkeypatch):
     manifest = _fixture(tmp_path)
     source = tmp_path / "src" / "page.astro"
     source.parent.mkdir()
@@ -310,7 +311,38 @@ def test_sarif_source_map_rejects_casefold_duplicate_artifact_keys(tmp_path, cap
         "SL/index.html": "src/page.astro",
     })
     assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
-    assert "Duplicate source-map artifact" in capsys.readouterr().err
+    assert "unknown build artifact" in capsys.readouterr().err
+
+
+def test_sarif_source_map_preserves_case_distinct_built_artifacts(tmp_path):
+    """A case-sensitive build can contain both artifact names; Windows cannot create both."""
+    source = tmp_path / "src" / "page.astro"
+    source.parent.mkdir()
+    source.write_text("<h1>Source template</h1>", encoding="utf-8")
+    mapping = {
+        "en/index.html": "src/page.astro",
+        "en/INDEX.HTML": "src/page.astro",
+    }
+    source_map = _source_map(tmp_path, mapping)
+    issue = {"code": "title_presence", "expected": True, "actual": False}
+    report = {
+        "pages": [
+            {"path": path, "checked_url": f"https://example.test/{path}", "issues": [issue]}
+            for path in mapping
+        ],
+        "coverage": {"require_full_coverage": True, "unlisted": []},
+    }
+
+    sources = read_source_map(source_map, report, source_root=tmp_path)
+    assert sources == mapping
+    sarif = build_sarif_report(report, sources=sources)
+    results = sarif["runs"][0]["results"]
+    assert len(results) == 2
+    assert [result["relatedLocations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for result in results] == sorted(mapping)
+    assert all(result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+               == "src/page.astro" for result in results)
+    assert results[0]["partialFingerprints"] != results[1]["partialFingerprints"]
 
 
 def test_sarif_source_map_rejects_unsupported_version(tmp_path, capsys, monkeypatch):
