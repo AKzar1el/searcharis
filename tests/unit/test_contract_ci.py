@@ -1148,3 +1148,63 @@ def test_invalid_observed_url_cannot_be_laundered_by_same_invalid_expectation(pr
         link = f'<link rel="alternate" hreflang="en" href="{malformed}">'
     with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
         verify_contract(spec, f"<html><head>{link}</head><body></body></html>")
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected_present", "expected_code"),
+    [
+        ('<meta name="description" content="A specific page summary">', True, None),
+        ('<meta NAME="DESCRIPTION" content="  A summary  ">', True, None),
+        ('<meta name="description" content="   ">', True, "description_presence"),
+        ('<meta name="description">', True, "description_presence"),
+        ("", True, "description_presence"),
+        ('<meta name="description" content="Summary">', False, "description_presence"),
+    ],
+)
+def test_opt_in_meta_description_presence(metadata, expected_present, expected_code):
+    html = f"<html><head>{metadata}</head><body><h1>Title</h1></body></html>"
+    report = verify_contract({"url": URL, "description_present": expected_present}, html)
+    assert {issue["code"] for issue in report["issues"]} == (
+        {expected_code} if expected_code else set()
+    )
+
+
+def test_description_in_body_or_template_does_not_satisfy_head_contract():
+    html = (
+        '<html><head><template><meta name="description" content="Example"></template>'
+        '</head><body><meta name="description" content="Body only"></body></html>'
+    )
+    report = verify_contract({"url": URL, "description_present": True}, html)
+    assert report["issues"] == [{
+        "code": "description_presence", "expected": True, "actual": False,
+    }]
+
+
+def test_first_head_meta_description_wins_over_later_duplicate():
+    html = ('<html><head><meta name="description" content=" ">'
+            '<meta name="description" content="Valid second"></head></html>')
+    report = verify_contract({"url": URL, "description_present": True}, html)
+    assert {issue["code"] for issue in report["issues"]} == {"description_presence"}
+    assert verify_contract({"url": URL, "description_present": False}, html)["status"] == "pass"
+
+
+def test_description_presence_requires_boolean():
+    with pytest.raises(ValueError, match="'description_present' must be a boolean"):
+        verify_contract({"url": URL, "description_present": "true"}, "<html><head></head></html>")
+
+
+def test_description_presence_contract_cli_json(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "description_present": True}), encoding="utf-8")
+    artifact.write_text("<html><head></head><body></body></html>", encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert {item["code"] for item in json.loads(capsys.readouterr().out)["issues"]} == {
+        "description_presence"
+    }
+    artifact.write_text(
+        '<html><head><meta name="description" content="Page summary"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

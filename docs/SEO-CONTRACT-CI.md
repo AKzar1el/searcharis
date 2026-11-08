@@ -35,6 +35,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | --- | --- |
 | `url` | Absolute HTTP(S) base URL (required) |
 | `title_present` | Require a non-empty HTML title (true/false) |
+| `description_present` | Require a non-empty first head meta description (true/false) |
 | `canonical` | Require exactly one matching canonical link |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
@@ -92,6 +93,11 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   The text inside any `<title>` follows HTML RCDATA rules: literal tag-looking
   examples do not create active H1 or JSON-LD elements, and an example
   `<script>` does not hide real page metadata or headings after `</title>`.
+  `description_present` checks the first active `<meta name="description">`
+  in the head. Missing or whitespace-only `content` counts as absent; a later
+  duplicate cannot rescue a blank first description. Body/template metadata
+  is ignored. This optional agency policy does not mean Google requires a
+  meta description or guarantees that it uses one as the search snippet.
 * When generated HTML repeats an attribute on one tag, uses its **first**
   value and ignores later duplicates, as required by the
   [HTML parsing standard](https://html.spec.whatwg.org/multipage/parsing.html#parse-error-duplicate-attribute).

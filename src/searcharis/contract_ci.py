@@ -12,7 +12,7 @@ from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
-    "url", "title_present", "canonical", "indexable", "h1_min", "h1_max",
+    "url", "title_present", "description_present", "canonical", "indexable", "h1_min", "h1_max",
     "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -36,6 +36,7 @@ class _SEOParser(HTMLParser):
         self.in_title = False
         self.in_title_element = False
         self.title_seen = False
+        self.description_content: str | None = None
         self.h1_count = 0
         self.canonicals: list[str] = []
         self.hreflangs: dict[str, list[str]] = {}
@@ -144,10 +145,14 @@ class _SEOParser(HTMLParser):
             self.base_href = (values["href"] or "").strip()
         elif tag == "h1":
             self.h1_count += 1
-        elif tag == "meta" and self.in_head and (values.get("name") or "").lower() in {
-            "robots", "googlebot"
-        }:
-            self.robots.append(values.get("content") or "")
+        elif tag == "meta" and self.in_head:
+            name = (values.get("name") or "").lower()
+            if name in {"robots", "googlebot"}:
+                self.robots.append(values.get("content") or "")
+            elif name == "description" and self.description_content is None:
+                # The first head description is authoritative for this opt-in
+                # policy; a later duplicate cannot mask an empty first value.
+                self.description_content = values.get("content") or ""
         elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
@@ -222,7 +227,7 @@ def _check_contract(spec: object) -> dict:
         raise ValueError("Contract 'url' must be an absolute public-format HTTP(S) URL")
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
-    for field in ("title_present", "indexable"):
+    for field in ("title_present", "description_present", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     if "canonical" in spec and (
@@ -381,6 +386,10 @@ def verify_contract(
         actual = bool("".join(page.title_chunks).strip())
         if actual != spec["title_present"]:
             fail("title_presence", spec["title_present"], actual)
+    if "description_present" in spec:
+        actual = bool((page.description_content or "").strip())
+        if actual != spec["description_present"]:
+            fail("description_presence", spec["description_present"], actual)
     if "canonical" in spec:
         actual = [_resolve_href(base_url, item) for item in page.canonicals]
         if actual != [spec["canonical"]] or any(not _is_http_url(item) for item in actual):
