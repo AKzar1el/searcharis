@@ -313,6 +313,10 @@ Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue
 does not. Repeated identical findings are counted individually: a second
 invalid hreflang link cannot hide behind an existing identical failure.
+On case-sensitive builds, unlisted HTML artifacts differing only by filename
+case remain distinct in comparisons. A newly unlisted case variant is a
+regression under full coverage, not an invalid report. Exact duplicate paths
+are still invalid, and declared manifest paths must remain unique.
 A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
