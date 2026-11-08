@@ -119,6 +119,9 @@ class _SEOParser(HTMLParser):
             if tag in _HEAD_ELEMENTS:
                 self.has_head = self.in_head = True
             elif tag != "html":
+                # A body element implies a valid, empty <head> when the document
+                # omits head metadata altogether; it does not open metadata scope.
+                self.has_head = True
                 self.body_seen = True
         elif self.in_head and tag not in _HEAD_ELEMENTS and tag != "head":
             # An omitted </head>/<body> must not let body metadata pass checks.

@@ -82,10 +82,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   The checker also recognizes valid HTML5 documents that omit `<html>` and/or
   `<head>` start tags (as minifiers can do). A leading HTML doctype identifies
   the implied document root; only metadata before body content is treated as
-  belonging to the implied head. Non-whitespace text before an omitted head
-  starts the body and cannot turn later `<title>` or `<link>` elements into
-  head metadata. Non-whitespace text inside an already opened head also starts
-  the body, so a later `<link>` cannot supply a false canonical. Text inside
+  belonging to the implied head. When body elements appear before any head
+  metadata, the browser still creates an empty head: an H1-only document is
+  not a structural failure merely because it omits `<head>`. Non-whitespace
+  text before an omitted head starts the body and cannot turn a later `<title>`
+  or `<link>` element into head metadata. Non-whitespace text inside an already
+  opened head also starts the body, so a later `<link>` cannot supply a false
+  canonical. Text inside
   head `<script>`, `<style>` or `<title>` does not prematurely close the head.
   ASCII whitespace before the omitted head remains permissible. See the
   [HTML optional-tag rules](https://html.spec.whatwg.org/multipage/syntax.html#optional-tags).
