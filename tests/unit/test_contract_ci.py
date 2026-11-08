@@ -181,6 +181,62 @@ def test_textarea_example_cannot_rescue_heading_cli(tmp_path, capsys):
     assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
 
 
+def test_select_menu_rejected_heading_cannot_satisfy_h1_contract():
+    # In the browser's in-select insertion mode, unexpected h1 tags are ignored.
+    html = ('<html><head><title>Product</title></head><body>'
+            '<select><option>One</option><h1>Not in the DOM</h1></select>'
+            '</body></html>')
+    result = verify_contract({"url": URL, "h1_min": 1}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"h1_min"}
+
+
+def test_real_heading_after_select_is_counted_but_ignored_one_is_not():
+    html = ('<html><head><title>Product</title></head><body>'
+            '<select><option><h1>Ignored</h1></option></select>'
+            '<h1>Real heading</h1></body></html>')
+    result = verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+def test_self_closing_select_slash_does_not_make_ghost_heading_live():
+    html = ('<html><head><title>Product</title></head><body>'
+            '<select/><h1>Ignored until select end</h1></select>'
+            '<h1>Actual heading</h1></body></html>')
+    assert verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, html)[
+        "status"
+    ] == "pass"
+
+
+@pytest.mark.parametrize("implicit_close", ["<select>", "<input>", "<textarea></textarea>"])
+def test_select_heading_scope_and_implicit_closures(implicit_close):
+    prefix = ('<html><head><title>Product</title></head><body>'
+              '<select><option><h1>Ignored</h1></option>')
+    if implicit_close == "<select>":
+        # A second select closes the original; its own start tag is ignored.
+        tail = '<select><h1>Real heading</h1>'
+    elif implicit_close == "<input>":
+        tail = '<input><h1>Real heading</h1>'
+    else:
+        tail = '<textarea><h1>Textarea text</h1></textarea><h1>Real heading</h1>'
+    result = verify_contract({"url": URL, "h1_min": 1, "h1_max": 1}, prefix + tail)
+    assert result["status"] == "pass", result["issues"]
+
+
+def test_select_only_heading_fails_contract_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head><title>Product</title></head><body>'
+        '<select><h1>Ignored browser markup</h1></select></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert {issue["code"] for issue in json.loads(capsys.readouterr().out)["issues"]} == {
+        "h1_min",
+    }
+
+
 @pytest.mark.parametrize("rawtext_tag", ["iframe", "xmp", "noembed", "noframes"])
 def test_rawtext_embedded_examples_cannot_satisfy_heading_or_jsonld(rawtext_tag):
     html = (

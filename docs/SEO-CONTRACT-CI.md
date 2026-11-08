@@ -135,6 +135,10 @@ document base and compared to these absolute expectations, without fetching.
   is not counted as active headings or JSON-LD. Real headings after these
   elements are still checked. This reflects HTML raw-text parsing, not a
   browser rendering or JavaScript execution test.
+* Ignores heading start tags inside HTML `<select>` menus: browsers discard
+  unexpected `<h1>` markup in select insertion mode, so it cannot satisfy an
+  H1 contract. Real headings after `</select>` or an implicitly closed select
+  still count; a self-closing `<select/>` slash does not end a select element.
 * Parses `<noscript>` content using the **scripting-enabled** HTML tokenizer:
   headings, canonical/hreflang links, robots metadata and JSON-LD markup
   inside it cannot satisfy active-page assertions. Content after the matching
