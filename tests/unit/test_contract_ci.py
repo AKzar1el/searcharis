@@ -269,6 +269,57 @@ def test_plaintext_example_cannot_rescue_heading_cli(tmp_path, capsys):
     assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
 
 
+@pytest.mark.parametrize("tag", ["template", "textarea", "title", "iframe", "script", "style"])
+def test_nonvoid_trailing_slash_does_not_make_example_heading_active(tag):
+    # HTML ignores /> on non-void HTML tags; the apparent H1 is still text
+    # or inert template content until the matching closing tag.
+    html = (f'<html><head></head><body><{tag}/><h1>Example only</h1>'
+            f'</{tag}></body></html>')
+    report = verify_contract({"url": URL, "h1_min": 1}, html)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
+def test_self_closing_template_does_not_expose_jsonld():
+    html = ('<html><head></head><body><template/>'
+            '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+            '</template></body></html>')
+    report = verify_contract({"url": URL, "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in report["issues"]} == {"jsonld_type_missing"}
+
+
+def test_nonvoid_script_trailing_slash_keeps_jsonld_content():
+    html = ('<html><head></head><body><script type="application/ld+json"/>'
+            '{"@type":"FAQPage"}</script></body></html>')
+    report = verify_contract({"url": URL, "jsonld_types": ["FAQPage"]}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+def test_nonvoid_head_trailing_slash_keeps_later_canonical_in_head():
+    html = ('<!doctype html><html><head/><link rel="canonical" href="/en/">'
+            '</head><body><h1>Real heading</h1></body></html>')
+    report = verify_contract({"url": URL, "canonical": URL}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+def test_void_link_trailing_slash_still_counts_canonical():
+    html = ('<!doctype html><html><head><link rel="canonical" href="/en/"/>'
+            '</head><body></body></html>')
+    assert verify_contract({"url": URL, "canonical": URL}, html)["status"] == "pass"
+
+
+def test_nonvoid_template_trailing_slash_fails_offline_cli(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head></head><body><template/><h1>Example</h1></template></body></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
+
+
 def test_missing_title_detected():
     result = verify_contract(CONTRACT, HTML.replace("<title>Proper page</title>", ""))
     assert "title_presence" in {i["code"] for i in result["issues"]}

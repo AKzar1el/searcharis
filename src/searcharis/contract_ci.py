@@ -18,6 +18,9 @@ _HEAD_ELEMENTS = frozenset({
     "base", "link", "meta", "noscript", "script", "style", "template", "title",
 })
 _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes"})
+_NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
+    "head", "script", "style", "template", "textarea", "title", "plaintext",
+})
 
 
 class _SEOParser(HTMLParser):
@@ -48,6 +51,20 @@ class _SEOParser(HTMLParser):
         # A literal <script> must not hide their actual closing tag.
         if not self.in_textarea and not self.in_title_element:
             super().set_cdata_mode(elem, **kwargs)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # In HTML (unlike XML), /> does not close a non-void element. HTMLParser
+        # otherwise calls handle_endtag immediately, losing parser state and
+        # letting inert markup masquerade as live SEO signals.
+        self.handle_starttag(tag, attrs)
+        if tag in {"script", "style"} and not (
+            self.in_textarea or self.in_title_element or self.in_plaintext
+        ):
+            # HTMLParser enters CDATA only for ordinary start tags; the same
+            # raw-text state is required for a non-void <script/> or <style/>.
+            self.set_cdata_mode(tag)
+        if tag not in _NONVOID_STATE_ELEMENTS:
+            self.handle_endtag(tag)
 
     def handle_decl(self, decl: str) -> None:
         if self.in_textarea or self.in_plaintext:
