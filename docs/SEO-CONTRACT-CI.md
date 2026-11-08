@@ -37,6 +37,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `title_present` | Require a non-empty HTML title (true/false) |
 | `title_equals` | Match the first active HTML head title text (opt-in, case-sensitive) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
+| `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -114,6 +115,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   duplicate cannot rescue a blank first description. Body/template metadata
   is ignored. This optional agency policy does not mean Google requires a
   meta description or guarantees that it uses one as the search snippet.
+  `description_equals` additionally guards against unexpected description copy
+  changes in built pages. It requires non-blank expected text and compares the
+  first active head description after decoding HTML entities and collapsing
+  whitespace runs on both sides; letter case and punctuation stay significant.
+  Body or template metadata cannot satisfy it, and later duplicate descriptions
+  cannot override the first. This opt-in exact publishing contract does not
+  predict Google's chosen search snippet.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
