@@ -218,6 +218,19 @@ def test_strict_comparison_accepts_case_distinct_unlisted_build_artifact():
     assert compare_reports(candidate, candidate)["status"] == "pass"
 
 
+def test_comparison_accepts_two_explicitly_checked_case_distinct_routes():
+    names = [("en/index.html", []), ("en/INDEX.HTML", [])]
+    baseline = _report(names, strict=True)
+    candidate = _report([(names[0][0], []), (names[1][0], [_issue()])], strict=True)
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["new_issues"] == 1
+    assert result["summary"]["removed_pages"] == 0
+    assert result["new_issues"][0]["path"] == "en/INDEX.HTML"
+    assert compare_reports(baseline, baseline)["status"] == "pass"
+
+
 def test_comparison_counts_case_distinct_unlisted_artifacts_separately():
     baseline = _report([("index.html", [])], strict=True)
     candidate = _report(

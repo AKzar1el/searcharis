@@ -46,9 +46,9 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         path, url, issues = page.get("path"), page.get("checked_url"), page.get("issues")
         if not isinstance(path, str) or not path or not isinstance(url, str) or not url:
             raise ValueError(f"{name}: invalid page path or URL")
-        if path.casefold() in paths or url in urls:
+        if path in paths or url in urls:
             raise ValueError(f"{name}: duplicate page path or URL")
-        paths.add(path.casefold())
+        paths.add(path)
         urls.add(url)
         has_fingerprint = "contract_sha256" in page
         fingerprints.add(has_fingerprint)

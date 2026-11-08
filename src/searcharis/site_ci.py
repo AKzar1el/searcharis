@@ -69,9 +69,9 @@ def verify_manifest(
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
         path = _manifest_path(entry["path"])
-        if path.casefold() in listed:
+        if path in listed:
             raise ValueError(f"Duplicate manifest page path: {path}")
-        listed.add(path.casefold())
+        listed.add(path)
         html_path = (root / path).resolve()
         if not html_path.is_relative_to(root) or not html_path.is_file():
             raise ValueError(f"Missing or unsafe built HTML artifact: {path}")
