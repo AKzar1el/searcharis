@@ -717,6 +717,29 @@ def test_jsonld_context_type_mapping_is_not_an_entity():
     assert {issue["code"] for issue in result["issues"]} == {"jsonld_type_missing"}
 
 
+def test_jsonld_json_literal_content_does_not_supply_entity_types():
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "additionalProperty": {
+            "@value": {"@type": "FAQPage", "items": [{"@type": "Answer"}]},
+            "@type": "@json",
+        },
+    }
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + json.dumps(structured_data)
+        + '</script></head><body></body></html>'
+    )
+    missing = verify_contract({"url": URL, "jsonld_types": ["FAQPage", "Answer"]}, html)
+    assert [issue["code"] for issue in missing["issues"]] == [
+        "jsonld_type_missing", "jsonld_type_missing",
+    ]
+    assert verify_contract({"url": URL, "jsonld_types": ["Dataset"]}, html)[
+        "status"
+    ] == "pass"
+
+
 def test_empty_contract_is_not_silent_pass():
     with pytest.raises(ValueError, match="at least one"):
         verify_contract({"url": URL}, HTML)

@@ -257,12 +257,15 @@ def _types(value: object) -> set[str]:
             pending.extend(current)
         elif isinstance(current, dict):
             # @context describes terms/type coercion, not page entities.
+            # @value objects are literals (including @json with nested JSON),
+            # so their contents must not masquerade as structured-data nodes.
+            if "@value" in current:
+                continue
             types = current.get("@type", [])
-            if "@value" not in current:
-                if isinstance(types, str):
-                    found.add(types)
-                elif isinstance(types, list):
-                    found.update(item for item in types if isinstance(item, str))
+            if isinstance(types, str):
+                found.add(types)
+            elif isinstance(types, list):
+                found.update(item for item in types if isinstance(item, str))
             pending.extend(item for key, item in current.items() if key not in {"@context", "@type"})
     return found
 
