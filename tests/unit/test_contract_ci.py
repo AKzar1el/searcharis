@@ -219,6 +219,58 @@ def test_rawtext_example_cannot_rescue_heading_cli(tmp_path, capsys):
     assert {issue["code"] for issue in report["issues"]} == {"h1_min"}
 
 
+@pytest.mark.parametrize(
+    ("assertion", "hidden_markup", "expected_code"),
+    [
+        ({"canonical": URL}, '<link rel="canonical" href="/en/">', "canonical"),
+        ({"hreflang": {"en": URL}},
+         '<link rel="alternate" hreflang="en" href="/en/">', "hreflang:en"),
+        ({"title_present": True}, "<title>Fallback title</title>", "title_presence"),
+        ({"indexable": False}, '<meta name="robots" content="noindex">', "indexability_meta"),
+    ],
+)
+def test_head_noscript_does_not_supply_active_metadata(assertion, hidden_markup, expected_code):
+    # With HTML scripting enabled, noscript contents are raw text, not DOM metadata.
+    html = f"<html><head><noscript>{hidden_markup}</noscript></head><body></body></html>"
+    report = verify_contract({"url": URL, **assertion}, html)
+    assert {issue["code"] for issue in report["issues"]} == {expected_code}
+
+
+@pytest.mark.parametrize("opening", ["<noscript>", "<noscript/>"])
+def test_body_noscript_markup_cannot_supply_h1_or_jsonld(opening):
+    html = (
+        f'<html><head></head><body>{opening}<h1>Fallback heading</h1>'
+        '<script type="application/ld+json">{"@type":"FAQPage"}</script>'
+        '</noscript></body></html>'
+    )
+    report = verify_contract({"url": URL, "h1_min": 1, "jsonld_types": ["FAQPage"]}, html)
+    assert {issue["code"] for issue in report["issues"]} == {
+        "h1_min", "jsonld_type_missing",
+    }
+
+
+def test_noscript_raw_text_does_not_hide_following_active_seo():
+    html = ('<html><head><noscript><link rel="canonical" href="/bad/"></noscript>'
+            '<link rel="canonical" href="/en/"></head>'
+            '<body><noscript><h1>Fallback</h1></noscript><h1>Real</h1></body></html>')
+    report = verify_contract({"url": URL, "canonical": URL, "h1_min": 1, "h1_max": 1}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+def test_noscript_fake_heading_fails_offline_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text(
+        "<html><head></head><body><noscript><h1>Fallback</h1></noscript></body></html>",
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert {issue["code"] for issue in json.loads(capsys.readouterr().out)["issues"]} == {
+        "h1_min",
+    }
+
+
 def test_plaintext_examples_cannot_supply_heading_or_jsonld():
     html = (
         '<html><head><title>Example</title></head><body><plaintext>'
