@@ -35,6 +35,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | --- | --- |
 | `url` | Absolute HTTP(S) base URL (required) |
 | `title_present` | Require a non-empty HTML title (true/false) |
+| `title_equals` | Match the first active HTML head title text (opt-in, case-sensitive) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -99,6 +100,12 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   `title_present` examines the first active head `<title>` only; a later
   duplicate cannot rescue a blank first title. HTML permits only one title
   element per document; this checker does not separately enforce uniqueness.
+  `title_equals` additionally detects accidental title copy changes even when
+  `title_present` still passes. It compares the first active head title against
+  a required non-blank string, after decoding HTML entities and collapsing
+  whitespace runs on both sides; letter case and punctuation remain significant.
+  Body and inert template titles cannot satisfy it. This is an optional exact
+  publishing contract, not a promise about Google's displayed search title.
   The text inside any `<title>` follows HTML RCDATA rules: literal tag-looking
   examples do not create active H1 or JSON-LD elements, and an example
   `<script>` does not hide real page metadata or headings after `</title>`.

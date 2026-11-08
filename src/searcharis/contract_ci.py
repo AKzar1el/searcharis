@@ -12,7 +12,7 @@ from math import isfinite
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
-    "url", "title_present", "description_present", "viewport_device_width", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
+    "url", "title_present", "title_equals", "description_present", "viewport_device_width", "html_lang", "canonical", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -250,6 +250,10 @@ def _check_contract(spec: object) -> dict:
     for field in ("title_present", "description_present", "viewport_device_width", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
+    if "title_equals" in spec and (
+        not isinstance(spec["title_equals"], str) or not spec["title_equals"].strip()
+    ):
+        raise ValueError("'title_equals' must be non-blank text")
     if "html_lang" in spec and (
         not isinstance(spec["html_lang"], str)
         or not spec["html_lang"]
@@ -423,6 +427,12 @@ def verify_contract(
         actual = bool("".join(page.title_chunks).strip())
         if actual != spec["title_present"]:
             fail("title_presence", spec["title_present"], actual)
+    if "title_equals" in spec:
+        # HTML entities are decoded by HTMLParser; ignore presentation-only
+        # whitespace changes while retaining case and meaningful title text.
+        actual = " ".join("".join(page.title_chunks).split())
+        if actual != " ".join(spec["title_equals"].split()):
+            fail("title_equals", spec["title_equals"], actual)
     if "description_present" in spec:
         actual = bool((page.description_content or "").strip())
         if actual != spec["description_present"]:
