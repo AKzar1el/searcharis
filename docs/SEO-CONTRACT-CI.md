@@ -182,6 +182,9 @@ duplicate paths/URLs, invalid contracts and oversized inputs fail as input
 errors. Duplicate JSON object keys (including inside page contracts) are
 rejected rather than silently overriding SEO assertions. Files are limited to
 4 MB each; manifests to 10,000 pages, and builds to 20,000 HTML artifacts.
+On case-sensitive builds, a second artifact differing only by filename case
+is still a distinct unlisted file; `--require-full-coverage` blocks it rather
+than counting one manifest entry as coverage for both artifacts.
 
 The result includes per-page findings and a coverage record listing any built
 HTML not declared in the manifest. Partial adoption is supported: unlisted
