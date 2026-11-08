@@ -29,6 +29,54 @@ def test_good_page_passes():
     assert verify_contract(CONTRACT, HTML)["status"] == "pass"
 
 
+@pytest.mark.parametrize("expected,markup", [
+    ("Proper page", HTML),
+    ("Proper page", HTML.replace("Proper page", " Proper  \n\tpage ")),
+    ("Tea & Coffee", HTML.replace("Proper page", "Tea &amp; Coffee")),
+    ("Proper page", HTML.replace("<title>Proper page</title>",
+                                 "<template><title>Fake title</title></template>"
+                                 "<title>Proper page</title>")),
+])
+def test_title_equals_accepts_normalized_first_active_head_title(expected, markup):
+    result = verify_contract({"url": URL, "title_equals": expected}, markup)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("markup,actual", [
+    (HTML.replace("Proper page", "Wrong title"), "Wrong title"),
+    (HTML.replace("<title>Proper page</title>", ""), ""),
+    (HTML.replace("<title>Proper page</title>",
+                  "<title>Wrong title</title><title>Proper page</title>"), "Wrong title"),
+    (HTML.replace("<title>Proper page</title>", "")
+         .replace("<h1>Welcome</h1>", "<title>Proper page</title><h1>Welcome</h1>"), ""),
+])
+def test_title_equals_detects_title_regressions_even_when_presence_passes(markup, actual):
+    result = verify_contract({"url": URL, "title_present": bool(actual),
+                              "title_equals": "Proper page"}, markup)
+    assert {issue["code"] for issue in result["issues"]} == {"title_equals"}
+    assert result["issues"][0] == {
+        "code": "title_equals", "expected": "Proper page", "actual": actual,
+    }
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  \t\n", [], {}])
+def test_title_equals_rejects_missing_or_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="title_equals"):
+        verify_contract({"url": URL, "title_equals": value}, HTML)
+
+
+def test_title_equals_cli_reports_mismatch(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "title_equals": "Expected page"}),
+                             encoding="utf-8")
+    html_path.write_text(HTML, encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "title_equals", "expected": "Expected page", "actual": "Proper page",
+    }]
+
+
 @pytest.mark.parametrize("viewport", [
     '<meta name="viewport" content="width=device-width">',
     '<meta NAME="VIEWPORT" content="initial-scale=1, width = DEVICE-WIDTH">',
