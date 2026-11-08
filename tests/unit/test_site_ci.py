@@ -118,6 +118,27 @@ def test_duplicate_page_paths_rejected_case_insensitively(tmp_path):
         verify_manifest(manifest, tmp_path)
 
 
+@pytest.mark.parametrize("wrong_path", ["EN/index.html", "en/INDEX.HTML"])
+@pytest.mark.parametrize("strict", [False, True])
+def test_manifest_rejects_case_mismatched_artifact_path(tmp_path, wrong_path, strict):
+    manifest = _setup(tmp_path)
+    manifest["pages"][1]["path"] = wrong_path
+    # On case-insensitive hosts the wrong-cased path opens successfully, but
+    # would be missing after deploying the same build to a case-sensitive host.
+    with pytest.raises(ValueError):
+        verify_manifest(manifest, tmp_path, require_full_coverage=strict)
+
+
+def test_site_cli_rejects_case_mismatched_artifact_path(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    manifest["pages"][1]["path"] = "EN/index.html"
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--require-full-coverage", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
 def test_duplicate_contract_urls_rejected(tmp_path):
     manifest = _setup(tmp_path)
     manifest["pages"][1]["contract"]["url"] = manifest["pages"][0]["contract"]["url"]

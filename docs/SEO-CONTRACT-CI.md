@@ -177,6 +177,7 @@ The manifest format is a JSON object with `"version": 1` and a non-empty
 `"en/index.html"`) and an inline `"contract"` using the existing fields.
 The supplied build directory is the only source of HTML; contract `url`
 values are never fetched. Paths escaping the build root, missing files,
+paths whose casing differs from the built HTML (including on Windows),
 duplicate paths/URLs, invalid contracts and oversized inputs fail as input
 errors. Duplicate JSON object keys (including inside page contracts) are
 rejected rather than silently overriding SEO assertions. Files are limited to

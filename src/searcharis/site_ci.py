@@ -261,6 +261,11 @@ def verify_manifest(
         discovered.add(candidate.relative_to(root).as_posix())
         if len(discovered) > _MAX_DISCOVERED:
             raise ValueError(f"Build contains more than {_MAX_DISCOVERED} HTML artifacts")
+    # Case-insensitive filesystems can open a wrong-cased manifest path that
+    # would 404 on a case-sensitive CI runner or deployment target.
+    mismatched = sorted(report["path"] for report in reports if report["path"] not in discovered)
+    if mismatched:
+        raise ValueError(f"Manifest paths must match discovered HTML artifact casing: {mismatched}")
     unlisted = sorted(path for path in discovered if path.casefold() not in listed)
     reports.sort(key=lambda report: report["path"])
     failed = sum(report["status"] == "fail" for report in reports)
