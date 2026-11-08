@@ -266,7 +266,10 @@ def verify_manifest(
     mismatched = sorted(report["path"] for report in reports if report["path"] not in discovered)
     if mismatched:
         raise ValueError(f"Manifest paths must match discovered HTML artifact casing: {mismatched}")
-    unlisted = sorted(path for path in discovered if path.casefold() not in listed)
+    # Coverage is about distinct built files, not casefold-equivalent names.
+    # Case-sensitive builds may contain both en/index.html and en/INDEX.HTML;
+    # only the exact manifest entry is checked, even on a Windows CI runner.
+    unlisted = sorted(discovered - {report["path"] for report in reports})
     reports.sort(key=lambda report: report["path"])
     failed = sum(report["status"] == "fail" for report in reports)
     passed = len(reports) - failed

@@ -1,6 +1,7 @@
 """Offline multi-page artifact verification and coverage guarantees."""
 
 import json
+import os
 import socket
 
 import pytest
@@ -88,6 +89,49 @@ def test_unlisted_pages_are_visible_and_optionally_fatal(tmp_path):
     assert strict["coverage"]["discovered"] == 3
     assert strict["coverage"]["checked"] == 2
     assert strict["coverage"]["unlisted"] == ["extra.html"]
+
+
+def _case_colliding_artifact(tmp_path, monkeypatch):
+    variant = tmp_path / "en" / "INDEX.HTML"
+    if os.name == "nt":
+        # NTFS commonly cannot store case-distinct names together. Model the
+        # enumeration of a case-sensitive build without modifying host settings.
+        original_rglob = type(tmp_path).rglob
+
+        def rglob_with_variant(path, pattern):
+            yield from original_rglob(path, pattern)
+            if path == tmp_path.resolve() and pattern == "*":
+                yield variant
+
+        monkeypatch.setattr(type(tmp_path), "rglob", rglob_with_variant)
+    else:
+        variant.write_text(_page(f"{BASE}extra/"), encoding="utf-8")
+    return variant
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_case_colliding_html_artifact_is_unlisted(tmp_path, monkeypatch, strict):
+    manifest = _setup(tmp_path)
+    _case_colliding_artifact(tmp_path, monkeypatch)
+
+    report = verify_manifest(manifest, tmp_path, require_full_coverage=strict)
+
+    assert report["coverage"]["discovered"] == 3
+    assert report["coverage"]["checked"] == 2
+    assert report["coverage"]["unlisted"] == ["en/INDEX.HTML"]
+    assert report["status"] == ("fail" if strict else "pass")
+
+
+def test_site_cli_blocks_case_colliding_artifact_with_strict_coverage(tmp_path, monkeypatch, capsys):
+    manifest = _setup(tmp_path)
+    _case_colliding_artifact(tmp_path, monkeypatch)
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--require-full-coverage", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "fail"
+    assert result["coverage"]["unlisted"] == ["en/INDEX.HTML"]
 
 
 @pytest.mark.parametrize(
