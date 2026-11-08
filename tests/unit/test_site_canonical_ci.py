@@ -93,6 +93,7 @@ def test_local_canonical_cycles_fail_on_both_sources(tmp_path):
         (["https://[broken"], "canonical_invalid_url"),
         (["https://example.com:badport/en/"], "canonical_invalid_url"),
         (["https://example.com/en/ bad"], "canonical_invalid_url"),
+        ([r"https://example.com\en/"], "canonical_invalid_url"),
     ],
 )
 def test_missing_duplicate_and_invalid_canonicals_fail(tmp_path, links, code):

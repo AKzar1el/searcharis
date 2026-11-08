@@ -46,7 +46,7 @@ otherwise silently pass even when the built page contains no JSON-LD, so it is
 rejected as an invalid contract (exit 2) rather than disabling the assertion.
 
 The declared `url` must be a syntactically valid absolute HTTP(S) URL, without
-embedded whitespace, credentials, or a malformed/out-of-range port. Both CLI
+embedded whitespace, backslashes, credentials, or a malformed/out-of-range port. Both CLI
 entry points reject invalid declared URLs as input errors (exit 2), including
 for contracts that assert only a page title. This validates URL syntax only;
 it does not fetch or check whether the URL resolves.
@@ -56,6 +56,10 @@ relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are
 contract input errors (exit 2), not failures attributed to the built page.
 HTML `<link href>` values may still be relative; they are resolved against the
 document base and compared to these absolute expectations, without fetching.
+Backslashes are rejected in explicit HTTP(S) URLs because browsers normalize
+them differently from Python's URL parser. The same validation applies to
+observed canonical targets in opt-in cross-page consistency checks, which
+report invalid built links as findings rather than accepting ambiguous hosts.
 
 ## Limits and interpretation
 

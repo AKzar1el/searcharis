@@ -333,6 +333,9 @@ def _is_http_url(value: str) -> bool:
             and parsed.username is None
             and parsed.password is None
             and (parsed.port is None or 0 < parsed.port <= 65535)
+            # Browsers interpret backslashes as slashes in HTTP(S) URLs,
+            # while urlsplit preserves them and may infer a different host.
+            and "\\" not in value
             and not any(char.isspace() or ord(char) < 32 for char in value)
         )
     except ValueError:
@@ -361,15 +364,7 @@ def verify_contract(
     if page.base_href is not None:
         try:
             candidate = urljoin(url, page.base_href)
-            parsed_base = urlsplit(candidate)
-            valid_base = (
-                parsed_base.scheme in {"http", "https"}
-                and bool(parsed_base.hostname)
-                and parsed_base.username is None
-                and parsed_base.password is None
-                and (parsed_base.port is None or 0 < parsed_base.port <= 65535)
-                and not any(char.isspace() or ord(char) < 32 for char in candidate)
-            )
+            valid_base = _is_http_url(candidate)
         except ValueError:
             valid_base = False
         if valid_base:

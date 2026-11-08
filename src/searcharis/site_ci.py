@@ -9,9 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
 
-from searcharis.contract_ci import verify_contract
+from searcharis.contract_ci import _is_http_url, verify_contract
 
 _MAX_INPUT_BYTES = 4_000_000
 _MAX_PAGES = 10_000
@@ -219,19 +218,7 @@ def verify_manifest(
                 })
             else:
                 target = observed[0]
-                try:
-                    parsed = urlsplit(target)
-                    valid = (
-                        parsed.scheme in {"http", "https"}
-                        and bool(parsed.hostname)
-                        and parsed.username is None
-                        and parsed.password is None
-                        and (parsed.port is None or 0 < parsed.port <= 65535)
-                        and not any(char.isspace() or ord(char) < 32 for char in target)
-                    )
-                except ValueError:
-                    valid = False
-                if not valid:
+                if not _is_http_url(target):
                     report["issues"].append({
                         "code": "canonical_invalid_url",
                         "expected": "an absolute HTTP(S) canonical URL",
