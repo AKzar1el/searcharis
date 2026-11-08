@@ -132,6 +132,12 @@ document base and compared to these absolute expectations, without fetching.
   is not counted as active headings or JSON-LD. Real headings after these
   elements are still checked. This reflects HTML raw-text parsing, not a
   browser rendering or JavaScript execution test.
+* Parses `<noscript>` content using the **scripting-enabled** HTML tokenizer:
+  headings, canonical/hreflang links, robots metadata and JSON-LD markup
+  inside it cannot satisfy active-page assertions. Content after the matching
+  `</noscript>` is checked normally. Browsers with scripting disabled parse
+  `<noscript>` differently; Searcharis does not emulate both modes or execute
+  JavaScript.
 * Treats everything after the obsolete HTML `<plaintext>` start tag as text,
   including apparent closing tags. Markup-looking headings and JSON-LD after
   it cannot satisfy SEO assertions; earlier genuine headings still count.

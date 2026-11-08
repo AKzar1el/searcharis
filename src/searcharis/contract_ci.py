@@ -18,7 +18,7 @@ _ALLOWED = frozenset({
 _HEAD_ELEMENTS = frozenset({
     "base", "link", "meta", "noscript", "script", "style", "template", "title",
 })
-_RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes"})
+_RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript"})
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
     "head", "script", "style", "template", "textarea", "title", "plaintext",
 })
@@ -48,8 +48,8 @@ class _SEOParser(HTMLParser):
         self.in_plaintext = False
 
     def set_cdata_mode(self, elem: str, **kwargs: bool) -> None:
-        # HTMLParser tokenizes markup inside RCDATA elements, unlike browsers.
-        # A literal <script> must not hide their actual closing tag.
+        # HTMLParser tokenizes markup inside RCDATA and some raw-text elements,
+        # unlike browsers. A literal <script> must not hide their closing tag.
         if not self.in_textarea and not self.in_title_element:
             super().set_cdata_mode(elem, **kwargs)
 
@@ -130,7 +130,8 @@ class _SEOParser(HTMLParser):
             self.in_title_element = True
         elif tag in _RAWTEXT_ELEMENTS:
             # HTMLParser does not natively tokenize these HTML raw-text
-            # elements as text, so literal examples could spoof page SEO.
+            # elements as text. Scripting-enabled <noscript> is also raw text,
+            # so its fallback markup cannot spoof active page SEO signals.
             self.set_cdata_mode(tag)
         if tag == "title" and self.in_head and not self.title_seen:
             # The first head title is the document title; later duplicates
