@@ -113,7 +113,9 @@ report invalid built links as findings rather than accepting ambiguous hosts.
 * Checks strict JSON-LD *syntax and presence of types*, including nested entities
   such as an Article's author or a FAQPage's questions and answers, as well
   as `@graph`. Term/type declarations inside `@context` and typed literal
-  values are not counted as entities. Non-JSON numeric literals (`NaN`,
+  values are not counted as entities. JSON-LD `@value` objects, including
+  `@type: "@json"` literals containing nested JSON with `@type` keys, are
+  never traversed as entity nodes. Non-JSON numeric literals (`NaN`,
   `Infinity`, `-Infinity`) fail syntax validation rather than silently passing
   via Python's permissive JSON parser. Duplicate JSON object keys, including
   nested JSON-LD keys, also fail validation rather than silently letting the
