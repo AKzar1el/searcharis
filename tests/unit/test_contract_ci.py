@@ -475,7 +475,7 @@ def test_invalid_and_missing_jsonld_reported():
     assert {"jsonld_invalid", "jsonld_type_missing"} <= {i["code"] for i in result["issues"]}
 
 
-@pytest.mark.parametrize("depth", [6000, 12000])
+@pytest.mark.parametrize("depth", [256, 6000, 12000])
 def test_excessively_nested_jsonld_fails_as_finding_instead_of_crashing(depth):
     nested = "[" * depth + '{"@type":"WebPage"}' + "]" * depth
     html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', nested)
@@ -487,8 +487,17 @@ def test_excessively_nested_jsonld_fails_as_finding_instead_of_crashing(depth):
 
 
 def test_nested_jsonld_within_parser_limit_still_satisfies_type():
-    nested = "[" * 20 + '{"@type":"WebPage"}' + "]" * 20
+    nested = "[" * 255 + '{"@type":"WebPage"}' + "]" * 255
     html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', nested)
+    assert verify_contract(CONTRACT, html)["status"] == "pass"
+
+
+def test_jsonld_brackets_and_escaped_quotes_in_strings_are_not_counted_as_nesting():
+    payload = json.dumps({
+        "@type": "WebPage",
+        "name": "[" * 500 + 'escaped \\" quotation ' + "}" * 500,
+    })
+    html = HTML.replace('{"@graph":[{"@type":"WebPage"}]}', payload)
     assert verify_contract(CONTRACT, html)["status"] == "pass"
 
 

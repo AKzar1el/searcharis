@@ -22,6 +22,7 @@ _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
     "head", "script", "style", "template", "textarea", "title", "plaintext",
 })
+_MAX_JSONLD_NESTING = 256
 
 
 class _SEOParser(HTMLParser):
@@ -287,6 +288,31 @@ def _unique_jsonld_keys(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def _jsonld_too_deep(raw: str) -> bool:
+    # Limit decoder nesting consistently on Python versions with different
+    # recursion headroom. Brackets inside JSON strings are not containers.
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > _MAX_JSONLD_NESTING:
+                return True
+        elif char in "]}":
+            depth -= 1
+    return False
+
+
 def _resolve_href(base_url: str, href: str) -> str:
     # An empty <link href> is not a URL, even though urljoin maps it to base_url.
     if not href:
@@ -377,6 +403,8 @@ def verify_contract(
         observed: set[str] = set()
         for index, block in enumerate(page.jsonld_blocks):
             try:
+                if _jsonld_too_deep(block):
+                    raise ValueError("JSON-LD exceeds supported nesting depth")
                 observed |= _types(json.loads(
                     block,
                     parse_constant=_reject_non_json_number,
@@ -384,8 +412,8 @@ def verify_contract(
                     object_pairs_hook=_unique_jsonld_keys,
                 ))
             except (json.JSONDecodeError, ValueError, RecursionError):
-                # Deeply nested supplied JSON-LD may exceed Python's decoder
-                # recursion limit; it is an invalid finding, not a CI crash.
+                # Invalid input and decoder recursion exhaustion are findings,
+                # never a traceback that breaks JSON-mode CI consumers.
                 fail("jsonld_invalid", "valid JSON", f"block {index + 1} malformed")
         for expected_type in spec["jsonld_types"]:
             if expected_type not in observed:
