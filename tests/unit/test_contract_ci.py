@@ -1293,6 +1293,71 @@ def test_blank_canonical_href_cannot_pass_as_self_canonical():
     assert result["issues"] == [{"code": "canonical", "expected": [URL], "actual": [""]}]
 
 
+@pytest.mark.parametrize("links,expected,observed", [
+    ('<link rel="canonical" href="/en/">', True, None),
+    ('<link REL="CANONICAL" href="https://example.com/other">', True, None),
+    ('<link rel="canonical" href="//example.com/en/">', True, None),
+    ('', True, []),
+    ('<link rel="canonical" href="">', True, [""]),
+    ('<link rel="canonical" href="javascript:alert(1)">', True, ["javascript:alert(1)"]),
+    ('<link rel="canonical" href="https://[broken">', True, ["https://[broken"]),
+    ('<link rel="canonical" href="/en/"><link rel="canonical" href="/other">',
+     True, [URL, "https://example.com/other"]),
+    ('', False, None),
+    ('<link rel="canonical" href="/en/">', False, [URL]),
+    ('<link rel="canonical" href=" ">', False, [""]),
+])
+def test_canonical_presence_requires_one_valid_target_or_no_active_target(links, expected, observed):
+    html = f"<html><head>{links}</head><body><h1>Page</h1></body></html>"
+    report = verify_contract({"url": URL, "canonical_present": expected}, html)
+    if observed is None:
+        assert report["status"] == "pass", report["issues"]
+    else:
+        assert report["issues"] == [{
+            "code": "canonical_presence", "expected": expected, "actual": observed,
+        }]
+
+
+@pytest.mark.parametrize("markup", [
+    '<template><link rel="canonical" href="/en/"></template>',
+    '<noscript><link rel="canonical" href="/en/"></noscript>',
+    '</head><body><link rel="canonical" href="/en/">',
+])
+def test_canonical_presence_does_not_use_inert_or_body_links(markup):
+    html = f"<html><head>{markup}</body></html>"
+    assert verify_contract({"url": URL, "canonical_present": False}, html)["status"] == "pass"
+    result = verify_contract({"url": URL, "canonical_present": True}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"canonical_presence"}
+
+
+def test_canonical_presence_resolves_document_base_without_fetching():
+    html = ('<html><head><base href="/fr/">'
+            '<link rel="canonical" href="page.html"></head><body></body></html>')
+    report = verify_contract({"url": URL, "canonical_present": True}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true", [], {}])
+def test_canonical_presence_requires_boolean(value):
+    with pytest.raises(ValueError, match="canonical_present"):
+        verify_contract({"url": URL, "canonical_present": value}, HTML)
+
+
+def test_canonical_presence_cli_returns_actionable_json(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "canonical_present": True}), encoding="utf-8")
+    html_path.write_text('<html><head><link rel="canonical" href=""></head></html>',
+                         encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "canonical_presence", "expected": True, "actual": [""],
+    }]
+    html_path.write_text(HTML, encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 def test_blank_hreflang_href_cannot_pass_as_self_alternate():
     html = '<html><head><link rel="alternate" hreflang="en" href=""></head><body></body></html>'
     result = verify_contract({"url": URL, "hreflang": {"en": URL}}, html)
