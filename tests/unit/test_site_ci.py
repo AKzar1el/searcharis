@@ -146,6 +146,26 @@ def test_case_colliding_html_artifact_is_unlisted(tmp_path, monkeypatch, strict)
     assert report["status"] == ("fail" if strict else "pass")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows checkout lacks case-distinct files")
+def test_case_distinct_manifest_entries_can_cover_both_html_artifacts(tmp_path):
+    manifest = _setup(tmp_path)
+    variant = tmp_path / "en" / "INDEX.HTML"
+    variant.write_text(_page(f"{BASE}en/variant/"), encoding="utf-8")
+    manifest["pages"].append({
+        "path": "en/INDEX.HTML",
+        "contract": {"url": f"{BASE}en/variant/", "canonical": f"{BASE}en/variant/"},
+    })
+
+    result = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert result["status"] == "pass"
+    assert result["coverage"] == {
+        "discovered": 3, "checked": 3, "unlisted": [], "require_full_coverage": True,
+    }
+    assert [page["path"] for page in result["pages"]] == [
+        "en/INDEX.HTML", "en/index.html", "sl/index.html",
+    ]
+
+
 def test_site_cli_blocks_case_colliding_artifact_with_strict_coverage(tmp_path, monkeypatch, capsys):
     manifest = _setup(tmp_path)
     _case_colliding_artifact(tmp_path, monkeypatch)
@@ -179,9 +199,9 @@ def test_unsafe_or_non_html_paths_rejected(tmp_path, path):
         verify_manifest(manifest, tmp_path)
 
 
-def test_duplicate_page_paths_rejected_case_insensitively(tmp_path):
+def test_duplicate_exact_page_paths_rejected(tmp_path):
     manifest = _setup(tmp_path)
-    manifest["pages"][1]["path"] = manifest["pages"][0]["path"].upper()
+    manifest["pages"][1]["path"] = manifest["pages"][0]["path"]
     with pytest.raises(ValueError, match="Duplicate manifest page path"):
         verify_manifest(manifest, tmp_path)
 

@@ -187,7 +187,10 @@ rejected rather than silently overriding SEO assertions. Files are limited to
 4 MB each; manifests to 10,000 pages, and builds to 20,000 HTML artifacts.
 On case-sensitive builds, a second artifact differing only by filename case
 is still a distinct unlisted file; `--require-full-coverage` blocks it rather
-than counting one manifest entry as coverage for both artifacts.
+than counting one manifest entry as coverage for both artifacts. To obtain
+full coverage, list both exact-cased artifact paths with distinct contract URLs.
+The checker rejects exact duplicates and wrong-cased paths on Windows too;
+merely using a case-insensitive filesystem never silently proves coverage.
 
 The result includes per-page findings and a coverage record listing any built
 HTML not declared in the manifest. Partial adoption is supported: unlisted
@@ -316,10 +319,11 @@ Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue
 does not. Repeated identical findings are counted individually: a second
 invalid hreflang link cannot hide behind an existing identical failure.
-On case-sensitive builds, unlisted HTML artifacts differing only by filename
-case remain distinct in comparisons. A newly unlisted case variant is a
-regression under full coverage, not an invalid report. Exact duplicate paths
-are still invalid, and declared manifest paths must remain unique.
+On case-sensitive builds, case-distinct HTML artifact paths remain separate
+whether declared or unlisted in comparison reports. A newly unlisted case
+variant is a regression under full coverage, not an invalid report. Explicit
+case-distinct pages can each have their own findings and contract fingerprint;
+exact duplicate paths and duplicate contract URLs are still invalid.
 A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
