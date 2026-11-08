@@ -76,6 +76,35 @@ def test_ascii_whitespace_before_omitted_head_still_allows_head_metadata():
     ] == "pass"
 
 
+@pytest.mark.parametrize("opening", [
+    "<!doctype html><html><body>",
+    "<!doctype html><body>",
+    "<!doctype html><html><main>",
+    "<html><body>",
+])
+def test_omitted_empty_head_is_valid_before_body_elements(opening):
+    # Browsers insert an empty head even if the first explicit element is body content.
+    html = opening + "<h1>Visible</h1>"
+    report = verify_contract({"url": URL, "title_present": False, "h1_min": 1}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+def test_omitted_empty_head_does_not_adopt_late_body_canonical():
+    html = ('<!doctype html><html><body><h1>Visible</h1>'
+            '<link rel="canonical" href="/en/">')
+    report = verify_contract({"url": URL, "h1_min": 1, "canonical": URL}, html)
+    assert {issue["code"] for issue in report["issues"]} == {"canonical"}
+
+
+def test_omitted_empty_head_passes_single_page_cli(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "h1_min": 1}), encoding="utf-8")
+    artifact.write_text("<!doctype html><html><body><h1>Page</h1>", encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("head_start", ["<head>", ""])
 def test_visible_text_in_head_closes_metadata_scope(head_start):
     # Non-whitespace text makes the browser implicitly close the head. The
