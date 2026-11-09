@@ -1770,6 +1770,79 @@ def test_og_locale_equals_cli_json_reports_regression_then_pass(tmp_path, capsys
 
 
 @pytest.mark.parametrize("expected,metadata", [
+    ("Searcharis", '<meta property="og:site_name" content="Searcharis">'),
+    ("Searcharis", '<meta PROPERTY="og:site_name" content=" Searcharis ">'),
+    ("Tea & Coffee", '<meta property="og:site_name" content="Tea &amp; Coffee">'),
+    ("Sear charis", '<meta property="og:site_name" content="Sear  \n charis">'),
+    ("Searcharis", '<template><meta property="og:site_name" content="Wrong"></template>'
+     '<meta property="og:site_name" content="Searcharis">'),
+    ("Searcharis", '<noscript><meta property="og:site_name" content="Wrong"></noscript>'
+     '<meta property="og:site_name" content="Searcharis">'),
+])
+def test_og_site_name_equals_accepts_first_active_site_brand(expected, metadata):
+    report = verify_contract(
+        {"url": URL, "og_site_name_equals": expected},
+        f"<html><head>{metadata}</head><body></body></html>",
+    )
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:site_name" content="Another Brand">', "Another Brand"),
+    ('<meta property="og:site_name" content="seArcharis">', "seArcharis"),
+    ('<meta property="og:site_name" content="">'
+     '<meta property="og:site_name" content="Searcharis">', ""),
+    ('<meta name="og:site_name" content="Searcharis">', None),
+    ('<meta property="og:site_name:alternate" content="Searcharis">', None),
+    ('<template><meta property="og:site_name" content="Searcharis"></template>', None),
+    ("", None),
+])
+def test_og_site_name_equals_detects_missing_changed_or_inert_brand(metadata, actual):
+    report = verify_contract(
+        {"url": URL, "og_site_name_equals": "Searcharis"},
+        f'<html><head>{metadata}</head><body>'
+        '<meta property="og:site_name" content="Searcharis"></body></html>',
+    )
+    assert report["issues"] == [{
+        "code": "og_site_name_equals", "expected": "Searcharis", "actual": actual,
+    }]
+
+
+def test_og_site_name_equals_implicit_head_uses_first_duplicate_attribute():
+    report = verify_contract(
+        {"url": URL, "og_site_name_equals": "Searcharis"},
+        '<!doctype html><meta property="og:site_name" content="Wrong" '
+        'content="Searcharis"><h1>Welcome</h1>',
+    )
+    assert report["issues"] == [{
+        "code": "og_site_name_equals", "expected": "Searcharis", "actual": "Wrong",
+    }]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", " \n\t", [], {}])
+def test_og_site_name_equals_rejects_invalid_expected_brand(value):
+    with pytest.raises(ValueError, match="og_site_name_equals"):
+        verify_contract({"url": URL, "og_site_name_equals": value}, HTML)
+
+
+def test_og_site_name_equals_cli_json_reports_regression_and_pass(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_site_name_equals": "Searcharis"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:site_name" content="Wrong">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_site_name_equals", "expected": "Searcharis", "actual": "Wrong",
+    }]
+    artifact.write_text('<html><head><meta property="og:site_name" content="Searcharis">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("expected,metadata", [
     ("Specific page summary", '<meta name="description" content="Specific page summary">'),
     ("Specific page summary", '<meta NAME="DESCRIPTION" content=" Specific  page\nsummary ">'),
     ("Tea & Coffee", '<meta name="description" content="Tea &amp; Coffee">'),

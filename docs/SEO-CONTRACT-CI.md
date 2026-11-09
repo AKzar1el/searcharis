@@ -44,6 +44,7 @@ how valid contracts or manifests are read.
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_type_equals` | Match the first active HTML head Open Graph `og:type` object classification (opt-in, case-sensitive) |
 | `og_locale_equals` | Match the first explicit head Open Graph `og:locale` sharing locale (opt-in, case-sensitive) |
+| `og_site_name_equals` | Match the first explicit head Open Graph `og:site_name` site-wide brand name (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `og_url_equals` | Match the first active head Open Graph `og:url` to an exact absolute HTTP(S) URL (opt-in) |
@@ -173,6 +174,18 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   expecting `en_US`. It does not validate external preview rendering or
   infer the correct locale from visible text. See the
   [Open Graph protocol](https://ogp.me/) for locale conventions.
+
+  `og_site_name_equals` independently protects the site-wide brand name
+  declared for social previews using `<meta property="og:site_name" content="...">`.
+  It compares the first active head declaration to required non-blank text,
+  decoding HTML entities and collapsing whitespace while preserving case.
+  Missing, blank or changed first values fail, even if a later duplicate
+  matches. Body metadata, inert template/noscript markup, and name-only or
+  similarly prefixed properties cannot satisfy the assertion. This opt-in
+  publishing check does not infer a brand from the domain, verify what social
+  platforms display, or fetch URLs. The property is optional in the
+  [Open Graph protocol](https://ogp.me/).
+
   `og_title_equals` separately protects the title supplied for social/link
   previews through `<meta property="og:title" content="...">`. It checks the
   first active tag in the head, decoding entities and collapsing whitespace

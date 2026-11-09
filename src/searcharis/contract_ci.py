@@ -13,7 +13,8 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_type_equals", "og_locale_equals", "og_title_equals", "og_description_equals", "og_url_equals",
+    "og_type_equals", "og_locale_equals", "og_site_name_equals", "og_title_equals",
+    "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "twitter_image_equals",
@@ -49,6 +50,7 @@ class _SEOParser(HTMLParser):
         self.description_content: str | None = None
         self.og_type_content: str | None = None
         self.og_locale_content: str | None = None
+        self.og_site_name_content: str | None = None
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
         self.og_url_content: str | None = None
@@ -233,6 +235,9 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:locale"
                     and self.og_locale_content is None):
                 self.og_locale_content = (values.get("content") or "").strip()
+            if (self.in_head and values.get("property") == "og:site_name"
+                    and self.og_site_name_content is None):
+                self.og_site_name_content = values.get("content") or ""
             if (self.in_head and values.get("property") == "og:title"
                     and self.og_title_content is None):
                 # The first active Open Graph title is the publishing contract;
@@ -341,6 +346,7 @@ def _check_contract(spec: object) -> dict:
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_type_equals", "og_locale_equals",
+                  "og_site_name_equals",
                   "og_title_equals", "og_description_equals",
                   "twitter_title_equals", "twitter_description_equals",
                   "h1_text_equals"):
@@ -557,6 +563,13 @@ def verify_contract(
         fail("og_type_equals", spec["og_type_equals"], page.og_type_content)
     if "og_locale_equals" in spec and page.og_locale_content != spec["og_locale_equals"].strip():
         fail("og_locale_equals", spec["og_locale_equals"], page.og_locale_content)
+    if "og_site_name_equals" in spec:
+        # The first explicit social-preview site label is a publishing contract;
+        # do not infer the brand from the host, title or a later duplicate.
+        actual = (None if page.og_site_name_content is None
+                  else " ".join(page.og_site_name_content.split()))
+        if actual != " ".join(spec["og_site_name_equals"].split()):
+            fail("og_site_name_equals", spec["og_site_name_equals"], actual)
     if "og_title_equals" in spec:
         # Social preview metadata can drift while the document title stays put.
         actual = " ".join((page.og_title_content or "").split())
