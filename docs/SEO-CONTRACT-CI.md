@@ -443,8 +443,9 @@ without fingerprints can still be compared, but cannot prove their assertions
 were identical. Mixing fingerprinted and legacy reports fails as incompatible:
 regenerate both reports with the same checker version and approved manifest.
 Non-finite numeric values in report data (such as `NaN`, `Infinity`, or a
-number overflowing to infinity during JSON decoding) are invalid input
-(exit 2), not a successful no-regression comparison.
+number overflowing to infinity during JSON decoding) and excessively nested
+JSON reports are invalid input (exit 2), not a successful no-regression
+comparison or an uncaught traceback.
 
 ## Optional SARIF findings for artifact-level CI reporting
 

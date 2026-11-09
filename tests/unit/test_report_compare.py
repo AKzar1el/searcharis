@@ -368,3 +368,44 @@ def test_comparison_tracks_actual_local_html_build_regression(tmp_path):
     assert result["status"] == "regression"
     assert result["new_issues"][0]["issue"]["code"] == "title_presence"
     assert result["summary"]["new_issues"] == 1
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_rejects_excessively_nested_local_report_without_traceback(
+    tmp_path, capsys, json_output,
+):
+    before = tmp_path / "baseline.json"
+    after = tmp_path / "candidate.json"
+    before.write_text(json.dumps(_report([("index.html", [])])), encoding="utf-8")
+    # This small syntactically nested input can exhaust the JSON decoder's
+    # recursion budget; it must be an input error, not a CLI traceback.
+    after.write_text("[" * 5000 + "0" + "]" * 5000, encoding="utf-8")
+
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+        assert output.err == ""
+    else:
+        assert "Invalid or incompatible report" in output.err
+        assert "Traceback" not in output.err
+
+
+def test_comparison_wraps_encoder_recursion_as_invalid_report(monkeypatch):
+    from searcharis import report_compare
+
+    report = _report([("index.html", [_issue()])])
+    original_dumps = report_compare.json.dumps
+
+    def simulate_encoder_depth_limit(*args, **kwargs):
+        if kwargs.get("allow_nan") is False:
+            raise RecursionError("encoder nesting limit")
+        return original_dumps(*args, **kwargs)
+
+    # Python versions differ in how deeply their C JSON encoder can recurse.
+    # Exercise the catch path directly rather than depending on that limit.
+    monkeypatch.setattr(report_compare.json, "dumps", simulate_encoder_depth_limit)
+
+    with pytest.raises(ValueError, match="invalid JSON values"):
+        compare_reports(report, report)
