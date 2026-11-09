@@ -318,6 +318,8 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   non-blank expected text and compares decoded heading text, including nested
   inline elements, after collapsing whitespace runs. It is case-sensitive:
   a missing, empty or changed first H1 fails even if a later H1 matches.
+  When a following H2-H6 directly starts while the first H1 is open, its text
+  is not appended to that H1 (HTML in-body heading-start implicit-close rule).
   Template/noscript headings and script/style raw text are excluded; the
   checker does not evaluate CSS visibility, accessibility or heading relevance.
 * Parses `<noscript>` content using the **scripting-enabled** HTML tokenizer:
