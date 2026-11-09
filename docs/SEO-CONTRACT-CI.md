@@ -42,6 +42,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
+| `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -165,6 +166,18 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   An absent, relative or changed first image fails, even if later image
   declarations match. This is an exact publishing contract only: neither
   image reachability nor the preview displayed by a platform is checked.
+  `og_image_alt_present` independently checks descriptive alternative text for
+  the **first** Open Graph image. `true` requires non-blank content in the first
+  active head `<meta property="og:image:alt">` associated with that image;
+  `false` requires no associated alt declaration, even an empty one. An alt
+  property appearing before any image root is orphaned; an alt after a second
+  `og:image`/`og:image:url` belongs to that later image and cannot rescue the
+  first. An empty first alt cannot be rescued by later duplicates. Inert
+  templates, noscript, `name="og:image:alt"`, and body metadata are ignored.
+  This is an opt-in publishing quality guard, not a test of alt-text accuracy,
+  actual screen-reader behavior or social platform rendering. Combine it with
+  `og_image_present` to require a valid first image URL as well. See the
+  [Open Graph protocol](https://ogp.me/) structured properties and arrays rules.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around

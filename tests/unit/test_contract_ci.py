@@ -1930,3 +1930,110 @@ def test_og_image_equals_cli_json_failure_and_pass(tmp_path, capsys):
                         'content="https://cdn.example.com/hero.jpg"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata", [
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue bicycle">'),
+    ('<meta property="og:image:url" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content=" A blue bicycle ">'),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue &amp; white bicycle">'),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue bicycle">'
+     '<meta property="og:image" content="https://cdn.example.com/second.jpg">'),
+    ('<template><meta property="og:image:alt" content="Ghost"></template>'
+     '<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue bicycle">'),
+])
+def test_og_image_alt_presence_accepts_first_image_structured_alt(metadata):
+    result = verify_contract({"url": URL, "og_image_alt_present": True},
+                             f"<html><head>{metadata}</head><body></body></html>")
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ("", None),
+    ('<meta property="og:image:alt" content="Orphan">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt">', ""),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="  ">', ""),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="">'
+     '<meta property="og:image:alt" content="Later valid alt">', ""),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image" content="https://cdn.example.com/second.jpg">'
+     '<meta property="og:image:alt" content="Only second image">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<template><meta property="og:image:alt" content="Inert"></template>', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<noscript><meta property="og:image:alt" content="Inert"></noscript>', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta name="og:image:alt" content="Wrong attribute">', None),
+])
+def test_og_image_alt_presence_rejects_missing_or_blank_first_alt(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta property="og:image:alt" content="Body fallback"></body></html>')
+    result = verify_contract({"url": URL, "og_image_alt_present": True}, html)
+    assert result["issues"] == [{
+        "code": "og_image_alt_presence", "expected": True, "actual": actual,
+    }]
+
+
+def test_og_image_alt_presence_implicit_head_and_duplicate_attribute_first_wins():
+    html = ('<!doctype html><meta property="og:image" '
+            'content="https://cdn.example.com/first.jpg">'
+            '<meta property="og:image:alt" content="" content="Later valid alt">'
+            '<h1>Visible heading</h1>')
+    assert verify_contract({"url": URL, "og_image_alt_present": True}, html)["issues"] == [{
+        "code": "og_image_alt_presence", "expected": True, "actual": "",
+    }]
+
+
+@pytest.mark.parametrize("metadata,status,actual", [
+    ("", "pass", None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">',
+     "pass", None),
+    ('<meta property="og:image:alt" content="Orphan">', "pass", None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="Accessible image">',
+     "fail", "Accessible image"),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="">', "fail", ""),
+])
+def test_og_image_alt_presence_false_requires_no_first_image_alt(metadata, status, actual):
+    result = verify_contract({"url": URL, "og_image_alt_present": False},
+                             f"<html><head>{metadata}</head></html>")
+    assert result["status"] == status
+    if status == "fail":
+        assert result["issues"] == [{
+            "code": "og_image_alt_presence", "expected": False, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("value", [None, 1, "true", "", [], {}])
+def test_og_image_alt_presence_rejects_non_boolean_contract_values(value):
+    with pytest.raises(ValueError, match="og_image_alt_present"):
+        verify_contract({"url": URL, "og_image_alt_present": value}, HTML)
+
+
+def test_og_image_alt_presence_cli_json_failure_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_alt_present": True}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/first.jpg">'
+                        '<meta property="og:image:alt" content=""></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_alt_presence", "expected": True, "actual": "",
+    }]
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/first.jpg">'
+                        '<meta property="og:image:alt" content="A blue bicycle"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
