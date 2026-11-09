@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
+    "og_title_equals",
     "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
@@ -40,6 +41,7 @@ class _SEOParser(HTMLParser):
         self.in_title_element = False
         self.title_seen = False
         self.description_content: str | None = None
+        self.og_title_content: str | None = None
         self.viewport_content: str | None = None
         self.h1_count = 0
         self.img_missing_alt_count = 0
@@ -174,6 +176,11 @@ class _SEOParser(HTMLParser):
                 # The first head description is authoritative for this opt-in
                 # policy; a later duplicate cannot mask an empty first value.
                 self.description_content = values.get("content") or ""
+            if (self.in_head and values.get("property") == "og:title"
+                    and self.og_title_content is None):
+                # The first active Open Graph title is the publishing contract;
+                # a later duplicate cannot rescue a blank or outdated value.
+                self.og_title_content = values.get("content") or ""
         elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
@@ -252,7 +259,7 @@ def _check_contract(spec: object) -> dict:
                   "canonical_present", "indexable"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
-    for field in ("title_equals", "description_equals"):
+    for field in ("title_equals", "description_equals", "og_title_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
     if "html_lang" in spec and (
@@ -443,6 +450,11 @@ def verify_contract(
         actual = " ".join((page.description_content or "").split())
         if actual != " ".join(spec["description_equals"].split()):
             fail("description_equals", spec["description_equals"], actual)
+    if "og_title_equals" in spec:
+        # Social preview metadata can drift while the document title stays put.
+        actual = " ".join((page.og_title_content or "").split())
+        if actual != " ".join(spec["og_title_equals"].split()):
+            fail("og_title_equals", spec["og_title_equals"], actual)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
