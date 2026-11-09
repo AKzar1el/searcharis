@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_title_equals", "og_description_equals", "og_image_present", "og_image_equals",
+    "og_title_equals", "og_description_equals", "og_url_equals", "og_image_present", "og_image_equals",
     "og_image_alt_present",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
@@ -46,6 +46,7 @@ class _SEOParser(HTMLParser):
         self.description_content: str | None = None
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
+        self.og_url_content: str | None = None
         self.og_image_content: str | None = None
         self.og_image_alt_content: str | None = None
         self._first_og_image_open = False
@@ -210,6 +211,10 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:description"
                     and self.og_description_content is None):
                 self.og_description_content = values.get("content") or ""
+            if self.in_head and values.get("property") == "og:url" and self.og_url_content is None:
+                # Open Graph uses the first og:url as the shared object's ID.
+                # A later duplicate cannot conceal identity drift or an empty value.
+                self.og_url_content = (values.get("content") or "").strip()
             if self.in_head and values.get("property") in {"og:image", "og:image:url"}:
                 if self.og_image_content is None:
                     # Structured og:image:alt belongs to this first image only.
@@ -323,6 +328,10 @@ def _check_contract(spec: object) -> dict:
         not isinstance(spec["og_image_equals"], str) or not _is_http_url(spec["og_image_equals"])
     ):
         raise ValueError("'og_image_equals' must be an absolute HTTP(S) URL")
+    if "og_url_equals" in spec and (
+        not isinstance(spec["og_url_equals"], str) or not _is_http_url(spec["og_url_equals"])
+    ):
+        raise ValueError("'og_url_equals' must be an absolute HTTP(S) URL")
     for field in ("h1_min", "h1_max", "img_missing_alt_max"):
         if field in spec and (type(spec[field]) is not int or spec[field] < 0):
             raise ValueError(f"'{field}' must be a non-negative integer")
@@ -511,6 +520,9 @@ def verify_contract(
         actual = " ".join((page.og_description_content or "").split())
         if actual != " ".join(spec["og_description_equals"].split()):
             fail("og_description_equals", spec["og_description_equals"], actual)
+    if "og_url_equals" in spec and page.og_url_content != spec["og_url_equals"]:
+        # Preserve URL identity exactly; a changed social canonical is a regression.
+        fail("og_url_equals", spec["og_url_equals"], page.og_url_content)
     if "og_image_present" in spec:
         # Social crawlers read the first image URL; a later fallback cannot
         # rescue a missing, relative or malformed first declaration.
