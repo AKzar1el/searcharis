@@ -40,6 +40,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
+| `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -141,6 +142,20 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   fails. Inert template/noscript markup, body metadata and `name="og:description"`
   cannot satisfy the assertion, and later duplicates cannot rescue the first.
   This does not test which summary a social platform displays or caches.
+  `og_image_present` is an opt-in social-sharing image guard: `true`
+  requires the first active head `<meta property="og:image" content="...">`
+  (or the equivalent `og:image:url`) to contain a syntactically valid
+  absolute HTTP(S) URL. A missing, blank, relative, protocol-relative,
+  malformed or credential-bearing value fails; a later image tag cannot
+  rescue a bad first one. Multiple images are valid Open Graph arrays, so
+  later entries do not cause an otherwise valid first image to fail.
+  `false` asserts that no active head image declaration exists, even an
+  empty one. Body, inert template, noscript, `name="og:image"`, and
+  `og:image:secure_url` alone cannot satisfy `true`. The checker only
+  validates the declared URL syntax, without fetching the image, testing
+  its existence/dimensions, or promising a platform will display it.
+  See the [Open Graph protocol](https://ogp.me/) for first-tag precedence
+  and optional image arrays.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
