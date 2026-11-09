@@ -34,7 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable findings")
     args = parser.parse_args(argv)
     try:
-        contract = json.loads(_read(args.contract), object_pairs_hook=_unique_contract_keys)
+        try:
+            contract = json.loads(_read(args.contract), object_pairs_hook=_unique_contract_keys)
+        except RecursionError as error:
+            # Small, deeply nested JSON can exhaust the decoder stack.
+            raise ValueError("Contract JSON exceeds supported nesting depth") from error
         report = verify_contract(contract, _read(args.html))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         if args.json:
