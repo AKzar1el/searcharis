@@ -303,4 +303,9 @@ def read_manifest(path: Path) -> object:
             result[key] = value
         return result
 
-    return json.loads(_read_limited(path), object_pairs_hook=unique_keys)
+    try:
+        return json.loads(_read_limited(path), object_pairs_hook=unique_keys)
+    except RecursionError as error:
+        # The JSON decoder can exhaust Python's recursion limit on a small
+        # malformed manifest. Treat that as invalid CI input, not a crash.
+        raise ValueError("Manifest JSON exceeds supported nesting depth") from error

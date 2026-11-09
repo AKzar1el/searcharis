@@ -30,6 +30,9 @@ Only fields explicitly specified in the JSON contract are checked. The
 Both the single-page contract CLI and the multi-page manifest CLI reject
 duplicate JSON object keys, including nested hreflang mappings, as input
 errors (exit 2) rather than silently overwriting an SEO assertion.
+The multi-page manifest CLI also returns input error exit 2 (structured JSON
+with `--json`) for excessively nested JSON, rather than an uncaught decoder
+recursion traceback. This check does not change how valid manifests are read.
 
 | Contract field | Meaning |
 | --- | --- |
