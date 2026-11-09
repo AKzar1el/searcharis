@@ -1855,3 +1855,78 @@ def test_og_image_presence_cli_json_failure_and_pass(tmp_path, capsys):
                         encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("tag", [
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg">',
+    '<meta property="og:image:url" content="https://cdn.example.com/hero.jpg">',
+    '<meta property="og:image" content=" https://cdn.example.com/hero.jpg ">',
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+    '<meta property="og:image" content="https://cdn.example.com/other.jpg">',
+    '<template><meta property="og:image" content="https://cdn.example.com/other.jpg">'
+    '</template><meta property="og:image" content="https://cdn.example.com/hero.jpg">',
+])
+def test_og_image_equals_accepts_first_active_image_url(tag):
+    html = f"<html><head>{tag}</head><body></body></html>"
+    expected = {"url": URL, "og_image_equals": "https://cdn.example.com/hero.jpg"}
+    assert verify_contract(expected, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("tag,actual", [
+    ("", None),
+    ('<meta property="og:image" content="">', ""),
+    ('<meta property="og:image" content="/hero.jpg">', "/hero.jpg"),
+    ('<meta property="og:image" content="https://cdn.example.com/changed.jpg">',
+     "https://cdn.example.com/changed.jpg"),
+    ('<meta property="og:image" content="https://cdn.example.com/changed.jpg">'
+     '<meta property="og:image:url" content="https://cdn.example.com/hero.jpg">',
+     "https://cdn.example.com/changed.jpg"),
+    ('<meta name="og:image" content="https://cdn.example.com/hero.jpg">', None),
+    ('<template><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+     '</template>', None),
+    ('<noscript><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+     '</noscript>', None),
+])
+def test_og_image_equals_rejects_missing_or_changed_image_url(tag, actual):
+    expected_url = "https://cdn.example.com/hero.jpg"
+    html = (f"<html><head>{tag}</head>"
+            '<body><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+            "</body></html>")
+    result = verify_contract({"url": URL, "og_image_equals": expected_url}, html)
+    assert result["issues"] == [{
+        "code": "og_image_equals", "expected": expected_url, "actual": actual,
+    }]
+
+
+def test_og_image_equals_decodes_html_entities_and_first_duplicate_attribute():
+    expected_url = "https://cdn.example.com/hero.jpg?a=1&b=2"
+    html = ('<!doctype html><meta property="og:image" '
+            'content="https://cdn.example.com/hero.jpg?a=1&amp;b=2" '
+            'content="https://cdn.example.com/wrong.jpg"><h1>Page</h1>')
+    assert verify_contract({"url": URL, "og_image_equals": expected_url}, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  ", "/hero.jpg", "//cdn.example.com/a.jpg",
+                                    "javascript:alert(1)", "https://bad.example:99999/a.jpg", [], {}])
+def test_og_image_equals_rejects_invalid_contract_url(value):
+    with pytest.raises(ValueError, match="og_image_equals"):
+        verify_contract({"url": URL, "og_image_equals": value}, HTML)
+
+
+def test_og_image_equals_cli_json_failure_and_pass(tmp_path, capsys):
+    expected_url = "https://cdn.example.com/hero.jpg"
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_equals": expected_url}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/changed.jpg"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_equals", "expected": expected_url,
+        "actual": "https://cdn.example.com/changed.jpg",
+    }]
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/hero.jpg"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

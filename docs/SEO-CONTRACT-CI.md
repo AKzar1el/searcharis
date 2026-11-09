@@ -41,6 +41,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
+| `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -156,6 +157,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   its existence/dimensions, or promising a platform will display it.
   See the [Open Graph protocol](https://ogp.me/) for first-tag precedence
   and optional image arrays.
+  `og_image_equals` additionally catches unexpected social-preview image
+  URL changes even when a valid image is present. The expected URL must be
+  absolute HTTP(S). It compares the first active head `og:image` or
+  `og:image:url` declaration after HTML entity decoding and surrounding
+  whitespace trimming; query strings, path and case remain significant.
+  An absent, relative or changed first image fails, even if later image
+  declarations match. This is an exact publishing contract only: neither
+  image reachability nor the preview displayed by a platform is checked.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
