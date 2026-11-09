@@ -42,6 +42,7 @@ how valid contracts or manifests are read.
 | `title_equals` | Match the first active HTML head title text (opt-in, case-sensitive) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
+| `og_type_equals` | Match the first active HTML head Open Graph `og:type` object classification (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `og_url_equals` | Match the first active head Open Graph `og:url` to an exact absolute HTTP(S) URL (opt-in) |
@@ -151,6 +152,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   Body or template metadata cannot satisfy it, and later duplicate descriptions
   cannot override the first. This opt-in exact publishing contract does not
   predict Google's chosen search snippet.
+  `og_type_equals` protects the Open Graph object classification in
+  `<meta property="og:type" content="...">`, for example `website` versus
+  `article`. It matches the first active head declaration exactly after
+  trimming surrounding whitespace, with case preserved. Missing, blank or
+  changed declarations fail; later duplicates cannot rescue the first.
+  Inert templates, scripting-enabled `noscript`, body metadata and
+  `name="og:type"` lookalikes are ignored. It checks the built artifact
+  without fetching URLs or predicting how a social platform classifies it.
   `og_title_equals` separately protects the title supplied for social/link
   previews through `<meta property="og:title" content="...">`. It checks the
   first active tag in the head, decoding entities and collapsing whitespace

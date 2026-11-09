@@ -13,7 +13,8 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_title_equals", "og_description_equals", "og_url_equals", "og_image_present", "og_image_equals",
+    "og_type_equals", "og_title_equals", "og_description_equals", "og_url_equals",
+    "og_image_present", "og_image_equals",
     "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "twitter_image_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
@@ -46,6 +47,7 @@ class _SEOParser(HTMLParser):
         self.in_title_element = False
         self.title_seen = False
         self.description_content: str | None = None
+        self.og_type_content: str | None = None
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
         self.og_url_content: str | None = None
@@ -224,6 +226,9 @@ class _SEOParser(HTMLParser):
             elif name == "twitter:image" and self.in_head and self.twitter_image_content is None:
                 # Guard only the first explicit X image, not an Open Graph fallback.
                 self.twitter_image_content = (values.get("content") or "").strip()
+            if (self.in_head and values.get("property") == "og:type"
+                    and self.og_type_content is None):
+                self.og_type_content = (values.get("content") or "").strip()
             if (self.in_head and values.get("property") == "og:title"
                     and self.og_title_content is None):
                 # The first active Open Graph title is the publishing contract;
@@ -331,7 +336,8 @@ def _check_contract(spec: object) -> dict:
                   "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
-    for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals",
+    for field in ("title_equals", "description_equals", "og_type_equals",
+                  "og_title_equals", "og_description_equals",
                   "twitter_title_equals", "twitter_description_equals",
                   "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
@@ -542,6 +548,9 @@ def verify_contract(
         actual = " ".join((page.description_content or "").split())
         if actual != " ".join(spec["description_equals"].split()):
             fail("description_equals", spec["description_equals"], actual)
+    if "og_type_equals" in spec and page.og_type_content != spec["og_type_equals"].strip():
+        # Guard the declared sharing object class independently of text metadata.
+        fail("og_type_equals", spec["og_type_equals"], page.og_type_content)
     if "og_title_equals" in spec:
         # Social preview metadata can drift while the document title stays put.
         actual = " ".join((page.og_title_content or "").split())

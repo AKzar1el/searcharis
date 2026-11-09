@@ -1628,6 +1628,75 @@ def test_description_presence_contract_cli_json(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:type" content="article">',
+    '<meta PROPERTY="og:type" content=" article ">',
+    '<template><meta property="og:type" content="website"></template>'
+    '<meta property="og:type" content="article">',
+    '<noscript><meta property="og:type" content="website"></noscript>'
+    '<meta property="og:type" content="article">',
+])
+def test_og_type_equals_checks_first_active_head_object_type(metadata):
+    result = verify_contract(
+        {"url": URL, "og_type_equals": "article"},
+        f"<html><head>{metadata}</head><body></body></html>",
+    )
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:type" content="website">', "website"),
+    ('<meta property="og:type" content="Article">', "Article"),
+    ('<meta property="og:type" content="">'
+     '<meta property="og:type" content="article">', ""),
+    ('<meta name="og:type" content="article">', None),
+    ('<template><meta property="og:type" content="article"></template>', None),
+    ("", None),
+])
+def test_og_type_equals_detects_missing_changed_or_inert_type(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta property="og:type" content="article"></body></html>')
+    result = verify_contract({"url": URL, "og_type_equals": "article"}, html)
+    assert result["issues"] == [
+        {"code": "og_type_equals", "expected": "article", "actual": actual},
+    ]
+
+
+def test_og_type_equals_implicit_head_uses_first_duplicate_attribute():
+    html = ('<!doctype html><meta property="og:type" content="website" '
+            'content="article"><h1>Page</h1>')
+    result = verify_contract({"url": URL, "og_type_equals": "article"}, html)
+    assert result["issues"] == [
+        {"code": "og_type_equals", "expected": "article", "actual": "website"},
+    ]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", " \t\n", [], {}])
+def test_og_type_equals_rejects_nontext_or_blank_expected_value(value):
+    with pytest.raises(ValueError, match="og_type_equals"):
+        verify_contract({"url": URL, "og_type_equals": value}, HTML)
+
+
+def test_og_type_equals_cli_reports_regression_then_pass(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_type_equals": "article"}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head><meta property="og:type" content="website"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [
+        {"code": "og_type_equals", "expected": "article", "actual": "website"},
+    ]
+    artifact.write_text(
+        '<html><head><meta property="og:type" content="article"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("expected,metadata", [
     ("Specific page summary", '<meta name="description" content="Specific page summary">'),
     ("Specific page summary", '<meta NAME="DESCRIPTION" content=" Specific  page\nsummary ">'),
