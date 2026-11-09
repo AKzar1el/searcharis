@@ -2439,3 +2439,66 @@ def test_twitter_card_equals_cli_json_reports_regression_and_pass(tmp_path, caps
                         'content="summary_large_image"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ('<meta name="twitter:title" content="Agency SEO release">', "Agency SEO release"),
+    ('<meta NAME="TWITTER:TITLE" content="  Agency   SEO release  ">', "Agency SEO release"),
+    ('<meta name="twitter:title" content="Tom &amp; Jerry">', "Tom & Jerry"),
+])
+def test_twitter_title_equals_matches_first_head_preview_title(metadata, expected):
+    html = f"<html><head>{metadata}</head><body><h1>Other title</h1></body></html>"
+    result = verify_contract({"url": URL, "twitter_title_equals": expected}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta name="twitter:title" content="Old title">', "Old title"),
+    ('<meta name="twitter:title">', ""),
+    ('<meta name="twitter:title" content="">'
+     '<meta name="twitter:title" content="Agency SEO release">', ""),
+    ('<meta name="twitter:title" content="Old" content="Agency SEO release">', "Old"),
+    ('<meta property="twitter:title" content="Agency SEO release">', ""),
+    ('<meta property="og:title" content="Agency SEO release">', ""),
+    ('<template><meta name="twitter:title" content="Agency SEO release"></template>', ""),
+    ('<noscript><meta name="twitter:title" content="Agency SEO release"></noscript>', ""),
+    ("", ""),
+])
+def test_twitter_title_equals_catches_missing_changed_or_inert_metadata(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta name="twitter:title" content="Agency SEO release"></body></html>')
+    result = verify_contract({"url": URL, "twitter_title_equals": "Agency SEO release"}, html)
+    assert result["issues"] == [{
+        "code": "twitter_title_equals", "expected": "Agency SEO release", "actual": actual,
+    }]
+
+
+def test_twitter_title_equals_implicit_head_ignores_inert_and_duplicate_tags():
+    html = ('<!doctype html><template><meta name="twitter:title" content="Ghost"></template>'
+            '<meta name="twitter:title" content="Agency SEO release">'
+            '<meta name="twitter:title" content="Later"><h1>Page</h1>')
+    assert verify_contract(
+        {"url": URL, "twitter_title_equals": "Agency SEO release"}, html,
+    )["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", " \t ", [], {}])
+def test_twitter_title_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="twitter_title_equals"):
+        verify_contract({"url": URL, "twitter_title_equals": value}, HTML)
+
+
+def test_twitter_title_equals_cli_json_reports_failure_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "twitter_title_equals": "New campaign"}), encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:title" content="Old campaign"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "twitter_title_equals", "expected": "New campaign", "actual": "Old campaign",
+    }]
+    artifact.write_text('<html><head><meta name="twitter:title" content="New campaign"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
