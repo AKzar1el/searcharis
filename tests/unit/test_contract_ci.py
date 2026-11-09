@@ -77,6 +77,59 @@ def test_title_equals_cli_reports_mismatch(tmp_path, capsys):
     }]
 
 
+@pytest.mark.parametrize("expected,markup", [
+    ("Welcome", HTML),
+    ("Welcome", HTML.replace("<h1>Welcome</h1>", "<h1>  Welcome  </h1>")),
+    ("Tea & Coffee", HTML.replace("<h1>Welcome</h1>", "<h1>Tea &amp; Coffee</h1>")),
+    ("Welcome back", HTML.replace("<h1>Welcome</h1>", "<h1>Welcome <em>back</em></h1>")),
+    ("Welcome", HTML.replace("<h1>Welcome</h1>",
+                             "<template><h1>Ghost</h1></template>"
+                             "<noscript><h1>Ghost</h1></noscript><h1>Welcome</h1>")),
+    ("Welcome", HTML.replace("<h1>Welcome</h1>",
+                             "<h1>Wel<script>ignored()</script>come</h1>")),
+    ("Welcome", HTML.replace("<h1>Welcome</h1>", "<h1/>Welcome</h1>")),
+    ("Welcome", '<!doctype html><h1>Welcome</h1>'),
+])
+def test_h1_text_equals_accepts_first_visible_heading_text(expected, markup):
+    result = verify_contract({"url": URL, "h1_text_equals": expected}, markup)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("markup,actual", [
+    (HTML.replace("Welcome", "Wrong heading"), "Wrong heading"),
+    (HTML.replace("<h1>Welcome</h1>", ""), ""),
+    (HTML.replace("<h1>Welcome</h1>", "<h1></h1><h1>Welcome</h1>"), ""),
+    (HTML.replace("<h1>Welcome</h1>", "<h1>Wrong heading</h1><h1>Welcome</h1>"),
+     "Wrong heading"),
+    (HTML.replace("<h1>Welcome</h1>", "<h1>Welcome <span>elsewhere</span></h1>"),
+     "Welcome elsewhere"),
+    (HTML.replace("<h1>Welcome</h1>", "<template><h1>Welcome</h1></template>"), ""),
+])
+def test_h1_text_equals_flags_missing_blank_or_changed_first_h1(markup, actual):
+    result = verify_contract({"url": URL, "h1_text_equals": "Welcome"}, markup)
+    assert result["issues"] == [{
+        "code": "h1_text_equals", "expected": "Welcome", "actual": actual,
+    }]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  \t\n", [], {}])
+def test_h1_text_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="h1_text_equals"):
+        verify_contract({"url": URL, "h1_text_equals": value}, HTML)
+
+
+def test_h1_text_equals_cli_json_reports_mismatch(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "h1_text_equals": "Expected heading"}),
+                             encoding="utf-8")
+    html_path.write_text(HTML, encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "h1_text_equals", "expected": "Expected heading", "actual": "Welcome",
+    }]
+
+
 @pytest.mark.parametrize("viewport", [
     '<meta name="viewport" content="width=device-width">',
     '<meta NAME="VIEWPORT" content="initial-scale=1, width = DEVICE-WIDTH">',
