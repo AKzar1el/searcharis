@@ -44,6 +44,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
+| `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -209,6 +210,18 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   actual screen-reader behavior or social platform rendering. Combine it with
   `og_image_present` to require a valid first image URL as well. See the
   [Open Graph protocol](https://ogp.me/) structured properties and arrays rules.
+  `twitter_card_equals` protects the intended X/Twitter link-preview layout:
+  for example, `"twitter_card_equals": "summary_large_image"` catches an
+  accidental change to a compact `summary` card or a missing declaration.
+  Expected values are exactly `summary`, `summary_large_image`, `app`, or
+  `player` (case-sensitive); unsupported contract values are input errors.
+  Only the first active head `<meta name="twitter:card" content="...">` counts,
+  with surrounding attribute whitespace trimmed. Later duplicates cannot
+  rescue a missing, blank or changed first value. Body metadata, inert
+  templates, scripting-enabled `<noscript>`, and `property="twitter:card"`
+  lookalikes do not count. This checks explicit built markup, not X's Open
+  Graph fallback behavior, card eligibility, image fetches, or the rendered
+  preview on X.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around

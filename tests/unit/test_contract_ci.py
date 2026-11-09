@@ -2378,3 +2378,64 @@ def test_followable_cli_json_reports_failure_and_pass(tmp_path, capsys):
                         encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("card_type", ["summary", "summary_large_image", "app", "player"])
+def test_twitter_card_equals_accepts_explicit_first_head_card_type(card_type):
+    html = ('<html><head><meta NAME="TWITTER:CARD" '
+            f'content=" {card_type} "></head><body></body></html>')
+    result = verify_contract({"url": URL, "twitter_card_equals": card_type}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta name="twitter:card" content="summary">', "summary"),
+    ('<meta name="twitter:card">', ""),
+    ('<meta name="twitter:card" content="">'
+     '<meta name="twitter:card" content="summary_large_image">', ""),
+    ('<meta name="twitter:card" content="summary" content="summary_large_image">', "summary"),
+    ('<meta property="twitter:card" content="summary_large_image">', None),
+    ('<template><meta name="twitter:card" content="summary_large_image"></template>', None),
+    ('<noscript><meta name="twitter:card" content="summary_large_image"></noscript>', None),
+    ("", None),
+])
+def test_twitter_card_equals_rejects_missing_or_changed_first_card_type(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta name="twitter:card" content="summary_large_image"></body></html>')
+    result = verify_contract({"url": URL, "twitter_card_equals": "summary_large_image"}, html)
+    assert result["issues"] == [{
+        "code": "twitter_card_equals", "expected": "summary_large_image", "actual": actual,
+    }]
+
+
+def test_twitter_card_equals_implicit_head_ignores_inert_and_later_duplicates():
+    html = ('<!doctype html><template><meta name="twitter:card" content="summary">'
+            '</template><meta name="twitter:card" content="summary_large_image">'
+            '<meta name="twitter:card" content="summary"><h1>Page</h1>')
+    assert verify_contract(
+        {"url": URL, "twitter_card_equals": "summary_large_image"}, html,
+    )["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  ", [], {},
+                                   "summary-large-image", "SUMMARY", "unknown"])
+def test_twitter_card_equals_rejects_invalid_expected_type(value):
+    with pytest.raises(ValueError, match="twitter_card_equals"):
+        verify_contract({"url": URL, "twitter_card_equals": value}, HTML)
+
+
+def test_twitter_card_equals_cli_json_reports_regression_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "twitter_card_equals": "summary_large_image"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:card" content="summary"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "twitter_card_equals", "expected": "summary_large_image", "actual": "summary",
+    }]
+    artifact.write_text('<html><head><meta name="twitter:card" '
+                        'content="summary_large_image"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
