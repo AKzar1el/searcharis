@@ -26,7 +26,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         # Python's JSON decoder accepts NaN/Infinity and can overflow 1e999
         # to infinity. Such values must not turn invalid CI input into PASS.
         json.dumps(report, allow_nan=False)
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, RecursionError) as error:
         raise ValueError(f"{name}: report contains non-finite or invalid JSON values") from error
     pages = report.get("pages")
     summary = report.get("summary")
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = compare_reports(_read_report(args.baseline), _read_report(args.candidate))
-    except (OSError, UnicodeError, ValueError) as error:
+    except (OSError, UnicodeError, ValueError, RecursionError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
         else:
