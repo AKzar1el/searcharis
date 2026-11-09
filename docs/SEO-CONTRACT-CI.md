@@ -172,7 +172,10 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   `false` requires no associated alt declaration, even an empty one. An alt
   property appearing before any image root is orphaned; an alt after a second
   `og:image`/`og:image:url` belongs to that later image and cannot rescue the
-  first. An empty first alt cannot be rescued by later duplicates. Inert
+  first. Another root property such as `og:title` or `og:video` also ends the
+  first image's structured-property group, so an alt declared afterward cannot
+  rescue it. Ordinary non-Open-Graph HTML metadata does not end that group.
+  An empty first alt cannot be rescued by later duplicates. Inert
   templates, noscript, `name="og:image:alt"`, and body metadata are ignored.
   This is an opt-in publishing quality guard, not a test of alt-text accuracy,
   actual screen-reader behavior or social platform rendering. Combine it with

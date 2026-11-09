@@ -2037,3 +2037,50 @@ def test_og_image_alt_presence_cli_json_failure_and_pass(tmp_path, capsys):
                         encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("root_property", [
+    "og:title", "og:description", "og:type", "og:video", "og:locale",
+    "article:published_time",
+])
+def test_og_image_alt_does_not_attach_after_another_root_property(root_property):
+    html = ('<html><head><meta property="og:image" '
+            'content="https://cdn.example.com/first.jpg">'
+            f'<meta property="{root_property}" content="Other root">'
+            '<meta property="og:image:alt" content="Misplaced alt"></head></html>')
+    result = verify_contract({"url": URL, "og_image_alt_present": True}, html)
+    assert result["issues"] == [{
+        "code": "og_image_alt_presence", "expected": True, "actual": None,
+    }]
+    assert verify_contract({"url": URL, "og_image_alt_present": False}, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("intermediate", [
+    '<meta property="og:image:width" content="1200">',
+    '<meta property="og:image:secure_url" content="https://cdn.example.com/first.jpg">',
+    '<meta name="description" content="Unrelated HTML metadata">',
+    '<template><meta property="og:title" content="Inert root"></template>',
+    '<noscript><meta property="og:video" content="Inert root"></noscript>',
+    '<meta property="og:image:alt" content="First alt">',
+])
+def test_og_image_alt_still_attaches_without_intervening_root(intermediate):
+    html = ('<html><head><meta property="og:image" '
+            'content="https://cdn.example.com/first.jpg">'
+            f'{intermediate}'
+            '<meta property="og:image:alt" content="Later alt"></head></html>')
+    assert verify_contract({"url": URL, "og_image_alt_present": True}, html)["status"] == "pass"
+
+
+def test_og_image_alt_after_new_root_fails_offline_cli_json(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_alt_present": True}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/first.jpg">'
+                        '<meta property="og:title" content="Another root">'
+                        '<meta property="og:image:alt" content="Misplaced alt"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_alt_presence", "expected": True, "actual": None,
+    }]
