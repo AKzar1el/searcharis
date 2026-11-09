@@ -1690,3 +1690,68 @@ def test_og_title_equals_cli_reports_json_failure_and_success(tmp_path, capsys):
                         'content="Expected share title"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("expected,metadata", [
+    ("A quick site audit", '<meta property="og:description" content="A quick site audit">'),
+    ("A quick site audit", '<meta PROPERTY="og:description" content=" A quick  site\n audit ">'),
+    ("Tea & Coffee", '<meta property="og:description" content="Tea &amp; Coffee">'),
+    ("A quick site audit", '<template><meta property="og:description" content="Wrong"></template>'
+                           '<meta property="og:description" content="A quick site audit">'),
+])
+def test_og_description_equals_matches_first_active_head_description(expected, metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    result = verify_contract({"url": URL, "og_description_equals": expected}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:description" content="Old summary">', "Old summary"),
+    ('<meta property="og:description" content="a quick site audit">', "a quick site audit"),
+    ('<meta property="og:description">', ""),
+    ('<meta property="og:description" content="">'
+     '<meta property="og:description" content="A quick site audit">', ""),
+    ('<template><meta property="og:description" content="A quick site audit"></template>', ""),
+    ('<meta name="og:description" content="A quick site audit">', ""),
+    ('<noscript><meta property="og:description" content="A quick site audit"></noscript>', ""),
+    ("", ""),
+])
+def test_og_description_equals_detects_social_summary_regressions(metadata, actual):
+    html = (f'<html><head><meta name="description" content="A quick site audit">{metadata}</head>'
+            '<body><meta property="og:description" content="A quick site audit"></body></html>')
+    result = verify_contract({"url": URL, "og_description_equals": "A quick site audit"}, html)
+    assert result["issues"] == [{
+        "code": "og_description_equals", "expected": "A quick site audit", "actual": actual,
+    }]
+
+
+def test_og_description_equals_implicit_head_keeps_first_duplicate_attribute():
+    html = ('<!doctype html><meta property="og:description" content="Old" '
+            'content="A quick site audit"><h1>Page</h1>')
+    result = verify_contract({"url": URL, "og_description_equals": "A quick site audit"}, html)
+    assert result["issues"] == [{
+        "code": "og_description_equals", "expected": "A quick site audit", "actual": "Old",
+    }]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  \t\n", [], {}])
+def test_og_description_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="og_description_equals"):
+        verify_contract({"url": URL, "og_description_equals": value}, HTML)
+
+
+def test_og_description_equals_cli_reports_json_failure_and_success(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_description_equals": "Expected social summary"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:description" content="Old summary">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_description_equals", "expected": "Expected social summary", "actual": "Old summary",
+    }]
+    artifact.write_text('<html><head><meta property="og:description" '
+                        'content="Expected social summary"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

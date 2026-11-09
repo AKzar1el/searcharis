@@ -39,6 +39,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `description_present` | Require a non-empty first head meta description (true/false) |
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
+| `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -132,6 +133,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   metadata cannot rescue it. A later duplicate cannot override the first.
   This checks the built HTML, not whether a social platform actually uses or
   caches that preview title.
+  `og_description_equals` similarly guards the social-preview summary in
+  `<meta property="og:description" content="...">`, independently of the
+  search meta description. It checks the first active tag in the head;
+  entities are decoded and whitespace runs collapsed before a case-sensitive
+  comparison to non-blank expected text. Missing, blank or changed content
+  fails. Inert template/noscript markup, body metadata and `name="og:description"`
+  cannot satisfy the assertion, and later duplicates cannot rescue the first.
+  This does not test which summary a social platform displays or caches.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
