@@ -44,6 +44,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
+| `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
 | `canonical_present` | Require exactly one valid canonical URL (`true`) or no active canonical destination (`false`) |
@@ -202,6 +203,19 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   that this explicit setting is absent. This catches a common mobile layout
   configuration regression, not computed responsiveness, accessibility, or a
   search ranking outcome. See [MDN viewport guidance](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/viewport).
+  `meta_refresh_present` is an opt-in guard against unexpected automatic
+  navigation or reloads in published HTML. Set `false` for ordinary pages that
+  must not contain an active head `<meta http-equiv="refresh">`; set `true`
+  only for pages intentionally publishing such a declaration. The finding
+  includes the content of every matching head declaration in source order.
+  Empty or malformed content still counts as a declaration so an accidental
+  refresh tag cannot silently pass the `false` policy. Body-only tags, inert
+  templates, scripting-enabled `<noscript>` and lookalike `name="refresh"`
+  metadata do not count. This does not validate refresh syntax or destination,
+  fetch a URL, inspect HTTP `Refresh` headers, or prove how a browser or Google
+  handles the redirect. Google distinguishes instant and delayed meta refresh
+  redirects; see [Google Search Central](https://developers.google.com/search/docs/crawling-indexing/301-redirects)
+  and [MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/http-equiv).
   `html_lang` is an optional multilingual publishing assertion against the
   root `<html lang="...">` attribute. Language-tag casing is ignored, but
   region subtags are not interchangeable (`en` and `en-US` differ). A missing
