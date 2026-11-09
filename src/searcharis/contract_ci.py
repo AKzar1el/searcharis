@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlsplit
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
     "og_title_equals", "og_description_equals", "og_image_present", "og_image_equals",
+    "og_image_alt_present",
     "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
@@ -44,6 +45,8 @@ class _SEOParser(HTMLParser):
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
         self.og_image_content: str | None = None
+        self.og_image_alt_content: str | None = None
+        self._first_og_image_open = False
         self.viewport_content: str | None = None
         self.h1_count = 0
         self.img_missing_alt_count = 0
@@ -186,10 +189,18 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:description"
                     and self.og_description_content is None):
                 self.og_description_content = values.get("content") or ""
-            if (self.in_head and values.get("property") in {"og:image", "og:image:url"}
-                    and self.og_image_content is None):
-                # Open Graph allows image arrays but prefers the first root URL.
-                self.og_image_content = (values.get("content") or "").strip()
+            if self.in_head and values.get("property") in {"og:image", "og:image:url"}:
+                if self.og_image_content is None:
+                    # Structured og:image:alt belongs to this first image only.
+                    self.og_image_content = (values.get("content") or "").strip()
+                    self._first_og_image_open = True
+                else:
+                    # A second root starts a separate image, even if the first
+                    # root had an empty URL or no alternative description.
+                    self._first_og_image_open = False
+            if (self.in_head and values.get("property") == "og:image:alt"
+                    and self._first_og_image_open and self.og_image_alt_content is None):
+                self.og_image_alt_content = (values.get("content") or "").strip()
         elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
@@ -265,7 +276,7 @@ def _check_contract(spec: object) -> dict:
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width",
-                  "canonical_present", "indexable", "og_image_present"):
+                  "canonical_present", "indexable", "og_image_present", "og_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals"):
@@ -485,6 +496,13 @@ def verify_contract(
         # Keep URL identity exact so a changed image path or query is visible.
         # The parser already selects the first active head image declaration.
         fail("og_image_equals", spec["og_image_equals"], page.og_image_content)
+    if "og_image_alt_present" in spec:
+        observed = page.og_image_alt_content
+        # Open Graph structured properties attach only to the preceding image
+        # root. An alt tag for another image must not rescue the first image.
+        matches = bool(observed) if spec["og_image_alt_present"] else observed is None
+        if not matches:
+            fail("og_image_alt_presence", spec["og_image_alt_present"], observed)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
