@@ -46,6 +46,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
+| `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -232,6 +233,16 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   scripting-enabled `<noscript>` and `property="twitter:title"` lookalikes
   do not count. No automatic fallback from `og:title` is assumed: this checks
   explicit built markup only, not what X ultimately displays or caches.
+  `twitter_description_equals` separately guards the explicit X/Twitter
+  social-preview summary. It compares the first active head
+  `<meta name="twitter:description" content="...">` to non-blank expected
+  text, with HTML entities decoded and runs of whitespace collapsed; case and
+  punctuation remain significant. Missing, blank, or changed first content
+  fails even when a later duplicate matches. Body-only, inert template,
+  scripting-enabled `<noscript>`, and `property="twitter:description"`
+  lookalikes do not count. Neither the ordinary meta description nor
+  `og:description` is silently used as a fallback. This assertion verifies
+  explicit built markup, not X's displayed or cached preview.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around

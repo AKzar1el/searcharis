@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlsplit
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
     "og_title_equals", "og_description_equals", "og_url_equals", "og_image_present", "og_image_equals",
-    "og_image_alt_present", "twitter_card_equals", "twitter_title_equals",
+    "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -52,6 +52,7 @@ class _SEOParser(HTMLParser):
         self.og_image_alt_content: str | None = None
         self.twitter_card_content: str | None = None
         self.twitter_title_content: str | None = None
+        self.twitter_description_content: str | None = None
         self._first_og_image_open = False
         self.viewport_content: str | None = None
         self.meta_refresh_contents: list[str] = []
@@ -214,6 +215,10 @@ class _SEOParser(HTMLParser):
             elif name == "twitter:title" and self.in_head and self.twitter_title_content is None:
                 # Only the first explicit head title is authoritative; no OG fallback.
                 self.twitter_title_content = values.get("content") or ""
+            elif (name == "twitter:description" and self.in_head
+                  and self.twitter_description_content is None):
+                # Do not assume the Open Graph fallback supplies explicit X copy.
+                self.twitter_description_content = values.get("content") or ""
             if (self.in_head and values.get("property") == "og:title"
                     and self.og_title_content is None):
                 # The first active Open Graph title is the publishing contract;
@@ -322,7 +327,7 @@ def _check_contract(spec: object) -> dict:
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals",
-                  "twitter_title_equals",
+                  "twitter_title_equals", "twitter_description_equals",
                   "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
@@ -565,6 +570,10 @@ def verify_contract(
         actual = " ".join((page.twitter_title_content or "").split())
         if actual != " ".join(spec["twitter_title_equals"].split()):
             fail("twitter_title_equals", spec["twitter_title_equals"], actual)
+    if "twitter_description_equals" in spec:
+        actual = " ".join((page.twitter_description_content or "").split())
+        if actual != " ".join(spec["twitter_description_equals"].split()):
+            fail("twitter_description_equals", spec["twitter_description_equals"], actual)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
