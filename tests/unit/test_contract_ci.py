@@ -1180,6 +1180,32 @@ def test_single_page_cli_rejects_duplicate_contract_json_keys(tmp_path, capsys, 
     assert "Duplicate contract JSON key" in report["error"]
 
 
+@pytest.mark.parametrize("shape", ["array", "object"])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_single_page_cli_rejects_excessively_nested_contract_json(tmp_path, capsys,
+                                                                  shape, json_output):
+    contract = tmp_path / "expected.json"
+    html = tmp_path / "index.html"
+    if shape == "array":
+        contract_text = "[" * 4000 + "{}" + "]" * 4000
+    else:
+        contract_text = '{"nested":' * 4000 + "{}" + "}" * 4000
+    contract.write_text(contract_text, encoding="utf-8")
+    html.write_text(HTML, encoding="utf-8")
+
+    args = [str(contract), str(html)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        report = json.loads(output.out)
+        assert report["status"] == "error"
+        assert isinstance(report["error"], str) and report["error"]
+        assert output.err == ""
+    else:
+        assert output.out == ""
+        assert "Invalid input:" in output.err
+
+
 def test_blank_html_cannot_pass_indexability_only_contract():
     report = verify_contract({"url": URL, "indexable": True}, "")
     assert report["status"] == "fail"
