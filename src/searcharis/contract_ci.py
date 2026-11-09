@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlsplit
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
     "og_title_equals", "og_description_equals", "og_url_equals", "og_image_present", "og_image_equals",
-    "og_image_alt_present",
+    "og_image_alt_present", "twitter_card_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -27,6 +27,7 @@ _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
     "head", "h1", "script", "style", "template", "textarea", "title", "plaintext", "select",
 })
+_TWITTER_CARD_TYPES = frozenset({"summary", "summary_large_image", "app", "player"})
 _MAX_JSONLD_NESTING = 256
 
 
@@ -49,6 +50,7 @@ class _SEOParser(HTMLParser):
         self.og_url_content: str | None = None
         self.og_image_content: str | None = None
         self.og_image_alt_content: str | None = None
+        self.twitter_card_content: str | None = None
         self._first_og_image_open = False
         self.viewport_content: str | None = None
         self.meta_refresh_contents: list[str] = []
@@ -205,6 +207,9 @@ class _SEOParser(HTMLParser):
                 # The first head description is authoritative for this opt-in
                 # policy; a later duplicate cannot mask an empty first value.
                 self.description_content = values.get("content") or ""
+            elif name == "twitter:card" and self.in_head and self.twitter_card_content is None:
+                # The first active card type governs this explicit publish contract.
+                self.twitter_card_content = (values.get("content") or "").strip()
             if (self.in_head and values.get("property") == "og:title"
                     and self.og_title_content is None):
                 # The first active Open Graph title is the publishing contract;
@@ -316,6 +321,11 @@ def _check_contract(spec: object) -> dict:
                   "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
+    if "twitter_card_equals" in spec and (
+        not isinstance(spec["twitter_card_equals"], str)
+        or spec["twitter_card_equals"] not in _TWITTER_CARD_TYPES
+    ):
+        raise ValueError("'twitter_card_equals' must be a supported Twitter Card type")
     if "html_lang" in spec and (
         not isinstance(spec["html_lang"], str)
         or not spec["html_lang"]
@@ -544,6 +554,8 @@ def verify_contract(
         matches = bool(observed) if spec["og_image_alt_present"] else observed is None
         if not matches:
             fail("og_image_alt_presence", spec["og_image_alt_present"], observed)
+    if "twitter_card_equals" in spec and page.twitter_card_content != spec["twitter_card_equals"]:
+        fail("twitter_card_equals", spec["twitter_card_equals"], page.twitter_card_content)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
