@@ -2571,3 +2571,86 @@ def test_twitter_description_equals_cli_json_reports_failure_then_pass(tmp_path,
                         'content="New campaign"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ('<meta name="twitter:image" content="https://cdn.example.com/card.png">',
+     "https://cdn.example.com/card.png"),
+    ('<meta NAME="TWITTER:IMAGE" content="  https://cdn.example.com/card.png  ">',
+     "https://cdn.example.com/card.png"),
+    ('<meta name="twitter:image" content="https://cdn.example.com/card.png?a=1&amp;b=2">',
+     "https://cdn.example.com/card.png?a=1&b=2"),
+])
+def test_twitter_image_equals_matches_first_explicit_head_image(metadata, expected):
+    html = (f"<html><head>{metadata}"
+            '<meta property="og:image" content="https://cdn.example.com/other.png">'
+            '</head><body></body></html>')
+    result = verify_contract({"url": URL, "twitter_image_equals": expected}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta name="twitter:image" content="https://cdn.example.com/old.png">',
+     "https://cdn.example.com/old.png"),
+    ('<meta name="twitter:image">', ""),
+    ('<meta name="twitter:image" content="">'
+     '<meta name="twitter:image" content="https://cdn.example.com/new.png">', ""),
+    ('<meta name="twitter:image" content="https://cdn.example.com/old.png" '
+     'content="https://cdn.example.com/new.png">', "https://cdn.example.com/old.png"),
+    ('<meta name="twitter:image" content="/new.png">', "/new.png"),
+    ('<meta name="twitter:image" content="javascript:alert(1)">', "javascript:alert(1)"),
+    ('<meta property="twitter:image" content="https://cdn.example.com/new.png">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/new.png">', None),
+    ('<template><meta name="twitter:image" content="https://cdn.example.com/new.png">'
+     '</template>', None),
+    ('<noscript><meta name="twitter:image" content="https://cdn.example.com/new.png">'
+     '</noscript>', None),
+    ("", None),
+])
+def test_twitter_image_equals_detects_missing_changed_inert_or_invalid_url(metadata, actual):
+    expected = "https://cdn.example.com/new.png"
+    html = (f"<html><head>{metadata}</head><body>"
+            f'<meta name="twitter:image" content="{expected}"></body></html>')
+    result = verify_contract({"url": URL, "twitter_image_equals": expected}, html)
+    assert result["issues"] == [{
+        "code": "twitter_image_equals", "expected": expected, "actual": actual,
+    }]
+
+
+def test_twitter_image_equals_implicit_head_ignores_inert_and_later_values():
+    html = ('<!doctype html><template><meta name="twitter:image" '
+            'content="https://cdn.example.com/ghost.png"></template>'
+            '<meta name="twitter:image" content="https://cdn.example.com/new.png">'
+            '<meta name="twitter:image" content="https://cdn.example.com/later.png"><h1>Page</h1>')
+    assert verify_contract(
+        {"url": URL, "twitter_image_equals": "https://cdn.example.com/new.png"}, html,
+    )["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [
+    None, False, 1, "", " ", "/relative.png", "ftp://example.com/image.png",
+    "https://bad.example:99999/card.png", "https://user@example.com/card.png",
+    "https://example.com\\card.png", [], {},
+])
+def test_twitter_image_equals_rejects_invalid_expected_url(value):
+    with pytest.raises(ValueError, match="twitter_image_equals"):
+        verify_contract({"url": URL, "twitter_image_equals": value}, HTML)
+
+
+def test_twitter_image_equals_cli_json_reports_failure_then_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({
+        "url": URL, "twitter_image_equals": "https://cdn.example.com/new.png",
+    }), encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:image" '
+                        'content="https://cdn.example.com/old.png"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "twitter_image_equals", "expected": "https://cdn.example.com/new.png",
+        "actual": "https://cdn.example.com/old.png",
+    }]
+    artifact.write_text('<html><head><meta name="twitter:image" '
+                        'content="https://cdn.example.com/new.png"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
