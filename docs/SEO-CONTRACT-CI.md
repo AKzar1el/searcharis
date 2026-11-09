@@ -40,6 +40,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
+| `og_url_equals` | Match the first active head Open Graph `og:url` to an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
@@ -157,6 +158,19 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   fails. Inert template/noscript markup, body metadata and `name="og:description"`
   cannot satisfy the assertion, and later duplicates cannot rescue the first.
   This does not test which summary a social platform displays or caches.
+  `og_url_equals` protects the permanent URL identity declared for social
+  shares, independently of the search-engine `rel="canonical"` tag. It matches
+  the first active head `<meta property="og:url" content="...">` against an
+  exact, syntactically valid absolute HTTP(S) URL supplied in the contract.
+  HTML entities and surrounding HTML attribute whitespace are normalized;
+  URL path, query, fragment and letter case are otherwise kept exact. A
+  missing, blank, relative or changed first value fails, even if a later
+  duplicate is correct. Inert templates, scripting-enabled `<noscript>`,
+  name-only lookalikes and body metadata cannot satisfy it. The checker does
+  not fetch or resolve this URL, compare it to an observed canonical link,
+  or guarantee how a platform aggregates shares. The expected value can be
+  set to the page's intended canonical URL. See the
+  [Open Graph protocol](https://ogp.me/) for `og:url` object identity.
   `og_image_present` is an opt-in social-sharing image guard: `true`
   requires the first active head `<meta property="og:image" content="...">`
   (or the equivalent `og:image:url`) to contain a syntactically valid

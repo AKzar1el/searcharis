@@ -1835,6 +1835,86 @@ def test_og_description_equals_cli_reports_json_failure_and_success(tmp_path, ca
 
 
 @pytest.mark.parametrize("metadata", [
+    '<meta property="og:url" content="https://example.com/story">',
+    '<meta PROPERTY="og:url" content=" https://example.com/story ">',
+    '<meta property="og:url" content="https://example.com/story">'
+    '<meta property="og:url" content="https://example.com/other">',
+    '<template><meta property="og:url" content="https://example.com/other"></template>'
+    '<meta property="og:url" content="https://example.com/story">',
+])
+def test_og_url_equals_accepts_first_active_head_identity(metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    result = verify_contract({"url": URL, "og_url_equals": "https://example.com/story"}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ("", None),
+    ('<meta property="og:url">', ""),
+    ('<meta property="og:url" content="">', ""),
+    ('<meta property="og:url" content="/story">', "/story"),
+    ('<meta property="og:url" content="https://example.com/other">',
+     "https://example.com/other"),
+    ('<meta property="og:url" content="https://example.com/story?utm_source=ads">',
+     "https://example.com/story?utm_source=ads"),
+    ('<meta property="og:url" content="">'
+     '<meta property="og:url" content="https://example.com/story">', ""),
+    ('<meta property="og:url" content="https://example.com/other">'
+     '<meta property="og:url" content="https://example.com/story">',
+     "https://example.com/other"),
+    ('<meta name="og:url" content="https://example.com/story">', None),
+    ('<template><meta property="og:url" content="https://example.com/story">'
+     '</template>', None),
+    ('<noscript><meta property="og:url" content="https://example.com/story">'
+     '</noscript>', None),
+])
+def test_og_url_equals_detects_missing_or_changed_identity(metadata, actual):
+    html = (f"<html><head>{metadata}</head>"
+            '<body><meta property="og:url" content="https://example.com/story"></body></html>')
+    result = verify_contract({"url": URL, "og_url_equals": "https://example.com/story"}, html)
+    assert result["issues"] == [{
+        "code": "og_url_equals", "expected": "https://example.com/story", "actual": actual,
+    }]
+
+
+def test_og_url_equals_decodes_entities_and_keeps_first_duplicate_content():
+    html = ('<!doctype html><meta property="og:url" '
+            'content="https://example.com/story?a=1&amp;b=2" '
+            'content="https://example.com/other"><h1>Page</h1>')
+    result = verify_contract({
+        "url": URL, "og_url_equals": "https://example.com/story?a=1&b=2",
+    }, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("value", [
+    None, False, 1, "", "  ", "/story", "//example.com/story", "javascript:alert(1)",
+    "https://example.com:99999/story", "https://user@example.com/story", [], {},
+])
+def test_og_url_equals_rejects_invalid_expected_url(value):
+    with pytest.raises(ValueError, match="og_url_equals"):
+        verify_contract({"url": URL, "og_url_equals": value}, HTML)
+
+
+def test_og_url_equals_cli_json_reports_mismatch_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_url_equals": "https://example.com/story"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:url" '
+                        'content="https://example.com/other"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_url_equals", "expected": "https://example.com/story",
+        "actual": "https://example.com/other",
+    }]
+    artifact.write_text('<html><head><meta property="og:url" '
+                        'content="https://example.com/story"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata", [
     '<meta property="og:image" content="https://cdn.example.com/hero.jpg">',
     '<meta property="og:image:url" content="https://cdn.example.com/hero.jpg">',
     '<meta PROPERTY="og:image" content=" https://cdn.example.com/hero.jpg ">',
