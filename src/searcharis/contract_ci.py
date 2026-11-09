@@ -17,7 +17,7 @@ _ALLOWED = frozenset({
     "og_image_alt_present",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
-    "h1_min", "h1_max",
+    "h1_min", "h1_max", "h1_text_equals",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -25,7 +25,7 @@ _HEAD_ELEMENTS = frozenset({
 })
 _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript"})
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
-    "head", "script", "style", "template", "textarea", "title", "plaintext", "select",
+    "head", "h1", "script", "style", "template", "textarea", "title", "plaintext", "select",
 })
 _MAX_JSONLD_NESTING = 256
 
@@ -52,6 +52,9 @@ class _SEOParser(HTMLParser):
         self.viewport_content: str | None = None
         self.meta_refresh_contents: list[str] = []
         self.h1_count = 0
+        self.first_h1_chunks: list[str] = []
+        self._first_h1_seen = False
+        self._in_first_h1 = False
         self.img_missing_alt_count = 0
         self.canonicals: list[str] = []
         self.hreflangs: dict[str, list[str]] = {}
@@ -167,6 +170,11 @@ class _SEOParser(HTMLParser):
             self.base_href = (values["href"] or "").strip()
         elif tag == "h1":
             self.h1_count += 1
+            if not self._first_h1_seen:
+                self._first_h1_seen = self._in_first_h1 = True
+            elif self._in_first_h1:
+                # A new heading implicitly ends the prior one in HTML parsing.
+                self._in_first_h1 = False
         elif tag == "img" and "alt" not in values:
             # An empty alt="" is valid for decorative images; absence is
             # different from a deliberately empty attribute.
@@ -248,6 +256,8 @@ class _SEOParser(HTMLParser):
             self.in_title = False
         if tag == "title":
             self.in_title = False
+        if tag == "h1":
+            self._in_first_h1 = False
         if tag == "script" and self.in_jsonld:
             self.jsonld_blocks.append("".join(self.jsonld_chunks))
             self.in_jsonld = False
@@ -269,6 +279,9 @@ class _SEOParser(HTMLParser):
             self.body_seen = True
         if self.in_title:
             self.title_chunks.append(data)
+        if self._in_first_h1 and not self.cdata_elem:
+            # HTMLParser decodes entities; do not include script/style raw text.
+            self.first_h1_chunks.append(data)
         if self.in_jsonld:
             self.jsonld_chunks.append(data)
 
@@ -292,7 +305,8 @@ def _check_contract(spec: object) -> dict:
                   "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
-    for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals"):
+    for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals",
+                  "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
     if "html_lang" in spec and (
@@ -556,6 +570,10 @@ def verify_contract(
     for bound, condition in (("h1_min", lambda a, b: a >= b), ("h1_max", lambda a, b: a <= b)):
         if bound in spec and not condition(page.h1_count, spec[bound]):
             fail(bound, spec[bound], page.h1_count)
+    if "h1_text_equals" in spec:
+        actual = " ".join("".join(page.first_h1_chunks).split())
+        if actual != " ".join(spec["h1_text_equals"].split()):
+            fail("h1_text_equals", spec["h1_text_equals"], actual)
     if "img_missing_alt_max" in spec and page.img_missing_alt_count > spec["img_missing_alt_max"]:
         fail("img_missing_alt_max", spec["img_missing_alt_max"], page.img_missing_alt_count)
     for language, expected in spec.get("hreflang", {}).items():

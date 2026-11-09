@@ -51,6 +51,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `followable` | Assert Googlebot link-following policy in robots/googlebot meta (`true` permits; `false` restricts) |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
+| `h1_text_equals` | Require exact text in the first active H1 (opt-in; whitespace normalized) |
 | `img_missing_alt_max` | Maximum number of active HTML images without an `alt` attribute (0 requires full attribute coverage) |
 | `hreflang` | Require exactly one alternate for each named language |
 | `jsonld_types` | Require Schema.org `@type` values in valid JSON-LD blocks |
@@ -298,6 +299,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   markup. The checker counts static DOM headings, not CSS visibility or
   whether browsers render them in a native picker. A self-closing `<select/>`
   slash does not end the element.
+* `h1_text_equals` protects the **first active H1** against accidental
+  headline-copy changes even if `h1_min` and `h1_max` still pass. It requires
+  non-blank expected text and compares decoded heading text, including nested
+  inline elements, after collapsing whitespace runs. It is case-sensitive:
+  a missing, empty or changed first H1 fails even if a later H1 matches.
+  Template/noscript headings and script/style raw text are excluded; the
+  checker does not evaluate CSS visibility, accessibility or heading relevance.
 * Parses `<noscript>` content using the **scripting-enabled** HTML tokenizer:
   headings, canonical/hreflang links, robots metadata and JSON-LD markup
   inside it cannot satisfy active-page assertions. Content after the matching
