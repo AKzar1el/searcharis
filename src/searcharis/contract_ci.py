@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_title_equals", "og_description_equals", "og_image_present",
+    "og_title_equals", "og_description_equals", "og_image_present", "og_image_equals",
     "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
@@ -281,6 +281,10 @@ def _check_contract(spec: object) -> dict:
         not isinstance(spec["canonical"], str) or not _is_http_url(spec["canonical"])
     ):
         raise ValueError("'canonical' must be an absolute HTTP(S) URL")
+    if "og_image_equals" in spec and (
+        not isinstance(spec["og_image_equals"], str) or not _is_http_url(spec["og_image_equals"])
+    ):
+        raise ValueError("'og_image_equals' must be an absolute HTTP(S) URL")
     for field in ("h1_min", "h1_max", "img_missing_alt_max"):
         if field in spec and (type(spec[field]) is not int or spec[field] < 0):
             raise ValueError(f"'{field}' must be a non-negative integer")
@@ -477,6 +481,10 @@ def verify_contract(
         matches = valid_first if spec["og_image_present"] else observed is None
         if not matches:
             fail("og_image_presence", spec["og_image_present"], observed)
+    if "og_image_equals" in spec and page.og_image_content != spec["og_image_equals"]:
+        # Keep URL identity exact so a changed image path or query is visible.
+        # The parser already selects the first active head image declaration.
+        fail("og_image_equals", spec["og_image_equals"], page.og_image_content)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
