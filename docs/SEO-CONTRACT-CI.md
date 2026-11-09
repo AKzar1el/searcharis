@@ -38,6 +38,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `title_equals` | Match the first active HTML head title text (opt-in, case-sensitive) |
 | `description_present` | Require a non-empty first head meta description (true/false) |
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
+| `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `canonical` | Require exactly one matching canonical link |
@@ -123,6 +124,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   Body or template metadata cannot satisfy it, and later duplicate descriptions
   cannot override the first. This opt-in exact publishing contract does not
   predict Google's chosen search snippet.
+  `og_title_equals` separately protects the title supplied for social/link
+  previews through `<meta property="og:title" content="...">`. It checks the
+  first active tag in the head, decoding entities and collapsing whitespace
+  runs before a case-sensitive comparison to non-blank expected text. Missing,
+  blank or changed content fails; inert template, body-only and `name="og:title"`
+  metadata cannot rescue it. A later duplicate cannot override the first.
+  This checks the built HTML, not whether a social platform actually uses or
+  caches that preview title.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around

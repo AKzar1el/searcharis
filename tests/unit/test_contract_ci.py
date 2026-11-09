@@ -1626,3 +1626,67 @@ def test_image_alt_coverage_cli_json_reports_missing_attribute(tmp_path, capsys)
     )
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("expected,metadata", [
+    ("Search audit dashboard", '<meta property="og:title" content="Search audit dashboard">'),
+    ("Search audit dashboard", '<meta PROPERTY="og:title" content=" Search  audit\n dashboard ">'),
+    ("Tea & Coffee", '<meta property="og:title" content="Tea &amp; Coffee">'),
+    ("Search audit dashboard", '<template><meta property="og:title" content="Wrong"></template>'
+                               '<meta property="og:title" content="Search audit dashboard">'),
+])
+def test_og_title_equals_matches_first_active_head_open_graph_title(expected, metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    result = verify_contract({"url": URL, "og_title_equals": expected}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:title" content="Wrong title">', "Wrong title"),
+    ('<meta property="og:title" content="search audit dashboard">', "search audit dashboard"),
+    ('<meta property="og:title">', ""),
+    ('<meta property="og:title" content="">'
+     '<meta property="og:title" content="Search audit dashboard">', ""),
+    ('<template><meta property="og:title" content="Search audit dashboard"></template>', ""),
+    ('<meta name="og:title" content="Search audit dashboard">', ""),
+    ("", ""),
+])
+def test_og_title_equals_detects_social_preview_regressions(metadata, actual):
+    html = (f"<html><head><title>Search audit dashboard</title>{metadata}</head>"
+            '<body><meta property="og:title" content="Search audit dashboard"></body></html>')
+    result = verify_contract({"url": URL, "og_title_equals": "Search audit dashboard"}, html)
+    assert result["issues"] == [{
+        "code": "og_title_equals", "expected": "Search audit dashboard", "actual": actual,
+    }]
+
+
+def test_og_title_equals_works_with_implicit_head_and_duplicate_attributes():
+    html = ('<!doctype html><meta property="og:title" content="Wrong" '
+            'content="Search audit dashboard"><h1>Page</h1>')
+    result = verify_contract({"url": URL, "og_title_equals": "Search audit dashboard"}, html)
+    assert result["issues"] == [{
+        "code": "og_title_equals", "expected": "Search audit dashboard", "actual": "Wrong",
+    }]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", "  \t\n", [], {}])
+def test_og_title_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="og_title_equals"):
+        verify_contract({"url": URL, "og_title_equals": value}, HTML)
+
+
+def test_og_title_equals_cli_reports_json_failure_and_success(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_title_equals": "Expected share title"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:title" content="Old share title">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_title_equals", "expected": "Expected share title", "actual": "Old share title",
+    }]
+    artifact.write_text('<html><head><meta property="og:title" '
+                        'content="Expected share title"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
