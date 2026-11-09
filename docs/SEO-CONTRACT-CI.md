@@ -45,6 +45,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
+| `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -222,6 +223,15 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   lookalikes do not count. This checks explicit built markup, not X's Open
   Graph fallback behavior, card eligibility, image fetches, or the rendered
   preview on X.
+  `twitter_title_equals` detects changes to an explicit X/Twitter preview title,
+  independently of the Open Graph title and document title. It compares the
+  first active head `<meta name="twitter:title" content="...">` against a
+  non-blank expected string, decoding HTML entities and collapsing whitespace
+  runs while preserving case and punctuation. Missing, blank or changed first
+  content fails even if a later duplicate matches. Body tags, inert templates,
+  scripting-enabled `<noscript>` and `property="twitter:title"` lookalikes
+  do not count. No automatic fallback from `og:title` is assumed: this checks
+  explicit built markup only, not what X ultimately displays or caches.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
