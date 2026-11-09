@@ -89,6 +89,9 @@ def test_title_equals_cli_reports_mismatch(tmp_path, capsys):
                              "<h1>Wel<script>ignored()</script>come</h1>")),
     ("Welcome", HTML.replace("<h1>Welcome</h1>", "<h1/>Welcome</h1>")),
     ("Welcome", '<!doctype html><h1>Welcome</h1>'),
+    ("Welcome", '<!doctype html><h1>Welcome<h2>Section</h2>'),
+    ("Welcome", '<!doctype html><h1>Welcome<h3>Section</h3><p>Body text</p>'),
+    ("Welcome", '<!doctype html><h1>Welcome<h6>Section</h6><h1>Next heading</h1>'),
 ])
 def test_h1_text_equals_accepts_first_visible_heading_text(expected, markup):
     result = verify_contract({"url": URL, "h1_text_equals": expected}, markup)
@@ -128,6 +131,16 @@ def test_h1_text_equals_cli_json_reports_mismatch(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["issues"] == [{
         "code": "h1_text_equals", "expected": "Expected heading", "actual": "Welcome",
     }]
+
+
+def test_h1_text_equals_cli_ignores_following_implicit_heading(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "h1_text_equals": "Welcome"}),
+                             encoding="utf-8")
+    html_path.write_text("<!doctype html><h1>Welcome<h2>Subheading</h2>", encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["issues"] == []
 
 
 @pytest.mark.parametrize("viewport", [

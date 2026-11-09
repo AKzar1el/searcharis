@@ -169,13 +169,15 @@ class _SEOParser(HTMLParser):
         elif tag == "base" and self.in_head and self.base_href is None and "href" in values:
             # HTML uses the first head <base href> to resolve relative links.
             self.base_href = (values["href"] or "").strip()
-        elif tag == "h1":
-            self.h1_count += 1
-            if not self._first_h1_seen:
-                self._first_h1_seen = self._in_first_h1 = True
-            elif self._in_first_h1:
-                # A new heading implicitly ends the prior one in HTML parsing.
+        elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            if self._in_first_h1:
+                # Another heading start implicitly ends the current heading,
+                # even if the source omits its closing </h1> tag.
                 self._in_first_h1 = False
+            if tag == "h1":
+                self.h1_count += 1
+                if not self._first_h1_seen:
+                    self._first_h1_seen = self._in_first_h1 = True
         elif tag == "img" and "alt" not in values:
             # An empty alt="" is valid for decorative images; absence is
             # different from a deliberately empty attribute.
