@@ -1755,3 +1755,103 @@ def test_og_description_equals_cli_reports_json_failure_and_success(tmp_path, ca
                         'content="Expected social summary"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg">',
+    '<meta property="og:image:url" content="https://cdn.example.com/hero.jpg">',
+    '<meta PROPERTY="og:image" content=" https://cdn.example.com/hero.jpg ">',
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+    '<meta property="og:image" content="/broken-relative.jpg">',
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg?a=1&amp;b=2">',
+    '<template><meta property="og:image" content="/invalid.jpg"></template>'
+    '<meta property="og:image" content="https://cdn.example.com/hero.jpg">',
+])
+def test_og_image_presence_accepts_valid_first_head_image_url(metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    result = verify_contract({"url": URL, "og_image_present": True}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ("", None),
+    ('<meta property="og:image">', ""),
+    ('<meta property="og:image" content="  ">', ""),
+    ('<meta property="og:image" content="/relative.jpg">', "/relative.jpg"),
+    ('<meta property="og:image" content="//cdn.example.com/hero.jpg">',
+     "//cdn.example.com/hero.jpg"),
+    ('<meta property="og:image" content="javascript:alert(1)">', "javascript:alert(1)"),
+    ('<meta property="og:image" content="https://cdn.example.com:99999/a.jpg">',
+     "https://cdn.example.com:99999/a.jpg"),
+    ('<meta property="og:image" content="https://user:pw@cdn.example.com/a.jpg">',
+     "https://user:pw@cdn.example.com/a.jpg"),
+    ('<meta property="og:image" content="/wrong.jpg">'
+     '<meta property="og:image" content="https://cdn.example.com/hero.jpg">', "/wrong.jpg"),
+    ('<meta property="og:image:url" content="/wrong.jpg">'
+     '<meta property="og:image" content="https://cdn.example.com/hero.jpg">', "/wrong.jpg"),
+    ('<meta name="og:image" content="https://cdn.example.com/hero.jpg">', None),
+    ('<meta property="og:image:secure_url" content="https://cdn.example.com/hero.jpg">',
+     None),
+    ('<template><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+     '</template>', None),
+    ('<noscript><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+     '</noscript>', None),
+])
+def test_og_image_presence_rejects_missing_or_bad_first_image(metadata, actual):
+    html = (f"<html><head>{metadata}</head>"
+            '<body><meta property="og:image" content="https://cdn.example.com/hero.jpg">'
+            "</body></html>")
+    result = verify_contract({"url": URL, "og_image_present": True}, html)
+    assert result["issues"] == [{
+        "code": "og_image_presence", "expected": True, "actual": actual,
+    }]
+
+
+def test_og_image_presence_implicit_head_uses_first_duplicate_attribute():
+    html = ('<!doctype html><meta property="og:image" content="/wrong.jpg" '
+            'content="https://cdn.example.com/hero.jpg"><h1>Page</h1>')
+    result = verify_contract({"url": URL, "og_image_present": True}, html)
+    assert result["issues"] == [{
+        "code": "og_image_presence", "expected": True, "actual": "/wrong.jpg",
+    }]
+
+
+@pytest.mark.parametrize("metadata,expected_status,actual", [
+    ("", "pass", None),
+    ('<template><meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '</template>', "pass", None),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">',
+     "fail", "https://cdn.example.com/a.jpg"),
+    ('<meta property="og:image" content="">', "fail", ""),
+])
+def test_og_image_presence_false_requires_no_active_head_image(metadata, expected_status, actual):
+    result = verify_contract({"url": URL, "og_image_present": False},
+                             f"<html><head>{metadata}</head><body></body></html>")
+    assert result["status"] == expected_status
+    if expected_status == "fail":
+        assert result["issues"] == [{
+            "code": "og_image_presence", "expected": False, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("value", [None, 1, "true", "", [], {}])
+def test_og_image_presence_rejects_non_boolean_contract_values(value):
+    with pytest.raises(ValueError, match="og_image_present"):
+        verify_contract({"url": URL, "og_image_present": value}, HTML)
+
+
+def test_og_image_presence_cli_json_failure_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_present": True}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" content="/relative.jpg">'
+                        '</head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_presence", "expected": True, "actual": "/relative.jpg",
+    }]
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/hero.jpg"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

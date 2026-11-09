@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_title_equals", "og_description_equals",
+    "og_title_equals", "og_description_equals", "og_image_present",
     "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
@@ -43,6 +43,7 @@ class _SEOParser(HTMLParser):
         self.description_content: str | None = None
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
+        self.og_image_content: str | None = None
         self.viewport_content: str | None = None
         self.h1_count = 0
         self.img_missing_alt_count = 0
@@ -185,6 +186,10 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:description"
                     and self.og_description_content is None):
                 self.og_description_content = values.get("content") or ""
+            if (self.in_head and values.get("property") in {"og:image", "og:image:url"}
+                    and self.og_image_content is None):
+                # Open Graph allows image arrays but prefers the first root URL.
+                self.og_image_content = (values.get("content") or "").strip()
         elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
@@ -260,7 +265,7 @@ def _check_contract(spec: object) -> dict:
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width",
-                  "canonical_present", "indexable"):
+                  "canonical_present", "indexable", "og_image_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals"):
@@ -464,6 +469,14 @@ def verify_contract(
         actual = " ".join((page.og_description_content or "").split())
         if actual != " ".join(spec["og_description_equals"].split()):
             fail("og_description_equals", spec["og_description_equals"], actual)
+    if "og_image_present" in spec:
+        # Social crawlers read the first image URL; a later fallback cannot
+        # rescue a missing, relative or malformed first declaration.
+        observed = page.og_image_content
+        valid_first = observed is not None and _is_http_url(observed)
+        matches = valid_first if spec["og_image_present"] else observed is None
+        if not matches:
+            fail("og_image_presence", spec["og_image_present"], observed)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
