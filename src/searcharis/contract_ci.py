@@ -15,6 +15,7 @@ _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
     "og_title_equals", "og_description_equals", "og_url_equals", "og_image_present", "og_image_equals",
     "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
+    "twitter_image_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -53,6 +54,7 @@ class _SEOParser(HTMLParser):
         self.twitter_card_content: str | None = None
         self.twitter_title_content: str | None = None
         self.twitter_description_content: str | None = None
+        self.twitter_image_content: str | None = None
         self._first_og_image_open = False
         self.viewport_content: str | None = None
         self.meta_refresh_contents: list[str] = []
@@ -219,6 +221,9 @@ class _SEOParser(HTMLParser):
                   and self.twitter_description_content is None):
                 # Do not assume the Open Graph fallback supplies explicit X copy.
                 self.twitter_description_content = values.get("content") or ""
+            elif name == "twitter:image" and self.in_head and self.twitter_image_content is None:
+                # Guard only the first explicit X image, not an Open Graph fallback.
+                self.twitter_image_content = (values.get("content") or "").strip()
             if (self.in_head and values.get("property") == "og:title"
                     and self.og_title_content is None):
                 # The first active Open Graph title is the publishing contract;
@@ -350,6 +355,11 @@ def _check_contract(spec: object) -> dict:
         not isinstance(spec["og_image_equals"], str) or not _is_http_url(spec["og_image_equals"])
     ):
         raise ValueError("'og_image_equals' must be an absolute HTTP(S) URL")
+    if "twitter_image_equals" in spec and (
+        not isinstance(spec["twitter_image_equals"], str)
+        or not _is_http_url(spec["twitter_image_equals"])
+    ):
+        raise ValueError("'twitter_image_equals' must be an absolute HTTP(S) URL")
     if "og_url_equals" in spec and (
         not isinstance(spec["og_url_equals"], str) or not _is_http_url(spec["og_url_equals"])
     ):
@@ -574,6 +584,8 @@ def verify_contract(
         actual = " ".join((page.twitter_description_content or "").split())
         if actual != " ".join(spec["twitter_description_equals"].split()):
             fail("twitter_description_equals", spec["twitter_description_equals"], actual)
+    if "twitter_image_equals" in spec and page.twitter_image_content != spec["twitter_image_equals"]:
+        fail("twitter_image_equals", spec["twitter_image_equals"], page.twitter_image_content)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:

@@ -47,6 +47,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
+| `twitter_image_equals` | Match the first explicit head `<meta name="twitter:image">` absolute HTTP(S) URL (opt-in) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -243,6 +244,16 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   lookalikes do not count. Neither the ordinary meta description nor
   `og:description` is silently used as a fallback. This assertion verifies
   explicit built markup, not X's displayed or cached preview.
+  `twitter_image_equals` protects the exact URL of the first explicit
+  `<meta name="twitter:image" content="...">` in the active HTML head.
+  Contracts require an absolute, syntactically valid HTTP(S) URL. The
+  comparison decodes HTML attribute entities and trims surrounding whitespace,
+  but keeps path, query and case significant. Missing, blank, relative,
+  malformed or changed first values fail, even if a later duplicate matches.
+  Body-only, inert template/noscript and `property="twitter:image"` lookalikes
+  are ignored. This deliberately does not infer `og:image` fallback:
+  teams opting in assert explicit X image markup. It never fetches images or
+  checks their reachability, dimensions, format, or actual social-card rendering.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
