@@ -48,6 +48,7 @@ errors (exit 2) rather than silently overwriting an SEO assertion.
 | `canonical` | Require exactly one matching canonical link |
 | `canonical_present` | Require exactly one valid canonical URL (`true`) or no active canonical destination (`false`) |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
+| `followable` | Assert Googlebot link-following policy in robots/googlebot meta (`true` permits; `false` restricts) |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
 | `img_missing_alt_max` | Maximum number of active HTML images without an `alt` attribute (0 requires full attribute coverage) |
 | `hreflang` | Require exactly one alternate for each named language |
@@ -85,9 +86,20 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.
 * Reads titles, descriptions, canonical and hreflang links only inside the
-  document `<head>`. Unlike those head-only assertions, `indexable` also
-  respects active `<meta name="robots">` and `<meta name="googlebot">` in the
+  document `<head>`. Unlike those head-only assertions, `indexable` and
+  `followable` also respect active `<meta name="robots">` and
+  `<meta name="googlebot">` in the
   `<body>`: [Google explicitly honors body robots meta](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag).
+  The opt-in `followable` assertion reports a `followability_meta` mismatch
+  when `nofollow` or `none` is present. Multiple robots and googlebot tags
+  combine restrictive directives: a separate `follow` cannot cancel
+  `nofollow`. `noindex` alone does not restrict following; `none` restricts
+  both indexing and following. `true` means there is no such restriction in
+  the supplied static HTML, while `false` requires at least one such restriction.
+  This policy is specific to Google's robots/googlebot meta handling; it does
+  not inspect HTTP `X-Robots-Tag`, per-link `rel="nofollow"`, robots.txt,
+  or actual crawler decisions. An absence of `nofollow` does not guarantee
+  that Google will discover or traverse any particular link.
   Inert template and scripting-enabled noscript content does not contribute.
   JSON-LD scripts may appear in the head or body; visible headings are
   checked separately.
