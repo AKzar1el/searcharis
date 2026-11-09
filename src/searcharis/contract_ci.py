@@ -15,7 +15,8 @@ _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
     "og_title_equals", "og_description_equals", "og_image_present", "og_image_equals",
     "og_image_alt_present",
-    "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "h1_min", "h1_max",
+    "viewport_device_width", "html_lang", "canonical", "canonical_present", "indexable", "followable",
+    "h1_min", "h1_max",
     "img_missing_alt_max", "hreflang", "jsonld_types",
 })
 _HEAD_ELEMENTS = frozenset({
@@ -282,7 +283,7 @@ def _check_contract(spec: object) -> dict:
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width",
-                  "canonical_present", "indexable", "og_image_present", "og_image_alt_present"):
+                  "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_title_equals", "og_description_equals"):
@@ -530,11 +531,18 @@ def verify_contract(
             matches = valid_single if spec["canonical_present"] else not observed
             if not matches:
                 fail("canonical_presence", spec["canonical_present"], observed)
-    if "indexable" in spec:
+    if "indexable" in spec or "followable" in spec:
         directives = {x.strip().lower() for content in page.robots for x in content.split(",")}
-        actual = not bool({"noindex", "none"} & directives)
-        if actual != spec["indexable"]:
-            fail("indexability_meta", spec["indexable"], actual)
+        if "indexable" in spec:
+            actual = not bool({"noindex", "none"} & directives)
+            if actual != spec["indexable"]:
+                fail("indexability_meta", spec["indexable"], actual)
+        if "followable" in spec:
+            # Google combines restrictive robots/googlebot rules; an explicit
+            # "follow" cannot override a separate "nofollow" or "none".
+            actual = not bool({"nofollow", "none"} & directives)
+            if actual != spec["followable"]:
+                fail("followability_meta", spec["followable"], actual)
     for bound, condition in (("h1_min", lambda a, b: a >= b), ("h1_max", lambda a, b: a <= b)):
         if bound in spec and not condition(page.h1_count, spec[bound]):
             fail(bound, spec[bound], page.h1_count)

@@ -2084,3 +2084,74 @@ def test_og_image_alt_after_new_root_fails_offline_cli_json(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["issues"] == [{
         "code": "og_image_alt_presence", "expected": True, "actual": None,
     }]
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ("", True),
+    ('<meta name="robots" content="all">', True),
+    ('<meta name="robots" content="index, follow">', True),
+    ('<meta name="robots" content="noindex">', True),
+    ('<meta name="robots" content="nofollow">', False),
+    ('<meta name="robots" content="NoFoLlOw">', False),
+    ('<meta name="robots" content="noindex, nofollow">', False),
+    ('<meta name="robots" content="none">', False),
+    ('<meta name="googlebot" content="nofollow">', False),
+    ('<meta name="robots" content="follow"><meta name="googlebot" content="nofollow">', False),
+    ('<meta name="robots" content="nofollow"><meta name="googlebot" content="follow">', False),
+    ('<meta name="robots" content="noindex"><meta name="robots" content="nofollow">', False),
+    ('<meta name="bingbot" content="nofollow">', True),
+    ('<template><meta name="robots" content="nofollow"></template>', True),
+    ('<noscript><meta name="robots" content="nofollow"></noscript>', True),
+    ('<meta name="robots" content="x-nofollow, notfollow">', True),
+])
+def test_followable_contract_checks_google_robots_link_follow_policy(metadata, expected):
+    html = f"<html><head>{metadata}</head><body><a href='/x'>Link</a></body></html>"
+    report = verify_contract({"url": URL, "followable": True}, html)
+    assert report["status"] == ("pass" if expected else "fail")
+    assert report["issues"] == ([] if expected else [{
+        "code": "followability_meta", "expected": True, "actual": False,
+    }])
+
+
+def test_followable_contract_honors_body_robots_but_not_inert_or_name_only_tags():
+    html = ('<html><head></head><body>'
+            '<template><meta name="robots" content="nofollow"></template>'
+            '<meta name="robots" content="nofollow">'
+            '<meta name="x-robots-tag" content="follow">'
+            '</body></html>')
+    report = verify_contract({"url": URL, "followable": True, "indexable": True}, html)
+    assert report["issues"] == [{
+        "code": "followability_meta", "expected": True, "actual": False,
+    }]
+    assert verify_contract({"url": URL, "followable": False}, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "false", "", [], {}])
+def test_followable_contract_rejects_non_boolean_values(value):
+    with pytest.raises(ValueError, match="followable"):
+        verify_contract({"url": URL, "followable": value}, HTML)
+
+
+@pytest.mark.parametrize("restriction", ["nofollow", "none"])
+def test_followable_false_requires_active_restriction(restriction):
+    html = f'<html><head><meta name="robots" content="{restriction}"></head></html>'
+    assert verify_contract({"url": URL, "followable": False}, html)["status"] == "pass"
+    assert verify_contract({"url": URL, "followable": False}, HTML)["issues"] == [{
+        "code": "followability_meta", "expected": False, "actual": True,
+    }]
+
+
+def test_followable_cli_json_reports_failure_and_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "followable": True}), encoding="utf-8")
+    artifact.write_text('<html><head><meta name="robots" content="nofollow"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "followability_meta", "expected": True, "actual": False,
+    }]
+    artifact.write_text('<html><head><meta name="robots" content="noindex"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
