@@ -144,6 +144,83 @@ def test_device_width_viewport_cli_returns_json_finding(tmp_path, capsys):
     }
 
 
+@pytest.mark.parametrize("tag,content", [
+    ('<meta http-equiv="refresh" content="0; url=/new/">', "0; url=/new/"),
+    ('<meta HTTP-EQUIV="Refresh" content="5; URL=https://example.com/new">',
+     "5; URL=https://example.com/new"),
+    ('<meta http-equiv=" refresh " content="60">', "60"),
+    ('<meta http-equiv="refresh">', ""),
+    ('<meta http-equiv="refresh" content="">', ""),
+])
+def test_meta_refresh_presence_catches_active_head_directives(tag, content):
+    html = HTML.replace("</head>", tag + "</head>")
+    assert verify_contract({"url": URL, "meta_refresh_present": True}, html)["status"] == "pass"
+    report = verify_contract({"url": URL, "meta_refresh_present": False}, html)
+    assert report["issues"] == [{
+        "code": "meta_refresh_presence", "expected": False, "actual": [content],
+    }]
+
+
+@pytest.mark.parametrize("markup", [
+    '<meta name="refresh" content="0; url=/new/">',
+    '<meta http-equiv="x-refresh" content="0; url=/new/">',
+    '<template><meta http-equiv="refresh" content="0; url=/new/"></template>',
+    '<noscript><meta http-equiv="refresh" content="0; url=/new/"></noscript>',
+    '<title>Example <meta http-equiv="refresh" content="0"></title>',
+    '<meta http-equiv="content-type" http-equiv="refresh" content="0">',
+])
+def test_meta_refresh_presence_ignores_non_directives_and_inert_head_markup(markup):
+    html = HTML.replace("</head>", markup + "</head>")
+    assert verify_contract({"url": URL, "meta_refresh_present": False}, html)["status"] == "pass"
+
+
+def test_meta_refresh_presence_respects_implicit_head_and_excludes_body():
+    implicit = '<!doctype html><meta http-equiv="refresh" content="0; url=/new"><h1>Page</h1>'
+    body_only = HTML.replace("<h1>Welcome</h1>",
+                             '<meta http-equiv="refresh" content="0; url=/new"><h1>Welcome</h1>')
+    assert verify_contract({"url": URL, "meta_refresh_present": True}, implicit)["status"] == "pass"
+    assert verify_contract({"url": URL, "meta_refresh_present": False}, body_only)["status"] == "pass"
+    assert verify_contract({"url": URL, "meta_refresh_present": True}, body_only)["issues"] == [{
+        "code": "meta_refresh_presence", "expected": True, "actual": [],
+    }]
+
+
+def test_meta_refresh_presence_reports_multiple_head_directives_in_order():
+    html = HTML.replace("</head>",
+                        '<meta http-equiv="refresh" content="0; url=/one">'
+                        '<meta http-equiv="refresh" content="10; url=/two"></head>')
+    assert verify_contract({"url": URL, "meta_refresh_present": False}, html)["issues"] == [{
+        "code": "meta_refresh_presence", "expected": False,
+        "actual": ["0; url=/one", "10; url=/two"],
+    }]
+
+
+def test_meta_refresh_presence_uses_first_duplicate_http_equiv_attribute():
+    html = HTML.replace("</head>",
+                        '<meta http-equiv="refresh" http-equiv="content-type" content="0"></head>')
+    assert verify_contract({"url": URL, "meta_refresh_present": True}, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "false", [], {}])
+def test_meta_refresh_presence_rejects_nonboolean_contract(value):
+    with pytest.raises(ValueError, match="meta_refresh_present"):
+        verify_contract({"url": URL, "meta_refresh_present": value}, HTML)
+
+
+def test_meta_refresh_presence_cli_json_reports_unexpected_redirect(tmp_path, capsys):
+    contract_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    contract_path.write_text(json.dumps({"url": URL, "meta_refresh_present": False}),
+                             encoding="utf-8")
+    html_path.write_text(HTML.replace("</head>",
+                         '<meta http-equiv="refresh" content="0; url=/new/"></head>'),
+                         encoding="utf-8")
+    assert main([str(contract_path), str(html_path), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "meta_refresh_presence", "expected": False, "actual": ["0; url=/new/"],
+    }]
+
+
 @pytest.mark.parametrize("omit_html_and_body", [False, True])
 def test_valid_optional_head_start_tag_keeps_seo_assertions(omit_html_and_body):
     # HTML5 permits the head start tag to be omitted; minifiers may also omit
