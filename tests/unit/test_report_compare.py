@@ -392,12 +392,20 @@ def test_cli_rejects_excessively_nested_local_report_without_traceback(
         assert "Traceback" not in output.err
 
 
-def test_comparison_rejects_deep_in_memory_report_as_value_error():
+def test_comparison_wraps_encoder_recursion_as_invalid_report(monkeypatch):
+    from searcharis import report_compare
+
     report = _report([("index.html", [_issue()])])
-    nested = "leaf"
-    for _ in range(5000):
-        nested = [nested]
-    report["pages"][0]["issues"][0]["actual"] = nested
+    original_dumps = report_compare.json.dumps
+
+    def simulate_encoder_depth_limit(*args, **kwargs):
+        if kwargs.get("allow_nan") is False:
+            raise RecursionError("encoder nesting limit")
+        return original_dumps(*args, **kwargs)
+
+    # Python versions differ in how deeply their C JSON encoder can recurse.
+    # Exercise the catch path directly rather than depending on that limit.
+    monkeypatch.setattr(report_compare.json, "dumps", simulate_encoder_depth_limit)
 
     with pytest.raises(ValueError, match="invalid JSON values"):
         compare_reports(report, report)
