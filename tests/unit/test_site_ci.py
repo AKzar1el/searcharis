@@ -329,6 +329,36 @@ def test_manifest_cli_rejects_duplicate_json_keys(tmp_path, capsys, make_duplica
     assert "Duplicate manifest JSON key" in error["error"]
 
 
+@pytest.mark.parametrize("machine_readable", [False, True])
+@pytest.mark.parametrize("container", ["array", "object"])
+def test_deep_manifest_json_returns_input_error_not_traceback(
+    tmp_path, capsys, machine_readable, container
+):
+    path = tmp_path / "manifest.json"
+    nested = (
+        "[" * 6000 + "0" + "]" * 6000
+        if container == "array"
+        else '{"a":' * 6000 + "0" + "}" * 6000
+    )
+    path.write_text(nested, encoding="utf-8")
+    args = [str(path), str(tmp_path)]
+    if machine_readable:
+        args.append("--json")
+
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if machine_readable:
+        result = json.loads(output.out)
+        assert result["status"] == "error"
+        # Python runtimes can reject nesting in the decoder or at schema
+        # validation; neither path may escape as an uncaught exception.
+        assert result["error"].startswith("Manifest ")
+        assert output.err == ""
+    else:
+        assert output.out == ""
+        assert "Invalid input: Manifest " in output.err
+
+
 def test_declared_url_never_fetched(tmp_path, monkeypatch):
     manifest = _setup(tmp_path)
 
