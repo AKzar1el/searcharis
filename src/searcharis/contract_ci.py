@@ -170,6 +170,12 @@ class _SEOParser(HTMLParser):
             self.img_missing_alt_count += 1
         elif tag == "meta":
             name = (values.get("name") or "").lower()
+            property_name = values.get("property") or ""
+            if (self.in_head and self._first_og_image_open and property_name
+                    and not property_name.startswith("og:image:")):
+                # Open Graph ends a structured-property group at the next root.
+                # An alt after og:title, for example, is not for the first image.
+                self._first_og_image_open = False
             if name in {"robots", "googlebot"}:
                 # Google honors robots meta in the body as well as the head.
                 self.robots.append(values.get("content") or "")
