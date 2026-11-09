@@ -43,6 +43,7 @@ how valid contracts or manifests are read.
 | `description_present` | Require a non-empty first head meta description (true/false) |
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_type_equals` | Match the first active HTML head Open Graph `og:type` object classification (opt-in, case-sensitive) |
+| `og_locale_equals` | Match the first explicit head Open Graph `og:locale` sharing locale (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
 | `og_url_equals` | Match the first active head Open Graph `og:url` to an exact absolute HTTP(S) URL (opt-in) |
@@ -160,6 +161,18 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   Inert templates, scripting-enabled `noscript`, body metadata and
   `name="og:type"` lookalikes are ignored. It checks the built artifact
   without fetching URLs or predicting how a social platform classifies it.
+  `og_locale_equals` protects the explicit Open Graph locale of a localized
+  page, such as `de_DE` versus `en_US`. Expected values should follow the
+  Open Graph `language_TERRITORY` convention, distinct from HTML `lang`.
+  The first active head `<meta property="og:locale" content="...">` wins:
+  missing, empty or changed values fail, even if a later duplicate matches.
+  Body-only, inert template/noscript, `name="og:locale"` and
+  `og:locale:alternate` declarations do not satisfy this assertion. The
+  protocol defaults to `en_US` when the tag is absent, but this opt-in
+  publishing contract requires an **explicit** declaration, including when
+  expecting `en_US`. It does not validate external preview rendering or
+  infer the correct locale from visible text. See the
+  [Open Graph protocol](https://ogp.me/) for locale conventions.
   `og_title_equals` separately protects the title supplied for social/link
   previews through `<meta property="og:title" content="...">`. It checks the
   first active tag in the head, decoding entities and collapsing whitespace

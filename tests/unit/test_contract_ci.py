@@ -1697,6 +1697,78 @@ def test_og_type_equals_cli_reports_regression_then_pass(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:locale" content="de_DE">',
+    '<meta PROPERTY="og:locale" content=" de_DE ">',
+    '<template><meta property="og:locale" content="en_US"></template>'
+    '<meta property="og:locale" content="de_DE">',
+    '<noscript><meta property="og:locale" content="en_US"></noscript>'
+    '<meta property="og:locale" content="de_DE">',
+    '<meta property="og:locale:alternate" content="fr_FR">'
+    '<meta property="og:locale" content="de_DE">',
+])
+def test_og_locale_equals_matches_explicit_first_active_head_locale(metadata):
+    result = verify_contract(
+        {"url": URL, "og_locale_equals": "de_DE"},
+        f"<html><head>{metadata}</head><body></body></html>",
+    )
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:locale" content="en_US">', "en_US"),
+    ('<meta property="og:locale" content="de_de">', "de_de"),
+    ('<meta property="og:locale" content="">'
+     '<meta property="og:locale" content="de_DE">', ""),
+    ('<meta name="og:locale" content="de_DE">', None),
+    ('<meta property="og:locale:alternate" content="de_DE">', None),
+    ('<template><meta property="og:locale" content="de_DE"></template>', None),
+    ("", None),
+])
+def test_og_locale_equals_reports_missing_changed_or_inert_locale(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta property="og:locale" content="de_DE"></body></html>')
+    result = verify_contract({"url": URL, "og_locale_equals": "de_DE"}, html)
+    assert result["issues"] == [
+        {"code": "og_locale_equals", "expected": "de_DE", "actual": actual},
+    ]
+
+
+def test_og_locale_equals_implicit_head_uses_first_duplicate_attribute():
+    html = ('<!doctype html><meta property="og:locale" content="en_US" '
+            'content="de_DE"><h1>Page</h1>')
+    result = verify_contract({"url": URL, "og_locale_equals": "de_DE"}, html)
+    assert result["issues"] == [
+        {"code": "og_locale_equals", "expected": "de_DE", "actual": "en_US"},
+    ]
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", " \t\n", [], {}])
+def test_og_locale_equals_rejects_nontext_or_blank_expected_value(value):
+    with pytest.raises(ValueError, match="og_locale_equals"):
+        verify_contract({"url": URL, "og_locale_equals": value}, HTML)
+
+
+def test_og_locale_equals_cli_json_reports_regression_then_pass(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_locale_equals": "de_DE"}), encoding="utf-8")
+    artifact.write_text(
+        '<html><head><meta property="og:locale" content="en_US"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [
+        {"code": "og_locale_equals", "expected": "de_DE", "actual": "en_US"},
+    ]
+    artifact.write_text(
+        '<html><head><meta property="og:locale" content="de_DE"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("expected,metadata", [
     ("Specific page summary", '<meta name="description" content="Specific page summary">'),
     ("Specific page summary", '<meta NAME="DESCRIPTION" content=" Specific  page\nsummary ">'),
