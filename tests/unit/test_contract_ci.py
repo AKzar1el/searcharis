@@ -2502,3 +2502,72 @@ def test_twitter_title_equals_cli_json_reports_failure_and_pass(tmp_path, capsys
                         encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ('<meta name="twitter:description" content="Local SEO release checks">',
+     "Local SEO release checks"),
+    ('<meta NAME="TWITTER:DESCRIPTION" content="  Local   SEO release checks  ">',
+     "Local SEO release checks"),
+    ('<meta name="twitter:description" content="R&amp;D update">', "R&D update"),
+])
+def test_twitter_description_equals_matches_explicit_first_head_summary(metadata, expected):
+    html = (f"<html><head>{metadata}"
+            '<meta property="og:description" content="Other social summary">'
+            '</head><body><p>Unrelated content</p></body></html>')
+    result = verify_contract({"url": URL, "twitter_description_equals": expected}, html)
+    assert result["status"] == "pass", result["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta name="twitter:description" content="Outdated summary">', "Outdated summary"),
+    ('<meta name="twitter:description">', ""),
+    ('<meta name="twitter:description" content="">'
+     '<meta name="twitter:description" content="New summary">', ""),
+    ('<meta name="twitter:description" content="Old" content="New summary">', "Old"),
+    ('<meta property="twitter:description" content="New summary">', ""),
+    ('<meta property="og:description" content="New summary">', ""),
+    ('<meta name="description" content="New summary">', ""),
+    ('<template><meta name="twitter:description" content="New summary"></template>', ""),
+    ('<noscript><meta name="twitter:description" content="New summary"></noscript>', ""),
+    ("", ""),
+])
+def test_twitter_description_equals_detects_missing_changed_or_inert_metadata(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta name="twitter:description" content="New summary"></body></html>')
+    result = verify_contract({"url": URL, "twitter_description_equals": "New summary"}, html)
+    assert result["issues"] == [{
+        "code": "twitter_description_equals", "expected": "New summary", "actual": actual,
+    }]
+
+
+def test_twitter_description_equals_implicit_head_first_metadata_wins():
+    html = ('<!doctype html><template><meta name="twitter:description" content="Ghost"></template>'
+            '<meta name="twitter:description" content="New summary">'
+            '<meta name="twitter:description" content="Later"><h1>Page</h1>')
+    assert verify_contract(
+        {"url": URL, "twitter_description_equals": "New summary"}, html,
+    )["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "", " \t ", [], {}])
+def test_twitter_description_equals_rejects_invalid_expected_text(value):
+    with pytest.raises(ValueError, match="twitter_description_equals"):
+        verify_contract({"url": URL, "twitter_description_equals": value}, HTML)
+
+
+def test_twitter_description_equals_cli_json_reports_failure_then_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "twitter_description_equals": "New campaign"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:description" '
+                        'content="Old campaign"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "twitter_description_equals", "expected": "New campaign", "actual": "Old campaign",
+    }]
+    artifact.write_text('<html><head><meta name="twitter:description" '
+                        'content="New campaign"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
