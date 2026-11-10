@@ -515,6 +515,10 @@ def _is_http_url(value: str) -> bool:
             and parsed.username is None
             and parsed.password is None
             and (parsed.port is None or 0 < parsed.port <= 65535)
+            # Browsers percent-decode hosts before interpreting them, while
+            # urlsplit leaves encoded authority untouched. Do not accept a
+            # hostname that could resolve differently from the asserted URL.
+            and "%" not in parsed.netloc
             # Browsers interpret backslashes as slashes in HTTP(S) URLs,
             # while urlsplit preserves them and may infer a different host.
             and "\\" not in value
