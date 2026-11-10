@@ -179,6 +179,12 @@ def compare_reports(
             "Reports use different check options; regenerate both with identical "
             "coverage, canonical and hreflang flags"
         )
+    if fail_on_new_unverified_targets and not any(before_options[1:]):
+        raise ValueError(
+            "--fail-on-new-unverified-targets requires at least one cross-page check; "
+            "regenerate both reports with --check-canonical-consistency, "
+            "--check-hreflang-clusters or --check-hreflang-reciprocity"
+        )
 
     old_fingerprints = {p["path"]: p["contract_sha256"] for p in before["pages"]
                         if "contract_sha256" in p}

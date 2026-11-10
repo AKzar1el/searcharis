@@ -742,8 +742,12 @@ target or another identical occurrence from an enabled canonical or hreflang
 cross-page check. Repeated identical outside-manifest hreflang declarations
 are counted separately rather than silently collapsed. Previously known
 unverified target occurrences remain informational and resolved targets do not
-fail. This flag does not alter either input report, silently enable missing cross-page
-checks, or fetch and validate external pages. Cross-domain targets deliberately
+fail. **At least one cross-page check must be enabled in both reports** using
+`site_cli --check-canonical-consistency`, `--check-hreflang-clusters`, or
+`--check-hreflang-reciprocity`. Otherwise the comparison returns input error
+**2** instead of silently passing without inspecting any targets. This flag
+does not alter either input report, automatically enable missing checks, or
+fetch and validate external pages. Cross-domain targets deliberately
 outside the manifest are also subject to this optional gate: update the trusted
 baseline after reviewing an intentional addition, or leave the gate disabled.
 
