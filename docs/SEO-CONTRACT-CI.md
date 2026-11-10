@@ -694,9 +694,11 @@ uv run python -m searcharis.report_compare baseline.json candidate.json --fail-o
 ```
 
 This returns **1** when a candidate introduces a previously absent unverified
-target from an enabled canonical or hreflang cross-page check. Previously known
-unverified targets remain informational and resolved targets do not fail. This
-flag does not alter either input report, silently enable missing cross-page
+target or another identical occurrence from an enabled canonical or hreflang
+cross-page check. Repeated identical outside-manifest hreflang declarations
+are counted separately rather than silently collapsed. Previously known
+unverified target occurrences remain informational and resolved targets do not
+fail. This flag does not alter either input report, silently enable missing cross-page
 checks, or fetch and validate external pages. Cross-domain targets deliberately
 outside the manifest are also subject to this optional gate: update the trusted
 baseline after reviewing an intentional addition, or leave the gate disabled.

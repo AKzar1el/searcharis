@@ -328,6 +328,69 @@ def test_opt_in_unverified_targets_gate_blocks_only_new_targets(check, item):
     assert compare_reports(candidate, baseline, fail_on_new_unverified_targets=True)["status"] == "pass"
 
 
+@pytest.mark.parametrize("before_count,after_count,expected_new", [
+    (0, 2, 2), (1, 2, 1), (2, 2, 0), (2, 1, 0),
+])
+def test_strict_unverified_gate_tracks_repeated_target_occurrences(
+    before_count, after_count, expected_new,
+):
+    target = {
+        "path": "en/index.html", "language": "fr",
+        "target": "https://outside.test/fr/",
+    }
+    baseline = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    candidate = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    baseline["hreflang_clusters"]["unverified_targets"] = [target] * before_count
+    candidate["hreflang_clusters"]["unverified_targets"] = [target] * after_count
+
+    diff = compare_reports(baseline, candidate, fail_on_new_unverified_targets=True)
+    assert diff["summary"]["new_unverified_targets"] == expected_new
+    assert diff["new_unverified_targets"] == [{"check": "hreflang_clusters", **target}] * expected_new
+    assert diff["status"] == ("regression" if expected_new else "pass")
+
+
+def test_actual_hreflang_cluster_duplicate_is_counted_as_new_unverified(tmp_path):
+    artifact = tmp_path / "index.html"
+    manifest = {"version": 1, "pages": [{
+        "path": "index.html", "contract": {
+            "url": "https://example.test/", "h1_max": 0,
+        },
+    }]}
+    self_link = '<link rel="alternate" hreflang="en" href="https://example.test/">'
+    external_link = '<link rel="alternate" hreflang="fr" href="https://outside.test/fr/">'
+    artifact.write_text(f"<html><head>{self_link}{external_link}</head></html>", encoding="utf-8")
+    baseline = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+    artifact.write_text(
+        f"<html><head>{self_link}{external_link}{external_link}</head></html>",
+        encoding="utf-8",
+    )
+    candidate = verify_manifest(manifest, tmp_path, check_hreflang_clusters=True)
+
+    assert len(baseline["hreflang_clusters"]["unverified_targets"]) == 1
+    assert len(candidate["hreflang_clusters"]["unverified_targets"]) == 2
+    diff = compare_reports(baseline, candidate, fail_on_new_unverified_targets=True)
+    assert diff["summary"]["new_unverified_targets"] == 1
+    assert diff["new_unverified_targets"][0]["target"] == "https://outside.test/fr/"
+
+
+def test_cli_strict_gate_reports_extra_identical_unverified_target(tmp_path, capsys):
+    target = {
+        "path": "en/index.html", "language": "fr", "target": "https://outside.test/fr/",
+    }
+    baseline = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    candidate = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    baseline["hreflang_clusters"]["unverified_targets"] = [target]
+    candidate["hreflang_clusters"]["unverified_targets"] = [target, target]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+
+    assert main([str(before), str(after), "--json", "--fail-on-new-unverified-targets"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["new_unverified_targets"] == 1
+    assert result["new_unverified_targets"] == [{"check": "hreflang_clusters", **target}]
+
+
 @pytest.mark.parametrize("json_output", [True, False])
 def test_cli_opt_in_new_unverified_gate_exit_code_and_output(tmp_path, capsys, json_output):
     baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
