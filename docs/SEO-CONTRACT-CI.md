@@ -676,6 +676,10 @@ Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue
 does not. Repeated identical findings are counted individually: a second
 invalid hreflang link cannot hide behind an existing identical failure.
+Without `--json`, each new issue includes its expected and observed values
+alongside the page path and check code, so CI logs identify the correction to
+make. Long values are abbreviated and embedded line breaks escaped; use
+`--json` when full, machine-readable issue details are needed.
 On case-sensitive builds, case-distinct HTML artifact paths remain separate
 whether declared or unlisted in comparison reports. A newly unlisted case
 variant is a regression under full coverage, not an invalid report. Explicit
