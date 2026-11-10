@@ -3092,3 +3092,75 @@ def test_twitter_image_equals_cli_json_reports_failure_then_pass(tmp_path, capsy
                         'content="https://cdn.example.com/new.png"></head></html>', encoding="utf-8")
     assert main([str(contract), str(artifact), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata", [
+    '<meta name="twitter:image:alt" content="A red &amp; white bicycle">',
+    '<meta NAME="TWITTER:IMAGE:ALT" content=" A red  &amp;  white bicycle ">',
+    '<meta name="twitter:image:alt" content="A red\n& white bicycle">',
+])
+def test_twitter_image_alt_equals_matches_explicit_head_copy(metadata):
+    html = (f'<html><head>{metadata}'
+            '<meta property="og:image:alt" content="Different fallback">'
+            '</head><body></body></html>')
+    assert verify_contract({
+        "url": URL, "twitter_image_alt_equals": "A red & white bicycle",
+    }, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('', None),
+    ('<meta name="twitter:image:alt">', ''),
+    ('<meta name="twitter:image:alt" content="  ">', ''),
+    ('<meta name="twitter:image:alt" content="A blue bicycle">', 'A blue bicycle'),
+    ('<meta name="twitter:image:alt" content="">'
+     '<meta name="twitter:image:alt" content="A red bicycle">', ''),
+    ('<meta name="twitter:image:alt" content="Old" content="A red bicycle">', 'Old'),
+    ('<meta property="twitter:image:alt" content="A red bicycle">', None),
+    ('<meta property="og:image:alt" content="A red bicycle">', None),
+    ('<template><meta name="twitter:image:alt" content="A red bicycle"></template>', None),
+    ('<noscript><meta name="twitter:image:alt" content="A red bicycle"></noscript>', None),
+    ('<meta name="twitter:image:alt:other" content="A red bicycle">', None),
+])
+def test_twitter_image_alt_equals_detects_missing_changed_or_inert_copy(metadata, actual):
+    html = (f'<html><head>{metadata}</head><body>'
+            '<meta name="twitter:image:alt" content="A red bicycle"></body></html>')
+    assert verify_contract({
+        "url": URL, "twitter_image_alt_equals": "A red bicycle",
+    }, html)["issues"] == [{
+        "code": "twitter_image_alt_equals", "expected": "A red bicycle", "actual": actual,
+    }]
+
+
+def test_twitter_image_alt_equals_implicit_head_first_active_declaration_wins():
+    html = ('<!doctype html><template><meta name="twitter:image:alt" content="Ghost">'
+            '</template><meta name="twitter:image:alt" content="First description">'
+            '<meta name="twitter:image:alt" content="Later"><h1>Page</h1>')
+    assert verify_contract({
+        "url": URL, "twitter_image_alt_equals": "First description",
+    }, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("value", [None, False, 0, "", "\t ", [], {}])
+def test_twitter_image_alt_equals_rejects_non_text_contract_values(value):
+    with pytest.raises(ValueError, match="twitter_image_alt_equals"):
+        verify_contract({"url": URL, "twitter_image_alt_equals": value}, HTML)
+
+
+def test_twitter_image_alt_equals_cli_json_reports_failure_then_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({
+        "url": URL, "twitter_image_alt_equals": "An orange kite",
+    }), encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:image:alt" '
+                        'content="A green kite"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "twitter_image_alt_equals", "expected": "An orange kite",
+        "actual": "A green kite",
+    }]
+    artifact.write_text('<html><head><meta name="twitter:image:alt" '
+                        'content="An orange kite"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"

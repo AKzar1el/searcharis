@@ -57,6 +57,7 @@ how valid contracts or manifests are read.
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
 | `twitter_image_equals` | Match the first explicit head `<meta name="twitter:image">` absolute HTTP(S) URL (opt-in) |
+| `twitter_image_alt_equals` | Match the first explicit head `<meta name="twitter:image:alt">` image description (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
@@ -311,6 +312,16 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   are ignored. This deliberately does not infer `og:image` fallback:
   teams opting in assert explicit X image markup. It never fetches images or
   checks their reachability, dimensions, format, or actual social-card rendering.
+  `twitter_image_alt_equals` separately guards the descriptive copy of the
+  first explicit `<meta name="twitter:image:alt" content="...">` in the head.
+  It decodes HTML entities and collapses whitespace while retaining letter
+  case and punctuation. Missing, empty, changed or duplicated first values
+  fail even if later declarations are correct. Body-only, inert template and
+  `<noscript>` tags and `property` lookalikes do not count. An explicit X image
+  URL is not required for this assertion: some sites use `og:image` for image
+  selection. Conversely, `og:image:alt` fallback never silently satisfies an
+  explicit X alt-copy contract. This only compares built static metadata;
+  it does not prove platform preview presentation or description quality.
   `viewport_device_width` is an optional mobile layout guard. `true` requires
   the first active `<meta name="viewport">` in the head to include exactly one
   comma-separated `width=device-width` setting (case-insensitive, spaces around
