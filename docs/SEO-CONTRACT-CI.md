@@ -478,6 +478,10 @@ uv run python -m searcharis.site_cli \
 The manifest format is a JSON object with `"version": 1` and a non-empty
 `"pages"` array. Every page has a **relative POSIX** `"path"` (such as
 `"en/index.html"`) and an inline `"contract"` using the existing fields.
+Both `.html` and `.htm` built pages (case-insensitive extensions) can be
+declared in the manifest. Both are discovered for coverage, so an unlisted
+`.htm` page also fails `--require-full-coverage`. Paths must retain the exact
+filesystem spelling, including the extension's letter case.
 The supplied build directory is the only source of HTML; contract `url`
 values are never fetched. Paths escaping the build root, missing files,
 paths whose casing differs from the built HTML (including on Windows),

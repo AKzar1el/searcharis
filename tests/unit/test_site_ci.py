@@ -115,6 +115,63 @@ def test_unlisted_pages_are_visible_and_optionally_fatal(tmp_path):
     assert strict["coverage"]["unlisted"] == ["extra.html"]
 
 
+@pytest.mark.parametrize("extension", [".htm", ".HTM"])
+def test_unlisted_htm_artifacts_cannot_bypass_strict_coverage(tmp_path, extension):
+    manifest = _setup(tmp_path)
+    extra = tmp_path / f"legacy{extension}"
+    extra.write_text(_page(f"{BASE}legacy/"), encoding="utf-8")
+
+    permissive = verify_manifest(manifest, tmp_path)
+    strict = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+
+    assert permissive["status"] == "pass"
+    assert strict["status"] == "fail"
+    assert strict["coverage"]["discovered"] == 3
+    assert strict["coverage"]["unlisted"] == [extra.name]
+
+
+@pytest.mark.parametrize("extension", [".htm", ".HTM"])
+def test_manifest_can_assert_legacy_htm_artifact(tmp_path, extension):
+    manifest = _setup(tmp_path)
+    extra = tmp_path / f"legacy{extension}"
+    extra.write_text(_page(f"{BASE}legacy/"), encoding="utf-8")
+    manifest["pages"].append({
+        "path": extra.name,
+        "contract": {"url": f"{BASE}legacy/", "canonical": f"{BASE}legacy/"},
+    })
+
+    passing = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert passing["status"] == "pass"
+    assert passing["coverage"]["discovered"] == 3
+    assert passing["coverage"]["unlisted"] == []
+
+    extra.write_text(_page(f"{BASE}wrong/"), encoding="utf-8")
+    failing = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert failing["status"] == "fail"
+    legacy_page = next(page for page in failing["pages"] if page["path"] == extra.name)
+    assert [issue["code"] for issue in legacy_page["issues"]] == ["canonical"]
+
+
+def test_site_cli_checks_declared_htm_routes_with_strict_coverage(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    extra = tmp_path / "legacy.htm"
+    extra.write_text(_page(f"{BASE}legacy/"), encoding="utf-8")
+    manifest["pages"].append({
+        "path": extra.name,
+        "contract": {"url": f"{BASE}legacy/", "title_present": True},
+    })
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--require-full-coverage", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "pass"
+    assert report["coverage"]["discovered"] == 3
+    assert [page["path"] for page in report["pages"]] == [
+        "en/index.html", "legacy.htm", "sl/index.html",
+    ]
+
+
 def _case_colliding_artifact(tmp_path, monkeypatch):
     variant = tmp_path / "en" / "INDEX.HTML"
     if os.name == "nt":
