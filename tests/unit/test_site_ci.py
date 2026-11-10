@@ -583,3 +583,42 @@ def test_declared_url_never_fetched(tmp_path, monkeypatch):
 
     monkeypatch.setattr(socket, "create_connection", blocked_network)
     assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
+def test_site_cli_human_output_escapes_real_hreflang_issue_code(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    artifact = tmp_path / "en" / "index.html"
+    artifact.write_text(
+        _page(f"{BASE}en/").replace(
+            "</head>",
+            '<link rel="alternate" hreflang="de\nFORGED LOG" href="javascript:bad"></head>',
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(manifest_path), str(tmp_path), "--check-hreflang-reciprocity"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert all(not line.startswith("forged log") for line in lines)
+    assert any("hreflang_invalid_url:de\\nforged log" in line for line in lines)
+
+
+def test_site_cli_human_output_bounds_issues_and_unlisted_html(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["title_equals"] = "E" * 1600
+    for i in range(35):
+        (tmp_path / f"unlisted-{i:02}.html").write_text("<html></html>", encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    args = [str(manifest_path), str(tmp_path), "--require-full-coverage"]
+
+    assert main(args) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert max(map(len, lines)) < 500
+    assert "... and 15 more" in "\n".join(lines)
+    assert "35 unlisted" in lines[0]
+    assert main(args + ["--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert len(result["coverage"]["unlisted"]) == 35
+    assert result["pages"][-1]["issues"][0]["expected"] == "E" * 1600

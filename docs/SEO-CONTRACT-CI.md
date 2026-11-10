@@ -554,6 +554,11 @@ HTML not declared in the manifest. Partial adoption is supported: unlisted
 pages are **reported but not failures** by default. For complete-site CI,
 add `--require-full-coverage` to fail on any unlisted HTML.
 
+Human-readable CI output escapes control characters in page names and issue
+codes, abbreviates long values, and lists at most 20 unlisted HTML paths with
+an explicit remaining count. Use `--json` or `--sarif` for the full
+machine-readable findings; their values and exit codes are unchanged.
+
 Exit codes: **0** all assertions passed (and coverage if enforced),
 **1** assertion or enforced-coverage failure, **2** invalid input. Add
 `--json` for deterministic machine-readable findings, including JSON

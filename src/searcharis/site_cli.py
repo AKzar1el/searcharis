@@ -11,6 +11,19 @@ from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_sarif import build_sarif_report
 from searcharis.site_source_map import read_source_map
 
+_MAX_UNLISTED_DISPLAY = 20
+
+
+def _label(value: str, *, limit: int = 120) -> str:
+    # Built artifact names and issue codes are untrusted CI log content.
+    display = repr(value)[1:-1]
+    return display if len(display) <= limit else display[:limit - 3] + "..."
+
+
+def _preview(value: object, *, limit: int = 120) -> str:
+    display = repr(value)
+    return display if len(display) <= limit else display[:limit - 3] + "..."
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify local built HTML against a page manifest")
@@ -86,14 +99,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         for page in report["pages"]:
             if page["status"] == "fail":
-                print(f"  FAIL {page['path']} ({page['checked_url']})")
+                print(f"  FAIL {_label(page['path'])} ({_label(page['checked_url'])})")
                 for issue in page["issues"]:
                     print(
-                        f"    {issue['code']}: expected {issue['expected']!r}, "
-                        f"observed {issue['actual']!r}"
+                        f"    {_label(issue['code'])}: expected {_preview(issue['expected'])}, "
+                        f"observed {_preview(issue['actual'])}"
                     )
         if coverage["unlisted"]:
-            print("  Unlisted HTML: " + ", ".join(coverage["unlisted"]))
+            unlisted = coverage["unlisted"]
+            visible = ", ".join(_label(path) for path in unlisted[:_MAX_UNLISTED_DISPLAY])
+            remaining = len(unlisted) - _MAX_UNLISTED_DISPLAY
+            if remaining > 0:
+                visible += f", ... and {remaining} more (use --json for full list)"
+            print("  Unlisted HTML: " + visible)
         if args.check_hreflang_reciprocity:
             links = report["hreflang_reciprocity"]
             print(
