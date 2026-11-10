@@ -291,9 +291,13 @@ def test_duplicate_contract_urls_rejected(tmp_path):
         verify_manifest(manifest, tmp_path)
 
 
-def test_site_cli_rejects_invalid_url_before_cross_page_checks(tmp_path, capsys):
+@pytest.mark.parametrize("bad_url", [
+    "https://example.com:invalid/sl/",
+    "https://ex%61mple.com/sl/",
+])
+def test_site_cli_rejects_invalid_url_before_cross_page_checks(tmp_path, capsys, bad_url):
     manifest = _setup(tmp_path)
-    manifest["pages"][0]["contract"]["url"] = "https://example.com:invalid/sl/"
+    manifest["pages"][0]["contract"]["url"] = bad_url
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 

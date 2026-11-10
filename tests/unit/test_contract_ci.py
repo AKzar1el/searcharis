@@ -1068,6 +1068,9 @@ def test_invalid_bounds_and_url_rejected():
     "https://example.com:invalid/en/",
     "https://example.com/path with space",
     r"https://example.com\en/",
+    "https://ex%61mple.com/en/",
+    "https://example.com%40evil.test/en/",
+    "https://example.com%2Fevil.test/en/",
 ])
 def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
     with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
@@ -1079,12 +1082,21 @@ def test_non_default_valid_contract_port_is_accepted():
     assert result["status"] == "pass"
 
 
+def test_encoded_path_is_valid_but_encoded_hostname_is_not():
+    # Percent escapes are useful in paths; they are ambiguous in URL authority.
+    assert verify_contract(
+        {"url": "https://example.com:8443/a%20b/", "title_present": True}, HTML,
+    )["status"] == "pass"
+
+
 @pytest.mark.parametrize("bad_url", [
     "/en/",
     "javascript:alert(1)",
     "https://example.com:99999/en/",
     "https://example.com/en/with space",
     r"https://example.com\en/",
+    "https://ex%61mple.com/en/",
+    "https://example.com%40evil.test/en/",
 ])
 @pytest.mark.parametrize("field", ["canonical", "hreflang"])
 def test_invalid_expected_seo_link_url_is_contract_input_error(field, bad_url):
@@ -1100,6 +1112,20 @@ def test_valid_nondefault_port_expected_seo_urls_remain_supported():
     assert verify_contract(spec, html)["status"] == "pass"
 
 
+def test_encoded_host_in_observed_canonical_is_not_treated_as_valid():
+    html = (
+        '<html><head><link rel="canonical" '
+        'href="https://example.com%40evil.test/en/"></head><body></body></html>'
+    )
+    result = verify_contract({"url": URL, "canonical_present": True}, html)
+    assert result["status"] == "fail"
+    assert result["issues"] == [{
+        "code": "canonical_presence",
+        "expected": True,
+        "actual": ["https://example.com%40evil.test/en/"],
+    }]
+
+
 def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     html = tmp_path / "index.html"
@@ -1112,10 +1138,14 @@ def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
     assert "canonical" in report["error"]
 
 
-def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys):
+@pytest.mark.parametrize("bad_url", [
+    "https://example.com:99999/en/",
+    "https://ex%61mple.com/en/",
+])
+def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys, bad_url):
     contract = tmp_path / "contract.json"
     html = tmp_path / "index.html"
-    contract.write_text(json.dumps({"url": "https://example.com:99999/en/", "title_present": True}))
+    contract.write_text(json.dumps({"url": bad_url, "title_present": True}))
     html.write_text(HTML)
 
     assert main([str(contract), str(html), "--json"]) == 2
