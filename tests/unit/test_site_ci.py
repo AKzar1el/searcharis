@@ -105,6 +105,28 @@ def test_manifest_detects_first_og_image_type_regression(tmp_path):
     assert verify_manifest(manifest, tmp_path, require_full_coverage=True)["status"] == "pass"
 
 
+def test_manifest_detects_twitter_image_and_alt_presence_regressions(tmp_path):
+    manifest = _setup(tmp_path)
+    target = next(page for page in manifest["pages"] if page["path"] == "en/index.html")
+    target["contract"].update({"twitter_image_present": True, "twitter_image_alt_present": True})
+    artifact = tmp_path / "en/index.html"
+    artifact.write_text(_page(f"{BASE}en/").replace(
+        "</head>", '<meta name="twitter:image" content="/relative.png">'
+        '<meta name="twitter:image:alt" content=""></head>',
+    ), encoding="utf-8")
+    result = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert result["status"] == "fail"
+    en = next(page for page in result["pages"] if page["path"] == "en/index.html")
+    assert [issue["code"] for issue in en["issues"]] == [
+        "twitter_image_presence", "twitter_image_alt_presence",
+    ]
+    artifact.write_text(_page(f"{BASE}en/").replace(
+        "</head>", '<meta name="twitter:image" content="https://cdn.example.com/card.png">'
+        '<meta name="twitter:image:alt" content="A descriptive card"></head>',
+    ), encoding="utf-8")
+    assert verify_manifest(manifest, tmp_path, require_full_coverage=True)["status"] == "pass"
+
+
 def test_template_only_heading_cannot_pass_static_build_ci(tmp_path, capsys):
     manifest = _setup(tmp_path)
     page = tmp_path / "en" / "index.html"

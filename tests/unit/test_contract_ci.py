@@ -3293,6 +3293,116 @@ def test_twitter_image_equals_cli_json_reports_failure_then_pass(tmp_path, capsy
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+@pytest.mark.parametrize("metadata,expected,actual", [
+    ('<meta name="twitter:image" content="https://cdn.example.com/card.png">', True, None),
+    ('<meta NAME="TWITTER:IMAGE" content=" https://cdn.example.com/a&amp;b.png ">', True, None),
+    ('<meta name="twitter:image" content="">', False, ""),
+    ('<meta name="twitter:image" content="/card.png">', False, "/card.png"),
+    ('<meta name="twitter:image" content="https://bad.example:/card.png">',
+     False, "https://bad.example:/card.png"),
+    ('<meta name="twitter:image" content="">'
+     '<meta name="twitter:image" content="https://cdn.example.com/card.png">', False, ""),
+    ('<meta property="og:image" content="https://cdn.example.com/card.png">', False, None),
+    ('<template><meta name="twitter:image" content="https://cdn.example.com/card.png">'
+     '</template>', False, None),
+    ('<noscript><meta name="twitter:image" content="https://cdn.example.com/card.png">'
+     '</noscript>', False, None),
+    ('', False, None),
+])
+def test_twitter_image_presence_requires_first_explicit_valid_url(metadata, expected, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta name="twitter:image" content="https://cdn.example.com/card.png"></body></html>')
+    result = verify_contract({"url": URL, "twitter_image_present": True}, html)
+    if expected:
+        assert result["status"] == "pass", result["issues"]
+    else:
+        assert result["issues"] == [{
+            "code": "twitter_image_presence", "expected": True, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("metadata,passes,actual", [
+    ("", True, None),
+    ('<meta name="twitter:image" content="">', False, ""),
+    ('<meta name="twitter:image" content="https://cdn.example.com/card.png">',
+     False, "https://cdn.example.com/card.png"),
+])
+def test_twitter_image_presence_false_asserts_no_declaration(metadata, passes, actual):
+    report = verify_contract({"url": URL, "twitter_image_present": False},
+                             f"<html><head>{metadata}</head></html>")
+    if passes:
+        assert report["status"] == "pass"
+    else:
+        assert report["issues"] == [{
+            "code": "twitter_image_presence", "expected": False, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("metadata,passes,actual", [
+    ('<meta name="twitter:image:alt" content="A bright &amp; detailed card">', True, None),
+    ('<meta name="twitter:image:alt" content="  ">', False, "  "),
+    ('<meta name="twitter:image:alt">', False, ""),
+    ('<meta name="twitter:image:alt" content="">'
+     '<meta name="twitter:image:alt" content="Later rescue">', False, ""),
+    ('<meta property="og:image:alt" content="Fallback">', False, None),
+    ('<template><meta name="twitter:image:alt" content="Inert"></template>', False, None),
+    ('<noscript><meta name="twitter:image:alt" content="Inert"></noscript>', False, None),
+    ("", False, None),
+])
+def test_twitter_image_alt_presence_checks_first_explicit_description(metadata, passes, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta name="twitter:image:alt" content="Body fallback"></body></html>')
+    report = verify_contract({"url": URL, "twitter_image_alt_present": True}, html)
+    if passes:
+        assert report["status"] == "pass", report["issues"]
+    else:
+        assert report["issues"] == [{
+            "code": "twitter_image_alt_presence", "expected": True, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("metadata,passes,actual", [
+    ("", True, None),
+    ('<meta name="twitter:image:alt" content="">', False, ""),
+    ('<meta name="twitter:image:alt" content="Descriptive">', False, "Descriptive"),
+])
+def test_twitter_image_alt_presence_false_asserts_no_declaration(metadata, passes, actual):
+    report = verify_contract({"url": URL, "twitter_image_alt_present": False},
+                             f"<html><head>{metadata}</head></html>")
+    if passes:
+        assert report["status"] == "pass"
+    else:
+        assert report["issues"] == [{
+            "code": "twitter_image_alt_presence", "expected": False, "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("field", ["twitter_image_present", "twitter_image_alt_present"])
+@pytest.mark.parametrize("invalid", [None, 0, 1, "true", [], {}])
+def test_twitter_image_presence_fields_require_json_booleans(field, invalid):
+    with pytest.raises(ValueError, match=field):
+        verify_contract({"url": URL, field: invalid}, HTML)
+
+
+def test_twitter_image_presence_cli_json_fails_then_passes(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({
+        "url": URL, "twitter_image_present": True, "twitter_image_alt_present": True,
+    }), encoding="utf-8")
+    artifact.write_text('<html><head><meta name="twitter:image" content="/card.png">'
+                        '<meta name="twitter:image:alt" content=""></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert [issue["code"] for issue in json.loads(capsys.readouterr().out)["issues"]] == [
+        "twitter_image_presence", "twitter_image_alt_presence",
+    ]
+    artifact.write_text('<html><head><meta name="twitter:image" '
+                        'content="https://cdn.example.com/card.png">'
+                        '<meta name="twitter:image:alt" content="A card"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("metadata", [
     '<meta name="twitter:image:alt" content="A red &amp; white bicycle">',
     '<meta NAME="TWITTER:IMAGE:ALT" content=" A red  &amp;  white bicycle ">',
