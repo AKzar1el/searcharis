@@ -2878,6 +2878,74 @@ def test_og_first_image_dimensions_cli_json_fail_then_pass(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+def test_og_first_image_type_matches_explicit_mime_case_insensitively():
+    html = ('<html><head><meta property="og:image" content="https://cdn.example.com/one.png">'
+            '<meta property="og:image:type" content=" IMAGE/PNG ">'
+            '<meta property="og:image" content="https://cdn.example.com/two.jpg">'
+            '<meta property="og:image:type" content="image/jpeg"></head></html>')
+    report = verify_contract({"url": URL, "og_image_type_equals": "image/png"}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("actual", ["image/jpeg", "", "text/html", "image/", "image/png; charset=utf-8"])
+def test_og_first_image_type_rejects_changed_or_malformed_mime(actual):
+    html = ('<html><head><meta property="og:image" content="https://cdn.example.com/one.png">'
+            f'<meta property="og:image:type" content="{actual}"></head></html>')
+    assert verify_contract({"url": URL, "og_image_type_equals": "image/png"}, html)["issues"] == [{
+        "code": "og_image_type_equals", "expected": "image/png", "actual": actual,
+    }]
+
+
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:image:type" content="image/png">',
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<meta property="og:image" content="https://cdn.example.com/b.png">'
+     '<meta property="og:image:type" content="image/png">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<meta property="og:title" content="Other">'
+     '<meta property="og:image:type" content="image/png">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<meta property="og:image:type" content="image/jpeg">'
+     '<meta property="og:image:type" content="image/png">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<template><meta property="og:image:type" content="image/png"></template>'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<noscript><meta property="og:image:type" content="image/png"></noscript>'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.png">'
+     '<meta name="og:image:type" content="image/png">'),
+])
+def test_og_first_image_type_excludes_orphan_later_duplicate_and_inert(metadata):
+    report = verify_contract({"url": URL, "og_image_type_equals": "image/png"},
+                             f"<html><head>{metadata}</head></html>")
+    assert report["issues"] == [{
+        "code": "og_image_type_equals", "expected": "image/png",
+        "actual": "image/jpeg" if 'property="og:image:type" content="image/jpeg"' in metadata else None,
+    }]
+
+
+@pytest.mark.parametrize("value", [None, True, 2, "", "image/", "text/html", "image/png;foo=1", " image/png", [], {}])
+def test_og_image_type_rejects_invalid_expected_mime(value):
+    with pytest.raises(ValueError, match="og_image_type_equals"):
+        verify_contract({"url": URL, "og_image_type_equals": value}, HTML)
+
+
+def test_og_first_image_type_cli_json_fail_then_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_type_equals": "image/png"}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/a.png">'
+                        '<meta property="og:image:type" content="image/jpeg"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_type_equals", "expected": "image/png", "actual": "image/jpeg",
+    }]
+    artifact.write_text(artifact.read_text(encoding="utf-8").replace('image/jpeg', 'image/png'),
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("metadata,expected", [
     ("", True),
     ('<meta name="robots" content="all">', True),

@@ -54,6 +54,7 @@ how valid contracts or manifests are read.
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `og_image_alt_equals` | Match the descriptive `og:image:alt` text attached to the first Open Graph image (opt-in, case-sensitive) |
 | `og_image_width_equals`, `og_image_height_equals` | Assert positive integer pixel dimensions explicitly declared for the first Open Graph image (opt-in) |
+| `og_image_type_equals` | Match the explicitly declared image MIME type for the first Open Graph image (opt-in, case-insensitive) |
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
@@ -286,6 +287,16 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   cannot rescue the first image. The checker does not open the image to verify
   its actual pixels or guarantee a platform's chosen preview. Combine these
   opt-in checks with `og_image_present` to require a usable image URL.
+  `og_image_type_equals` protects the same first image's explicit
+  `<meta property="og:image:type" content="image/png">` declaration. The
+  expected value must be a bare image MIME type (such as `image/jpeg`,
+  `image/png`, `image/webp` or `image/svg+xml`), without parameters or
+  whitespace. The first associated declaration wins; absent, blank, malformed,
+  changed, orphaned, inert or later-image type metadata fails, including when
+  a later duplicate matches. MIME type comparison ignores case. This checks
+  only the built HTML claim, not the downloaded image bytes or whether a
+  social platform supports the declared format. Combine with
+  `og_image_present` for an explicit valid first image URL.
   `twitter_card_equals` protects the intended X/Twitter link-preview layout:
   for example, `"twitter_card_equals": "summary_large_image"` catches an
   accidental change to a compact `summary` card or a missing declaration.

@@ -84,6 +84,27 @@ def test_manifest_reports_first_og_image_dimension_regressions(tmp_path):
     assert verify_manifest(manifest, tmp_path, require_full_coverage=True)["status"] == "pass"
 
 
+def test_manifest_detects_first_og_image_type_regression(tmp_path):
+    manifest = _setup(tmp_path)
+    first = next(page for page in manifest["pages"] if page["path"] == "en/index.html")
+    first["contract"]["og_image_type_equals"] = "image/png"
+    path = tmp_path / "en/index.html"
+    path.write_text(_page(f"{BASE}en/").replace(
+        "</head>",
+        '<meta property="og:image" content="https://cdn.example.com/social.png">'
+        '<meta property="og:image:type" content="image/jpeg"></head>',
+    ), encoding="utf-8")
+    result = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert result["status"] == "fail"
+    en = next(page for page in result["pages"] if page["path"] == "en/index.html")
+    assert en["issues"] == [{
+        "code": "og_image_type_equals", "expected": "image/png", "actual": "image/jpeg",
+    }]
+    path.write_text(path.read_text(encoding="utf-8").replace('image/jpeg', 'image/png'),
+                    encoding="utf-8")
+    assert verify_manifest(manifest, tmp_path, require_full_coverage=True)["status"] == "pass"
+
+
 def test_template_only_heading_cannot_pass_static_build_ci(tmp_path, capsys):
     manifest = _setup(tmp_path)
     page = tmp_path / "en" / "index.html"
