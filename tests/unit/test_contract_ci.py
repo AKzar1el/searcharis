@@ -1066,6 +1066,8 @@ def test_invalid_bounds_and_url_rejected():
 @pytest.mark.parametrize("bad_url", [
     "https://example.com:99999/en/",
     "https://example.com:invalid/en/",
+    "https://example.com:/en/",
+    "https://[::1]:/en/",
     "https://example.com/path with space",
     r"https://example.com\en/",
     "https://ex%61mple.com/en/",
@@ -1077,8 +1079,9 @@ def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
         verify_contract({"url": bad_url, "title_present": True}, HTML)
 
 
-def test_non_default_valid_contract_port_is_accepted():
-    result = verify_contract({"url": "https://example.com:8443/en/", "title_present": True}, HTML)
+@pytest.mark.parametrize("url", ["https://example.com:8443/en/", "https://[::1]:8443/en/"])
+def test_non_default_valid_contract_port_is_accepted(url):
+    result = verify_contract({"url": url, "title_present": True}, HTML)
     assert result["status"] == "pass"
 
 
@@ -1093,6 +1096,8 @@ def test_encoded_path_is_valid_but_encoded_hostname_is_not():
     "/en/",
     "javascript:alert(1)",
     "https://example.com:99999/en/",
+    "https://example.com:/en/",
+    "https://[::1]:/en/",
     "https://example.com/en/with space",
     r"https://example.com\en/",
     "https://ex%61mple.com/en/",
@@ -1126,6 +1131,19 @@ def test_encoded_host_in_observed_canonical_is_not_treated_as_valid():
     }]
 
 
+@pytest.mark.parametrize("observed", [
+    "https://example.com:/en/",
+    "https://[::1]:/en/",
+])
+def test_empty_port_in_observed_canonical_does_not_pass_presence(observed):
+    html = f'<html><head><link rel="canonical" href="{observed}"></head></html>'
+    report = verify_contract({"url": URL, "canonical_present": True}, html)
+    assert report["status"] == "fail"
+    assert report["issues"] == [{
+        "code": "canonical_presence", "expected": True, "actual": [observed],
+    }]
+
+
 def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
     contract = tmp_path / "contract.json"
     html = tmp_path / "index.html"
@@ -1141,6 +1159,7 @@ def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
 @pytest.mark.parametrize("bad_url", [
     "https://example.com:99999/en/",
     "https://ex%61mple.com/en/",
+    "https://example.com:/en/",
 ])
 def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys, bad_url):
     contract = tmp_path / "contract.json"
