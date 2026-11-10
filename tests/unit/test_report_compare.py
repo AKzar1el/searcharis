@@ -305,6 +305,80 @@ def test_new_unverified_target_is_visible_but_not_an_asserted_failure():
     assert diff["summary"]["new_unverified_targets"] == 1
 
 
+@pytest.mark.parametrize("check,item", [
+    ("canonical_consistency", {"path": "en/index.html", "target": "https://outside.test/"}),
+    ("hreflang_reciprocity", {"path": "en/index.html", "target": "https://outside.test/de/"}),
+    ("hreflang_clusters", {
+        "path": "en/index.html", "language": "de", "target": "https://outside.test/de/",
+    }),
+])
+def test_opt_in_unverified_targets_gate_blocks_only_new_targets(check, item):
+    baseline = _report([("en/index.html", [])], checks=(check,))
+    candidate = _report([("en/index.html", [])], checks=(check,))
+    candidate[check]["unverified_targets"] = [item]
+
+    # Existing informational behavior remains the default.
+    assert compare_reports(baseline, candidate)["status"] == "pass"
+    gated = compare_reports(baseline, candidate, fail_on_new_unverified_targets=True)
+    assert gated["status"] == "regression"
+    assert gated["summary"]["new_issues"] == 0
+    assert gated["summary"]["new_unverified_targets"] == 1
+    assert gated["new_unverified_targets"] == [{"check": check, **item}]
+    assert compare_reports(candidate, candidate, fail_on_new_unverified_targets=True)["status"] == "pass"
+    assert compare_reports(candidate, baseline, fail_on_new_unverified_targets=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_opt_in_new_unverified_gate_exit_code_and_output(tmp_path, capsys, json_output):
+    baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": "https://elsewhere.test/"},
+    ]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+
+    assert main(args) == 0
+    capsys.readouterr()
+    assert main(args + ["--fail-on-new-unverified-targets"]) == 1
+    output = capsys.readouterr().out
+    if json_output:
+        data = json.loads(output)
+        assert data["status"] == "regression"
+        assert data["summary"]["new_unverified_targets"] == 1
+    else:
+        assert "REGRESSION" in output
+        assert "UNVERIFIED" in output
+        assert "en/index.html" in output
+        assert "https://elsewhere.test/" in output
+
+
+def test_opt_in_unverified_gate_detects_actual_changed_canonical_in_built_html(tmp_path):
+    artifact = tmp_path / "index.html"
+    manifest = {"version": 1, "pages": [{
+        "path": "index.html",
+        "contract": {"url": "https://example.test/", "title_present": True},
+    }]}
+    artifact.write_text(
+        '<html><head><title>OK</title><link rel="canonical" href="https://example.test/">'
+        '</head><body></body></html>', encoding="utf-8",
+    )
+    baseline = verify_manifest(manifest, tmp_path, check_canonical_consistency=True)
+    artifact.write_text(
+        '<html><head><title>OK</title><link rel="canonical" href="https://outside.test/">'
+        '</head><body></body></html>', encoding="utf-8",
+    )
+    candidate = verify_manifest(manifest, tmp_path, check_canonical_consistency=True)
+    assert baseline["status"] == candidate["status"] == "pass"
+    assert compare_reports(baseline, candidate)["status"] == "pass"
+    result = compare_reports(baseline, candidate, fail_on_new_unverified_targets=True)
+    assert result["status"] == "regression"
+    assert result["summary"]["new_unverified_targets"] == 1
+    assert result["new_unverified_targets"][0]["target"] == "https://outside.test/"
+
+
 def test_cli_regression_exit_codes_and_offline_behavior(tmp_path, capsys, monkeypatch):
     baseline = _report([("en/index.html", [])])
     candidate = _report([("en/index.html", [_issue()])])

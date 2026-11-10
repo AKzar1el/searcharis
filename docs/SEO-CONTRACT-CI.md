@@ -685,7 +685,21 @@ A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
 New outside-manifest canonical/hreflang targets are surfaced as **unverified**,
-never treated as successfully checked or automatically blocking.
+never treated as successfully checked or automatically blocking. For teams that
+want to reject **newly introduced** unverified canonical/hreflang destinations,
+opt in at comparison time:
+
+```sh
+uv run python -m searcharis.report_compare baseline.json candidate.json --fail-on-new-unverified-targets
+```
+
+This returns **1** when a candidate introduces a previously absent unverified
+target from an enabled canonical or hreflang cross-page check. Previously known
+unverified targets remain informational and resolved targets do not fail. This
+flag does not alter either input report, silently enable missing cross-page
+checks, or fetch and validate external pages. Cross-domain targets deliberately
+outside the manifest are also subject to this optional gate: update the trusted
+baseline after reviewing an intentional addition, or leave the gate disabled.
 
 Use a **trusted, review-controlled baseline from the protected branch**.
 Reports must use matching full-coverage and optional cross-page check flags,

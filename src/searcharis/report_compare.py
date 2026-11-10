@@ -157,8 +157,10 @@ def _unverified(report: dict) -> dict[tuple[str, str], dict]:
     return results
 
 
-def compare_reports(baseline: object, candidate: object) -> dict:
-    """Compare like-for-like reports; missing baseline routes count as regressions."""
+def compare_reports(
+    baseline: object, candidate: object, *, fail_on_new_unverified_targets: bool = False,
+) -> dict:
+    """Compare like-for-like reports with optional strict outside-manifest target gating."""
     before, before_options = _validate(baseline, "Baseline")
     after, after_options = _validate(candidate, "Candidate")
     if before_options != after_options:
@@ -194,7 +196,10 @@ def compare_reports(baseline: object, candidate: object) -> dict:
     new_unverified = [
         after_unverified[key] for key in sorted(after_unverified.keys() - before_unverified.keys())
     ]
-    regressions = bool(new_keys or removed or (before_options[0] and new_unlisted))
+    regressions = bool(
+        new_keys or removed or (before_options[0] and new_unlisted)
+        or (fail_on_new_unverified_targets and new_unverified)
+    )
     return {
         "status": "regression" if regressions else "pass",
         "summary": {
@@ -234,9 +239,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
     parser.add_argument("candidate", type=Path, help="Current build report from site_cli --json")
     parser.add_argument("--json", action="store_true", help="Print machine-readable comparison")
+    parser.add_argument(
+        "--fail-on-new-unverified-targets", action="store_true",
+        help="Treat newly unverified canonical/hreflang targets as CI regressions",
+    )
     args = parser.parse_args(argv)
     try:
-        result = compare_reports(_read_report(args.baseline), _read_report(args.candidate))
+        result = compare_reports(
+            _read_report(args.baseline), _read_report(args.candidate),
+            fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
+        )
     except (OSError, UnicodeError, ValueError, RecursionError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
@@ -261,7 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         for path in result["new_unlisted"]:
             print(f"  UNLISTED {path}")
         if summary["new_unverified_targets"]:
-            print(f"  NOTE {summary['new_unverified_targets']} new targets not verified offline")
+            label = "UNVERIFIED" if args.fail_on_new_unverified_targets else "NOTE"
+            print(f"  {label} {summary['new_unverified_targets']} new targets not verified offline")
+            if args.fail_on_new_unverified_targets:
+                for item in result["new_unverified_targets"]:
+                    locale = f" [{item['language']}]" if "language" in item else ""
+                    print(f"    {item['check']} {item['path']}{locale} -> {item['target']}")
     return 1 if result["status"] == "regression" else 0
 
 
