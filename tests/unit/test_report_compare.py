@@ -91,6 +91,8 @@ def test_contract_fingerprints_ignore_json_key_order(tmp_path):
     assert len(digest) == 64
     assert digest == after["pages"][0]["contract_sha256"]
     assert compare_reports(before, after)["status"] == "pass"
+    # Promoting a previously unlisted page into the approved manifest is safe.
+    assert compare_reports(before, after, fail_on_new_unlisted=True)["status"] == "pass"
 
 
 def test_comparison_rejects_mixed_or_invalid_contract_fingerprints():
@@ -203,6 +205,58 @@ def test_strict_new_unlisted_artifact_blocks_only_when_new():
     ))
     assert new["status"] == "regression"
     assert new["new_unlisted"] == ["extra.html"]
+
+
+def test_opt_in_new_unlisted_gate_allows_legacy_coverage_debt():
+    baseline = _report([("en/index.html", [])], unlisted=("legacy.html",))
+    candidate = _report(
+        [("en/index.html", [])], unlisted=("legacy.html", "new.html"),
+    )
+
+    # The existing non-strict baseline policy remains opt-in.
+    assert compare_reports(baseline, candidate)["status"] == "pass"
+    gated = compare_reports(baseline, candidate, fail_on_new_unlisted=True)
+    assert gated["status"] == "regression"
+    assert gated["summary"]["new_unlisted"] == 1
+    assert gated["new_unlisted"] == ["new.html"]
+    assert compare_reports(candidate, candidate, fail_on_new_unlisted=True)["status"] == "pass"
+    assert compare_reports(candidate, baseline, fail_on_new_unlisted=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_new_unlisted_gate_checks_actual_local_build(tmp_path, capsys, monkeypatch, json_output):
+    root = tmp_path / "build"
+    root.mkdir()
+    (root / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
+    (root / "legacy.html").write_text("<html><head></head></html>", encoding="utf-8")
+    manifest = {"version": 1, "pages": [{
+        "path": "index.html",
+        "contract": {"url": "https://example.test/", "title_present": True},
+    }]}
+    baseline = verify_manifest(manifest, root)
+    (root / "new.html").write_text("<html><head></head></html>", encoding="utf-8")
+    candidate = verify_manifest(manifest, root)
+    assert baseline["status"] == candidate["status"] == "pass"
+
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Offline comparison must not fetch URLs")
+    ))
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 0
+    capsys.readouterr()
+    assert main(args + ["--fail-on-new-unlisted"]) == 1
+    output = capsys.readouterr().out
+    if json_output:
+        result = json.loads(output)
+        assert result["status"] == "regression"
+        assert result["new_unlisted"] == ["new.html"]
+        assert result["summary"]["new_unlisted"] == 1
+    else:
+        assert "REGRESSION" in output
+        assert "UNLISTED new.html" in output
 
 
 def test_strict_comparison_accepts_case_distinct_unlisted_build_artifact():
