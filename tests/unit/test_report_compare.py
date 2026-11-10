@@ -467,6 +467,30 @@ def test_cli_regression_exit_codes_and_offline_behavior(tmp_path, capsys, monkey
     assert json.loads(capsys.readouterr().out)["status"] == "error"
 
 
+@pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])
+def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
+    tmp_path, capsys, observed,
+):
+    baseline = _report([("en/index.html", [])])
+    candidate = _report([("en/index.html", [_issue(observed)])])
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+
+    assert main([str(before), str(after)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2  # An embedded newline cannot forge another CI finding.
+    assert "NEW en/index.html" in lines[1]
+    assert "title_presence" in lines[1]
+    assert "expected True" in lines[1]
+    assert "observed " in lines[1]
+    assert len(lines[1]) < 400  # Unexpected page content must not flood CI logs.
+    if observed == "Missing H1":
+        assert "observed 'Missing H1'" in lines[1]
+    elif "\n" in observed:
+        assert "line one\\nline two" in lines[1]
+
+
 @pytest.mark.parametrize("nonfinite", ["NaN", "Infinity", "-Infinity", "1e999"])
 def test_cli_rejects_nonfinite_values_in_local_reports(tmp_path, capsys, nonfinite):
     report = _report([("en/index.html", [_issue()])])

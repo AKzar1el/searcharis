@@ -240,6 +240,13 @@ def _read_report(path: Path) -> object:
     return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys)
 
 
+def _preview(value: object, *, limit: int = 120) -> str:
+    # repr escapes embedded newlines so a malformed observation cannot add
+    # fake CI log lines, and a large HTML-derived value cannot flood the log.
+    display = repr(value)
+    return display if len(display) <= limit else display[:limit - 3] + "..."
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare two local SEO site JSON reports")
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
@@ -273,7 +280,11 @@ def main(argv: list[str] | None = None) -> int:
             f"{summary['new_unlisted']} new unlisted HTML"
         )
         for item in result["new_issues"]:
-            print(f"  NEW {item['path']} ({item['checked_url']}): {item['issue']['code']}")
+            issue = item["issue"]
+            print(
+                f"  NEW {item['path']} ({item['checked_url']}): {issue['code']} "
+                f"(expected {_preview(issue['expected'])}, observed {_preview(issue['actual'])})"
+            )
         for item in result["removed_pages"]:
             print(f"  REMOVED {item['path']} ({item['checked_url']})")
         for path in result["new_unlisted"]:
