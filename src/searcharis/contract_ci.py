@@ -7,6 +7,7 @@ caller must provide the trusted expected contract and the built HTML bytes.
 from __future__ import annotations
 
 import json
+import re
 from html.parser import HTMLParser
 from math import isfinite
 from urllib.parse import urljoin, urlsplit
@@ -17,7 +18,7 @@ _ALLOWED = frozenset({
     "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
-    "og_image_width_equals", "og_image_height_equals",
+    "og_image_width_equals", "og_image_height_equals", "og_image_type_equals",
     "twitter_image_equals", "twitter_image_alt_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
@@ -32,6 +33,7 @@ _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
     "head", "h1", "script", "style", "template", "textarea", "title", "plaintext", "select",
 })
 _TWITTER_CARD_TYPES = frozenset({"summary", "summary_large_image", "app", "player"})
+_IMAGE_MIME = re.compile(r"image/[a-z0-9][a-z0-9.+_-]*", re.IGNORECASE | re.ASCII)
 _MAX_JSONLD_NESTING = 256
 
 
@@ -60,6 +62,7 @@ class _SEOParser(HTMLParser):
         self.og_image_alt_content: str | None = None
         self.og_image_width_content: str | None = None
         self.og_image_height_content: str | None = None
+        self.og_image_type_content: str | None = None
         self.twitter_card_content: str | None = None
         self.twitter_title_content: str | None = None
         self.twitter_description_content: str | None = None
@@ -279,6 +282,7 @@ class _SEOParser(HTMLParser):
                 for property_name, attribute in (
                     ("og:image:width", "og_image_width_content"),
                     ("og:image:height", "og_image_height_content"),
+                    ("og:image:type", "og_image_type_content"),
                 ):
                     if values.get("property") == property_name and getattr(self, attribute) is None:
                         setattr(self, attribute, (values.get("content") or "").strip())
@@ -413,6 +417,11 @@ def _check_contract(spec: object) -> dict:
     for field in ("og_image_width_equals", "og_image_height_equals"):
         if field in spec and (type(spec[field]) is not int or spec[field] <= 0):
             raise ValueError(f"'{field}' must be a positive integer number of pixels")
+    if "og_image_type_equals" in spec and (
+        not isinstance(spec["og_image_type_equals"], str)
+        or _IMAGE_MIME.fullmatch(spec["og_image_type_equals"]) is None
+    ):
+        raise ValueError("'og_image_type_equals' must be an image MIME type (for example image/png)")
     if "h1_min" in spec and "h1_max" in spec and spec["h1_min"] > spec["h1_max"]:
         raise ValueError("h1_min may not exceed h1_max")
     if "hreflang" in spec and (not isinstance(spec["hreflang"], dict) or not spec["hreflang"] or any(
@@ -664,6 +673,13 @@ def verify_contract(
                        and actual.lstrip("0") == str(spec[field]))
             if not matches:
                 fail(field, spec[field], actual)
+    if "og_image_type_equals" in spec:
+        actual = page.og_image_type_content
+        # MIME types are case-insensitive, but parameters and non-image types
+        # are not valid substitutes for an explicit first-image declaration.
+        if (actual is None or _IMAGE_MIME.fullmatch(actual) is None
+                or actual.lower() != spec["og_image_type_equals"].lower()):
+            fail("og_image_type_equals", spec["og_image_type_equals"], actual)
     if "twitter_card_equals" in spec and page.twitter_card_content != spec["twitter_card_equals"]:
         fail("twitter_card_equals", spec["twitter_card_equals"], page.twitter_card_content)
     if "twitter_title_equals" in spec:
