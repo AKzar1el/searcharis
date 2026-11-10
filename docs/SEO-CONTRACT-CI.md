@@ -53,6 +53,7 @@ how valid contracts or manifests are read.
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
 | `og_image_alt_equals` | Match the descriptive `og:image:alt` text attached to the first Open Graph image (opt-in, case-sensitive) |
+| `og_image_width_equals`, `og_image_height_equals` | Assert positive integer pixel dimensions explicitly declared for the first Open Graph image (opt-in) |
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
@@ -274,6 +275,17 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   first-image descriptions fail, even if a later image or duplicate matches.
   This is a static publishing-copy assertion only, not an assessment of the
   description's accuracy, image accessibility or actual social previews.
+  `og_image_width_equals` and `og_image_height_equals` optionally protect the
+  explicit pixel dimensions for that same first Open Graph image. Contract
+  values are positive JSON integers (not booleans or strings). The first active
+  structured `og:image:width`/`og:image:height` value within the image group
+  wins; missing, blank, malformed, changed or displaced values fail. Values
+  are compared as positive decimal pixel counts; surrounding whitespace and
+  leading zeros are tolerated, but `1200px` and `1200.0` are not. Inert/body
+  declarations, name-only lookalikes, later images or duplicate properties
+  cannot rescue the first image. The checker does not open the image to verify
+  its actual pixels or guarantee a platform's chosen preview. Combine these
+  opt-in checks with `og_image_present` to require a usable image URL.
   `twitter_card_equals` protects the intended X/Twitter link-preview layout:
   for example, `"twitter_card_equals": "summary_large_image"` catches an
   accidental change to a compact `summary` card or a missing declaration.

@@ -2796,6 +2796,88 @@ def test_og_image_alt_equals_cli_json_failure_then_success(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+def test_og_first_image_dimensions_accept_first_group_and_positive_pixel_values():
+    html = ('<html><head><meta property="og:image" content="https://cdn.example.com/a.jpg">'
+            '<meta property="og:image:width" content=" 001200 ">'
+            '<meta property="og:image:height" content="630">'
+            '<meta property="og:image" content="https://cdn.example.com/b.jpg">'
+            '<meta property="og:image:width" content="640">'
+            '<meta property="og:image:height" content="480"></head></html>')
+    report = verify_contract({"url": URL, "og_image_width_equals": 1200,
+                              "og_image_height_equals": 630}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("property_name,content,actual", [
+    ("og:image:width", "640", "640"),
+    ("og:image:width", "", ""),
+    ("og:image:width", "1200px", "1200px"),
+    ("og:image:width", "1200.0", "1200.0"),
+    ("og:image:height", "480", "480"),
+    ("og:image:height", "0", "0"),
+])
+def test_og_first_image_dimensions_detect_wrong_or_malformed_values(property_name, content, actual):
+    expected = 1200 if property_name.endswith("width") else 630
+    html = ('<html><head><meta property="og:image" content="https://cdn.example.com/a.jpg">'
+            f'<meta property="{property_name}" content="{content}"></head></html>')
+    field = "og_image_width_equals" if property_name.endswith("width") else "og_image_height_equals"
+    assert verify_contract({"url": URL, field: expected}, html)["issues"] == [{
+        "code": field, "expected": expected, "actual": actual,
+    }]
+
+
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:image:width" content="1200">',
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<meta property="og:image" content="https://cdn.example.com/b.jpg">'
+     '<meta property="og:image:width" content="1200">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<meta property="og:title" content="Different root">'
+     '<meta property="og:image:width" content="1200">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<meta property="og:image:width" content="">'
+     '<meta property="og:image:width" content="1200">'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<template><meta property="og:image:width" content="1200"></template>'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<noscript><meta property="og:image:width" content="1200"></noscript>'),
+    ('<meta property="og:image" content="https://cdn.example.com/a.jpg">'
+     '<meta name="og:image:width" content="1200">'),
+])
+def test_og_first_image_width_never_uses_orphan_later_or_inert_metadata(metadata):
+    report = verify_contract({"url": URL, "og_image_width_equals": 1200},
+                             f"<html><head>{metadata}</head></html>")
+    assert report["issues"] == [{
+        "code": "og_image_width_equals", "expected": 1200,
+        "actual": "" if 'property="og:image:width" content=""' in metadata else None,
+    }]
+
+
+@pytest.mark.parametrize("value", [None, True, False, 0, -1, "1200", 1200.0, [], {}])
+@pytest.mark.parametrize("field", ["og_image_width_equals", "og_image_height_equals"])
+def test_og_image_dimensions_reject_invalid_expected_pixel_values(field, value):
+    with pytest.raises(ValueError, match=field):
+        verify_contract({"url": URL, field: value}, HTML)
+
+
+def test_og_first_image_dimensions_cli_json_fail_then_pass(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_width_equals": 1200,
+                                    "og_image_height_equals": 630}), encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" content="https://cdn.example.com/a.jpg">'
+                        '<meta property="og:image:width" content="640">'
+                        '<meta property="og:image:height" content="630"></head></html>', encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_width_equals", "expected": 1200, "actual": "640",
+    }]
+    artifact.write_text(artifact.read_text(encoding="utf-8").replace('content="640"', 'content="1200"'),
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("metadata,expected", [
     ("", True),
     ('<meta name="robots" content="all">', True),

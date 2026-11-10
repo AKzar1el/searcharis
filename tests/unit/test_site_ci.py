@@ -61,6 +61,29 @@ def test_an_actual_regression_blocks_even_partial_coverage(tmp_path):
     assert [issue["code"] for issue in report["pages"][1]["issues"]] == ["canonical"]
 
 
+def test_manifest_reports_first_og_image_dimension_regressions(tmp_path):
+    manifest = _setup(tmp_path)
+    first = next(page for page in manifest["pages"] if page["path"] == "en/index.html")
+    first["contract"].update({"og_image_width_equals": 1200, "og_image_height_equals": 630})
+    path = tmp_path / "en/index.html"
+    path.write_text(_page(f"{BASE}en/").replace(
+        "</head>",
+        '<meta property="og:image" content="https://cdn.example.com/social.jpg">'
+        '<meta property="og:image:width" content="800">'
+        '<meta property="og:image:height" content="630"></head>',
+    ), encoding="utf-8")
+    result = verify_manifest(manifest, tmp_path, require_full_coverage=True)
+    assert result["status"] == "fail"
+    assert result["summary"] == {"checked": 2, "passed": 1, "failed": 1}
+    en = next(page for page in result["pages"] if page["path"] == "en/index.html")
+    assert en["issues"] == [{
+        "code": "og_image_width_equals", "expected": 1200, "actual": "800",
+    }]
+    path.write_text(path.read_text(encoding="utf-8").replace('content="800"', 'content="1200"'),
+                    encoding="utf-8")
+    assert verify_manifest(manifest, tmp_path, require_full_coverage=True)["status"] == "pass"
+
+
 def test_template_only_heading_cannot_pass_static_build_ci(tmp_path, capsys):
     manifest = _setup(tmp_path)
     page = tmp_path / "en" / "index.html"
