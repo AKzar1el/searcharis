@@ -758,6 +758,10 @@ Searcharis: both files must already be present locally. This tool reads
 no live URLs or production credentials, and does not create a GitHub
 workflow, decide whether a baseline is trustworthy or prove real search
 indexing health.
+Optional cross-page check summaries must contain non-negative integer pair or
+target counts, and every unverified destination must identify a page included
+in that report. Corrupt or inconsistent summary data returns input error **2**
+instead of being silently accepted as a valid comparison.
 Each newly generated page report also includes a deterministic SHA-256 of its
 declared SEO contract (not the HTML). The comparator rejects different
 assertions for the same artifact between baseline and candidate, instead of

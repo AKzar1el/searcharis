@@ -116,11 +116,19 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         if check not in report:
             continue
         data = report[check]
-        if not isinstance(data, dict) or not isinstance(data.get("unverified_targets"), list):
+        count_key = (
+            "internal_targets_checked" if check == "canonical_consistency" else "checked_pairs"
+        )
+        if (
+            not isinstance(data, dict)
+            or not _int(data.get(count_key))
+            or not isinstance(data.get("unverified_targets"), list)
+        ):
             raise ValueError(f"{name}: invalid {check} data")
         if any(
             not isinstance(item, dict)
             or not isinstance(item.get("path"), str)
+            or item["path"] not in listed_paths
             or not isinstance(item.get("target"), str)
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]

@@ -334,6 +334,59 @@ def test_strict_unverified_gate_rejects_reports_with_no_cross_page_checks():
         compare_reports(report, report, fail_on_new_unverified_targets=True)
 
 
+@pytest.mark.parametrize("check,count_key", [
+    ("canonical_consistency", "internal_targets_checked"),
+    ("hreflang_reciprocity", "checked_pairs"),
+    ("hreflang_clusters", "checked_pairs"),
+])
+@pytest.mark.parametrize("bad_count", [None, True, -1, "3"])
+def test_comparison_rejects_corrupt_cross_page_check_counts(check, count_key, bad_count):
+    report = _report([("en/index.html", [])], checks=(check,))
+    report[check][count_key] = bad_count
+    with pytest.raises(ValueError, match=f"invalid {check} data"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
+@pytest.mark.parametrize("check", [
+    "canonical_consistency", "hreflang_reciprocity", "hreflang_clusters",
+])
+def test_comparison_rejects_unverified_target_from_unknown_page(check):
+    report = _report([("en/index.html", [])], checks=(check,))
+    target = {"path": "ghost.html", "target": "https://outside.test/"}
+    if check == "hreflang_clusters":
+        target["language"] = "de"
+    report[check]["unverified_targets"] = [target]
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+@pytest.mark.parametrize("missing", [True, False])
+def test_cli_rejects_corrupt_cross_page_counts_as_input_error(
+    tmp_path, capsys, json_output, missing,
+):
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    if missing:
+        del report["canonical_consistency"]["internal_targets_checked"]
+    else:
+        report["canonical_consistency"]["internal_targets_checked"] = -1
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    args = [str(before), str(after), "--fail-on-new-unverified-targets"]
+    if json_output:
+        args.append("--json")
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+        assert "canonical_consistency" in json.loads(output.out)["error"]
+    else:
+        assert "canonical_consistency" in output.err
+        assert not output.out
+
+
 @pytest.mark.parametrize("json_output", [True, False])
 def test_cli_strict_unverified_gate_without_check_data_is_input_error(
     tmp_path, capsys, monkeypatch, json_output,
@@ -578,14 +631,15 @@ def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
 
 
 def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp_path, capsys):
-    baseline = _report([("index.html", [])], strict=True, checks=("hreflang_clusters",))
+    bad_path = "index.html\nFORGED PATH"
+    baseline = _report([(bad_path, [])], strict=True, checks=("hreflang_clusters",))
     candidate = _report(
-        [("index.html", [{"code": "title\nFORGED ISSUE", "expected": True, "actual": False}])],
+        [(bad_path, [{"code": "title\nFORGED ISSUE", "expected": True, "actual": False}])],
         unlisted=("other\nFORGED UNLISTED.html",), strict=True,
         checks=("hreflang_clusters",),
     )
     candidate["hreflang_clusters"]["unverified_targets"] = [{
-        "path": "index.html\nFORGED PATH", "language": "de\nFORGED LOCALE",
+        "path": bad_path, "language": "de\nFORGED LOCALE",
         "target": "https://elsewhere.test/a\nFORGED TARGET",
     }]
     before, after = tmp_path / "before.json", tmp_path / "after.json"
@@ -597,6 +651,7 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     assert len(lines) == 5  # Summary, issue, unlisted, unverified summary and target.
     assert all(not line.startswith("FORGED") for line in lines)
     assert "title\\nFORGED ISSUE" in lines[1]
+    assert "index.html\\nFORGED PATH" in lines[1]
     assert "other\\nFORGED UNLISTED.html" in lines[2]
     assert "de\\nFORGED LOCALE" in lines[4]
     assert "a\\nFORGED TARGET" in lines[4]
