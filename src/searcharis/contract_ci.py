@@ -17,7 +17,7 @@ _ALLOWED = frozenset({
     "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
-    "twitter_image_equals",
+    "twitter_image_equals", "twitter_image_alt_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -61,6 +61,7 @@ class _SEOParser(HTMLParser):
         self.twitter_title_content: str | None = None
         self.twitter_description_content: str | None = None
         self.twitter_image_content: str | None = None
+        self.twitter_image_alt_content: str | None = None
         self._first_og_image_open = False
         self.viewport_content: str | None = None
         self.meta_refresh_contents: list[str] = []
@@ -230,6 +231,10 @@ class _SEOParser(HTMLParser):
             elif name == "twitter:image" and self.in_head and self.twitter_image_content is None:
                 # Guard only the first explicit X image, not an Open Graph fallback.
                 self.twitter_image_content = (values.get("content") or "").strip()
+            elif (name == "twitter:image:alt" and self.in_head
+                  and self.twitter_image_alt_content is None):
+                # Explicit X alt copy is independent of an Open Graph fallback.
+                self.twitter_image_alt_content = values.get("content") or ""
             if (self.in_head and values.get("property") == "og:type"
                     and self.og_type_content is None):
                 self.og_type_content = (values.get("content") or "").strip()
@@ -353,7 +358,7 @@ def _check_contract(spec: object) -> dict:
     for field in ("title_equals", "description_equals", "og_type_equals", "og_locale_equals",
                   "og_site_name_equals",
                   "og_title_equals", "og_description_equals", "og_image_alt_equals",
-                  "twitter_title_equals", "twitter_description_equals",
+                  "twitter_title_equals", "twitter_description_equals", "twitter_image_alt_equals",
                   "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
@@ -640,6 +645,11 @@ def verify_contract(
             fail("twitter_description_equals", spec["twitter_description_equals"], actual)
     if "twitter_image_equals" in spec and page.twitter_image_content != spec["twitter_image_equals"]:
         fail("twitter_image_equals", spec["twitter_image_equals"], page.twitter_image_content)
+    if "twitter_image_alt_equals" in spec:
+        observed = page.twitter_image_alt_content
+        actual = None if observed is None else " ".join(observed.split())
+        if actual != " ".join(spec["twitter_image_alt_equals"].split()):
+            fail("twitter_image_alt_equals", spec["twitter_image_alt_equals"], actual)
     if "viewport_device_width" in spec:
         actual = _viewport_uses_device_width(page.viewport_content or "")
         if actual != spec["viewport_device_width"]:
