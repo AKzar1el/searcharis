@@ -327,6 +327,38 @@ def test_different_check_options_are_not_comparable():
         compare_reports(baseline, _report([("en/index.html", [])], strict=True))
 
 
+def test_strict_unverified_gate_rejects_reports_with_no_cross_page_checks():
+    report = _report([("en/index.html", [])])
+    assert compare_reports(report, report)["status"] == "pass"
+    with pytest.raises(ValueError, match="requires.*cross-page check"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_strict_unverified_gate_without_check_data_is_input_error(
+    tmp_path, capsys, monkeypatch, json_output,
+):
+    report = _report([("en/index.html", [])])
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Offline comparison must not fetch URLs")
+    ))
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 0
+    capsys.readouterr()
+    assert main(args + ["--fail-on-new-unverified-targets"]) == 2
+    output = capsys.readouterr()
+    if json_output:
+        result = json.loads(output.out)
+        assert result["status"] == "error"
+        assert "cross-page check" in result["error"]
+    else:
+        assert "cross-page check" in output.err
+        assert not output.out
+
+
 @pytest.mark.parametrize("corruption", ["counts", "status", "issues", "duplicate", "coverage"])
 def test_inconsistent_or_forged_reports_fail_closed(corruption):
     report = _report([("en/index.html", [_issue()])])
