@@ -166,9 +166,11 @@ def _unverified(report: dict) -> dict[tuple[str, str, int], dict]:
 
 
 def compare_reports(
-    baseline: object, candidate: object, *, fail_on_new_unverified_targets: bool = False,
+    baseline: object, candidate: object, *,
+    fail_on_new_unlisted: bool = False,
+    fail_on_new_unverified_targets: bool = False,
 ) -> dict:
-    """Compare like-for-like reports with optional strict outside-manifest target gating."""
+    """Compare like-for-like reports with opt-in new coverage/target gates."""
     before, before_options = _validate(baseline, "Baseline")
     after, after_options = _validate(candidate, "Candidate")
     if before_options != after_options:
@@ -205,7 +207,7 @@ def compare_reports(
         after_unverified[key] for key in sorted(after_unverified.keys() - before_unverified.keys())
     ]
     regressions = bool(
-        new_keys or removed or (before_options[0] and new_unlisted)
+        new_keys or removed or ((before_options[0] or fail_on_new_unlisted) and new_unlisted)
         or (fail_on_new_unverified_targets and new_unverified)
     )
     return {
@@ -262,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("candidate", type=Path, help="Current build report from site_cli --json")
     parser.add_argument("--json", action="store_true", help="Print machine-readable comparison")
     parser.add_argument(
+        "--fail-on-new-unlisted", action="store_true",
+        help="Block newly unlisted HTML artifacts without failing on existing coverage gaps",
+    )
+    parser.add_argument(
         "--fail-on-new-unverified-targets", action="store_true",
         help="Treat newly unverified canonical/hreflang targets as CI regressions",
     )
@@ -269,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = compare_reports(
             _read_report(args.baseline), _read_report(args.candidate),
+            fail_on_new_unlisted=args.fail_on_new_unlisted,
             fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
         )
     except (OSError, UnicodeError, ValueError, RecursionError) as error:

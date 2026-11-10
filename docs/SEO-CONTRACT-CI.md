@@ -706,6 +706,22 @@ exact duplicate paths and duplicate contract URLs are still invalid.
 A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
+When a team cannot yet require full coverage of its legacy site, it can
+prevent **new unreviewed HTML routes** without blocking known existing gaps:
+
+```sh
+uv run python -m searcharis.report_compare baseline.json candidate.json --fail-on-new-unlisted
+```
+
+With this opt-in comparison flag, new built HTML files absent from both the
+manifest and the trusted baseline's `coverage.unlisted` fail with exit **1**.
+Existing unlisted files remain tolerated, and removing an old coverage gap
+does not fail. The default non-strict behavior and JSON report format are
+unchanged; `site_cli --require-full-coverage` remains the separate option for
+teams ready to require every built page to be declared. Intentional new pages
+should receive manifest contracts or a reviewed baseline update. This does
+not fetch or inspect the content of unlisted pages.
+
 New outside-manifest canonical/hreflang targets are surfaced as **unverified**,
 never treated as successfully checked or automatically blocking. For teams that
 want to reject **newly introduced** unverified canonical/hreflang destinations,
