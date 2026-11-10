@@ -598,6 +598,46 @@ def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, cap
     assert data["new_unverified_targets"][0]["target"] == long_target
 
 
+def test_cli_human_output_limits_many_findings_without_losing_json(tmp_path, capsys, monkeypatch):
+    baseline = _report(
+        [("index.html", [])] + [(f"old-{i}.html", []) for i in range(25)],
+        strict=True, checks=("canonical_consistency",),
+    )
+    candidate = _report(
+        [("index.html", [_issue(f"value-{i}") for i in range(25)])],
+        unlisted=tuple(f"new-{i}.html" for i in range(25)),
+        strict=True, checks=("canonical_consistency",),
+    )
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "index.html", "target": f"https://outside.test/{i}"}
+        for i in range(25)
+    ]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Offline comparator must never fetch URLs")
+    ))
+
+    args = [str(before), str(after), "--fail-on-new-unverified-targets"]
+    assert main(args) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("REGRESSION 25 new issues")
+    assert sum(line.startswith("  NEW ") for line in lines) == 20
+    assert sum(line.startswith("  REMOVED ") for line in lines) == 20
+    assert sum(line.startswith("  UNLISTED ") for line in lines) == 20
+    assert sum(line.startswith("    canonical_consistency ") for line in lines) == 20
+    assert len(lines) == 86  # Summary, four capped sections, and target count.
+    assert sum("5 more" in line and "--json" in line for line in lines) == 4
+
+    assert main([*args, "--json"]) == 1
+    full = json.loads(capsys.readouterr().out)
+    assert full["status"] == "regression"
+    assert [len(full[key]) for key in (
+        "new_issues", "removed_pages", "new_unlisted", "new_unverified_targets",
+    )] == [25, 25, 25, 25]
+
+
 @pytest.mark.parametrize("nonfinite", ["NaN", "Infinity", "-Infinity", "1e999"])
 def test_cli_rejects_nonfinite_values_in_local_reports(tmp_path, capsys, nonfinite):
     report = _report([("en/index.html", [_issue()])])

@@ -698,6 +698,12 @@ Human output also escapes control characters and abbreviates unusually long
 report paths, URLs, issue codes and unverified destinations; untrusted local
 report fields cannot inject extra CI log lines. JSON retains the complete
 original values for automated processing.
+For large regressions, the human comparison prints at most 20 detailed entries
+per category (new issues, removed pages, new unlisted HTML, and, when the
+strict unverified-target gate is enabled, new unverified targets). It states
+how many additional entries were omitted and directs users to `--json` for
+every finding. Summary counts, JSON data, comparison results and exit codes
+are not abbreviated or changed.
 On case-sensitive builds, case-distinct HTML artifact paths remain separate
 whether declared or unlisted in comparison reports. A newly unlisted case
 variant is a regression under full coverage, not an invalid report. Explicit

@@ -14,6 +14,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 
 _MAX_REPORT_BYTES = 16_000_000
+_MAX_HUMAN_DETAILS = 20
 _CHECKS = ("canonical_consistency", "hreflang_clusters", "hreflang_reciprocity")
 
 
@@ -258,6 +259,12 @@ def _label(value: str, *, limit: int = 120) -> str:
     return display if len(display) <= limit else display[:limit - 3] + "..."
 
 
+def _print_omitted(items: list, category: str) -> None:
+    remaining = len(items) - _MAX_HUMAN_DETAILS
+    if remaining > 0:
+        print(f"  ... {remaining} more {category}; use --json for complete findings")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare two local SEO site JSON reports")
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
@@ -295,27 +302,31 @@ def main(argv: list[str] | None = None) -> int:
             f"{summary['resolved_issues']} resolved; {summary['removed_pages']} removed pages, "
             f"{summary['new_unlisted']} new unlisted HTML"
         )
-        for item in result["new_issues"]:
+        for item in result["new_issues"][:_MAX_HUMAN_DETAILS]:
             issue = item["issue"]
             print(
                 f"  NEW {_label(item['path'])} ({_label(item['checked_url'])}): "
                 f"{_label(issue['code'])} "
                 f"(expected {_preview(issue['expected'])}, observed {_preview(issue['actual'])})"
             )
-        for item in result["removed_pages"]:
+        _print_omitted(result["new_issues"], "new issues")
+        for item in result["removed_pages"][:_MAX_HUMAN_DETAILS]:
             print(f"  REMOVED {_label(item['path'])} ({_label(item['checked_url'])})")
-        for path in result["new_unlisted"]:
+        _print_omitted(result["removed_pages"], "removed pages")
+        for path in result["new_unlisted"][:_MAX_HUMAN_DETAILS]:
             print(f"  UNLISTED {_label(path)}")
+        _print_omitted(result["new_unlisted"], "unlisted HTML paths")
         if summary["new_unverified_targets"]:
             label = "UNVERIFIED" if args.fail_on_new_unverified_targets else "NOTE"
             print(f"  {label} {summary['new_unverified_targets']} new targets not verified offline")
             if args.fail_on_new_unverified_targets:
-                for item in result["new_unverified_targets"]:
+                for item in result["new_unverified_targets"][:_MAX_HUMAN_DETAILS]:
                     locale = f" [{_label(item['language'])}]" if "language" in item else ""
                     print(
                         f"    {item['check']} {_label(item['path'])}{locale} "
                         f"-> {_label(item['target'])}"
                     )
+                _print_omitted(result["new_unverified_targets"], "unverified targets")
     return 1 if result["status"] == "regression" else 0
 
 
