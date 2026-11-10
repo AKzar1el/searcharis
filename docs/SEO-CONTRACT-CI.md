@@ -680,6 +680,10 @@ Without `--json`, each new issue includes its expected and observed values
 alongside the page path and check code, so CI logs identify the correction to
 make. Long values are abbreviated and embedded line breaks escaped; use
 `--json` when full, machine-readable issue details are needed.
+Human output also escapes control characters and abbreviates unusually long
+report paths, URLs, issue codes and unverified destinations; untrusted local
+report fields cannot inject extra CI log lines. JSON retains the complete
+original values for automated processing.
 On case-sensitive builds, case-distinct HTML artifact paths remain separate
 whether declared or unlisted in comparison reports. A newly unlisted case
 variant is a regression under full coverage, not an invalid report. Explicit
