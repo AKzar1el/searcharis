@@ -515,6 +515,9 @@ def _is_http_url(value: str) -> bool:
             and parsed.username is None
             and parsed.password is None
             and (parsed.port is None or 0 < parsed.port <= 65535)
+            # urlsplit treats an explicit empty port as None. A dangling ':'
+            # is not a valid declared authority, including after IPv6 ']'.
+            and not parsed.netloc.endswith(":")
             # Browsers percent-decode hosts before interpreting them, while
             # urlsplit leaves encoded authority untouched. Do not accept a
             # hostname that could resolve differently from the asserted URL.

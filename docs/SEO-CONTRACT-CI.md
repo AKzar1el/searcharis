@@ -77,7 +77,7 @@ rejected as an invalid contract (exit 2) rather than disabling the assertion.
 
 The declared `url` must be a syntactically valid absolute HTTP(S) URL, without
 embedded whitespace, backslashes, percent-encoded URL authority (host or port),
-credentials, or a malformed/out-of-range port. Both CLI
+credentials, or a malformed, empty, or out-of-range explicit port. Both CLI
 entry points reject invalid declared URLs as input errors (exit 2), including
 for contracts that assert only a page title. This validates URL syntax only;
 it does not fetch or check whether the URL resolves.
