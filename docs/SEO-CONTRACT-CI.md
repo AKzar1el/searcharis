@@ -58,7 +58,9 @@ how valid contracts or manifests are read.
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
+| `twitter_image_present` | Require a valid absolute HTTP(S) first explicit X/Twitter image URL (`true`), or no active declaration (`false`) |
 | `twitter_image_equals` | Match the first explicit head `<meta name="twitter:image">` absolute HTTP(S) URL (opt-in) |
+| `twitter_image_alt_present` | Require non-blank first explicit X/Twitter image alt text (`true`), or no active alt declaration (`false`) |
 | `twitter_image_alt_equals` | Match the first explicit head `<meta name="twitter:image:alt">` image description (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
@@ -328,6 +330,15 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   lookalikes do not count. Neither the ordinary meta description nor
   `og:description` is silently used as a fallback. This assertion verifies
   explicit built markup, not X's displayed or cached preview.
+  `twitter_image_present` is an opt-in presence policy for the first active
+  `<meta name="twitter:image" content="...">` in the head. `true` requires a
+  syntactically valid absolute HTTP(S) URL (not an empty, relative,
+  protocol-relative, malformed or credential-bearing value); a later
+  duplicate cannot rescue a bad first one. `false` requires no explicit
+  active image declaration at all, including an empty one. Body and inert
+  metadata, `property` lookalikes, and `og:image` fallbacks do not count.
+  This checks only built HTML syntax: it does not fetch the image or assert
+  what X will actually display.
   `twitter_image_equals` protects the exact URL of the first explicit
   `<meta name="twitter:image" content="...">` in the active HTML head.
   Contracts require an absolute, syntactically valid HTTP(S) URL. The
@@ -338,6 +349,15 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   are ignored. This deliberately does not infer `og:image` fallback:
   teams opting in assert explicit X image markup. It never fetches images or
   checks their reachability, dimensions, format, or actual social-card rendering.
+  `twitter_image_alt_present` independently guards explicit image descriptions
+  without pinning their exact copy. `true` requires non-blank content in the
+  first active head `<meta name="twitter:image:alt">`; `false` requires no
+  declaration, even an empty one. Later duplicates cannot rescue blank first
+  content, and inert, body-only, `noscript`, `property` and Open Graph metadata
+  cannot satisfy the explicit X guard. It does not require `twitter:image`:
+  teams may rely on `og:image` for image selection. Use
+  `twitter_image_present` alongside it when an explicit valid X URL is also
+  required. Neither policy establishes alt-text accuracy or a rendered preview.
   `twitter_image_alt_equals` separately guards the descriptive copy of the
   first explicit `<meta name="twitter:image:alt" content="...">` in the head.
   It decodes HTML entities and collapses whitespace while retaining letter

@@ -19,7 +19,7 @@ _ALLOWED = frozenset({
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "og_image_width_equals", "og_image_height_equals", "og_image_type_equals",
-    "twitter_image_equals", "twitter_image_alt_equals",
+    "twitter_image_present", "twitter_image_equals", "twitter_image_alt_present", "twitter_image_alt_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -366,7 +366,8 @@ def _check_contract(spec: object) -> dict:
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width", "meta_refresh_present",
-                  "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present"):
+                  "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present",
+                  "twitter_image_present", "twitter_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_type_equals", "og_locale_equals",
@@ -690,8 +691,23 @@ def verify_contract(
         actual = " ".join((page.twitter_description_content or "").split())
         if actual != " ".join(spec["twitter_description_equals"].split()):
             fail("twitter_description_equals", spec["twitter_description_equals"], actual)
+    if "twitter_image_present" in spec:
+        # A valid explicit X image URL is optional; don't silently accept an
+        # Open Graph fallback or let a later duplicate rescue a bad first URL.
+        observed = page.twitter_image_content
+        valid_first = observed is not None and _is_http_url(observed)
+        matches = valid_first if spec["twitter_image_present"] else observed is None
+        if not matches:
+            fail("twitter_image_presence", spec["twitter_image_present"], observed)
     if "twitter_image_equals" in spec and page.twitter_image_content != spec["twitter_image_equals"]:
         fail("twitter_image_equals", spec["twitter_image_equals"], page.twitter_image_content)
+    if "twitter_image_alt_present" in spec:
+        # This is an explicit description guard; image URL selection may come
+        # from og:image, and neither value is fetched or inferred from it.
+        observed = page.twitter_image_alt_content
+        matches = bool((observed or "").strip()) if spec["twitter_image_alt_present"] else observed is None
+        if not matches:
+            fail("twitter_image_alt_presence", spec["twitter_image_alt_present"], observed)
     if "twitter_image_alt_equals" in spec:
         observed = page.twitter_image_alt_content
         actual = None if observed is None else " ".join(observed.split())
