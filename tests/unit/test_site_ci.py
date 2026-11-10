@@ -130,6 +130,44 @@ def test_unlisted_htm_artifacts_cannot_bypass_strict_coverage(tmp_path, extensio
     assert strict["coverage"]["unlisted"] == [extra.name]
 
 
+def test_strict_coverage_rejects_symlinked_directory_instead_of_missing_its_pages(
+    tmp_path, monkeypatch, capsys,
+):
+    manifest = _setup(tmp_path)
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    original_is_symlink = type(tmp_path).is_symlink
+
+    # Model an enumerated directory symlink without requiring Windows
+    # Developer Mode privileges; pathlib does not descend into its pages.
+    def is_symlink(path):
+        return path == linked or original_is_symlink(path)
+
+    monkeypatch.setattr(type(tmp_path), "is_symlink", is_symlink)
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+    with pytest.raises(ValueError, match="symlinked build directory"):
+        verify_manifest(manifest, tmp_path, require_full_coverage=True)
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_path), str(tmp_path), "--require-full-coverage", "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "error"
+    assert "symlinked build directory" in error["error"]
+
+
+def test_real_symlinked_html_directory_cannot_bypass_strict_coverage(tmp_path):
+    manifest = _setup(tmp_path)
+    linked = tmp_path / "linked"
+    try:
+        linked.symlink_to(tmp_path / "en", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Creating directory symlinks is not permitted on this host")
+
+    with pytest.raises(ValueError, match="symlinked build directory"):
+        verify_manifest(manifest, tmp_path, require_full_coverage=True)
+
+
 @pytest.mark.parametrize("extension", [".htm", ".HTM"])
 def test_manifest_can_assert_legacy_htm_artifact(tmp_path, extension):
     manifest = _setup(tmp_path)
