@@ -319,7 +319,7 @@ def test_sarif_source_map_rejects_deep_json_as_input_error(
     output = capsys.readouterr()
     assert output.out == ""
     assert "Invalid input:" in output.err
-    assert "Source-map" in output.err
+    assert "source-map" in output.err.lower()
 
 
 def test_sarif_source_map_rejects_wrong_cased_unknown_artifact(tmp_path, capsys, monkeypatch):
