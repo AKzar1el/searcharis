@@ -1842,6 +1842,112 @@ def test_og_site_name_equals_cli_json_reports_regression_and_pass(tmp_path, caps
     assert json.loads(capsys.readouterr().out)["status"] == "pass"
 
 
+@pytest.mark.parametrize("metadata", [
+    '<meta property="og:locale:alternate" content="de_DE">'
+    '<meta property="og:locale:alternate" content="sl_SI">',
+    '<meta property="og:locale:alternate" content=" sl_SI ">'
+    '<meta property="og:locale:alternate" content="de_DE">',
+    '<template><meta property="og:locale:alternate" content="fr_FR"></template>'
+    '<meta property="og:locale:alternate" content="de_DE">'
+    '<meta property="og:locale:alternate" content="sl_SI">',
+    '<noscript><meta property="og:locale:alternate" content="fr_FR"></noscript>'
+    '<meta property="og:locale:alternate" content="de_DE">'
+    '<meta property="og:locale:alternate" content="sl_SI">',
+])
+def test_og_locale_alternates_accepts_unordered_active_head_values(metadata):
+    report = verify_contract(
+        {"url": URL, "og_locale_alternates": ["sl_SI", "de_DE"]},
+        f"<html><head>{metadata}</head><body></body></html>",
+    )
+    assert report["status"] == "pass", report["issues"]
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ('<meta property="og:locale:alternate" content="de_DE">', ["de_DE"]),
+    ('<meta property="og:locale:alternate" content="de_DE">'
+     '<meta property="og:locale:alternate" content="de_DE">', ["de_DE", "de_DE"]),
+    ('<meta property="og:locale:alternate" content="de_DE">'
+     '<meta property="og:locale:alternate" content="sl_SI">'
+     '<meta property="og:locale:alternate" content="sl_SI">', ["de_DE", "sl_SI", "sl_SI"]),
+    ('<meta property="og:locale:alternate" content="de_DE">'
+     '<meta property="og:locale:alternate" content="fr_FR">', ["de_DE", "fr_FR"]),
+    ('<meta property="og:locale:alternate" content="">'
+     '<meta property="og:locale:alternate" content="de_DE">', ["", "de_DE"]),
+    ('<meta name="og:locale:alternate" content="de_DE">', []),
+    ('<meta property="og:locale:alternate:extra" content="de_DE">', []),
+    ('<meta property="og:locale" content="de_DE">', []),
+    ('<template><meta property="og:locale:alternate" content="de_DE"></template>', []),
+    ("", []),
+])
+def test_og_locale_alternates_catches_missing_duplicate_or_changed_languages(metadata, actual):
+    report = verify_contract(
+        {"url": URL, "og_locale_alternates": ["de_DE", "sl_SI"]},
+        f'<html><head>{metadata}</head><body>'
+        '<meta property="og:locale:alternate" content="sl_SI"></body></html>',
+    )
+    assert report["issues"] == [{
+        "code": "og_locale_alternates", "expected": ["de_DE", "sl_SI"], "actual": actual,
+    }]
+
+
+def test_og_locale_alternates_empty_list_asserts_no_active_alternates():
+    assert verify_contract(
+        {"url": URL, "og_locale_alternates": []},
+        '<!doctype html><template><meta property="og:locale:alternate" content="sl_SI">'
+        '</template><h1>Welcome</h1>',
+    )["status"] == "pass"
+    report = verify_contract(
+        {"url": URL, "og_locale_alternates": []},
+        '<html><head><meta property="og:locale:alternate" content="sl_SI"></head></html>',
+    )
+    assert report["issues"] == [{
+        "code": "og_locale_alternates", "expected": [], "actual": ["sl_SI"],
+    }]
+
+
+def test_og_locale_alternates_implicit_head_first_duplicate_attribute_wins():
+    report = verify_contract(
+        {"url": URL, "og_locale_alternates": ["de_DE"]},
+        '<!doctype html><meta property="og:locale:alternate" content="fr_FR" '
+        'content="de_DE"><h1>Page</h1>',
+    )
+    assert report["issues"] == [{
+        "code": "og_locale_alternates", "expected": ["de_DE"], "actual": ["fr_FR"],
+    }]
+
+
+@pytest.mark.parametrize("invalid", [
+    None, False, 42, "de_DE", {}, [None], [42], [""], ["  "],
+    ["de_DE", "de_DE"], ["de_DE", " de_DE "], ["de DE"],
+])
+def test_og_locale_alternates_rejects_invalid_contract_lists(invalid):
+    with pytest.raises(ValueError, match="og_locale_alternates"):
+        verify_contract({"url": URL, "og_locale_alternates": invalid}, HTML)
+
+
+def test_og_locale_alternates_cli_json_mismatch_then_pass(tmp_path, capsys):
+    contract = tmp_path / "expected.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({
+        "url": URL, "og_locale_alternates": ["de_DE", "sl_SI"],
+    }), encoding="utf-8")
+    artifact.write_text(
+        '<html><head><meta property="og:locale:alternate" content="de_DE"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_locale_alternates", "expected": ["de_DE", "sl_SI"], "actual": ["de_DE"],
+    }]
+    artifact.write_text(
+        '<html><head><meta property="og:locale:alternate" content="sl_SI">'
+        '<meta property="og:locale:alternate" content="de_DE"></head></html>',
+        encoding="utf-8",
+    )
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("expected,metadata", [
     ("Specific page summary", '<meta name="description" content="Specific page summary">'),
     ("Specific page summary", '<meta NAME="DESCRIPTION" content=" Specific  page\nsummary ">'),

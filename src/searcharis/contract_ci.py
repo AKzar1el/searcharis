@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
     "url", "title_present", "title_equals", "description_present", "description_equals",
-    "og_type_equals", "og_locale_equals", "og_site_name_equals", "og_title_equals",
+    "og_type_equals", "og_locale_equals", "og_locale_alternates", "og_site_name_equals", "og_title_equals",
     "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
@@ -50,6 +50,7 @@ class _SEOParser(HTMLParser):
         self.description_content: str | None = None
         self.og_type_content: str | None = None
         self.og_locale_content: str | None = None
+        self.og_locale_alternates: list[str] = []
         self.og_site_name_content: str | None = None
         self.og_title_content: str | None = None
         self.og_description_content: str | None = None
@@ -235,6 +236,10 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:locale"
                     and self.og_locale_content is None):
                 self.og_locale_content = (values.get("content") or "").strip()
+            if self.in_head and values.get("property") == "og:locale:alternate":
+                # Alternative locales are repeatable; retain duplicates so they
+                # cannot silently satisfy a set-shaped publishing contract.
+                self.og_locale_alternates.append((values.get("content") or "").strip())
             if (self.in_head and values.get("property") == "og:site_name"
                     and self.og_site_name_content is None):
                 self.og_site_name_content = values.get("content") or ""
@@ -357,6 +362,13 @@ def _check_contract(spec: object) -> dict:
         or spec["twitter_card_equals"] not in _TWITTER_CARD_TYPES
     ):
         raise ValueError("'twitter_card_equals' must be a supported Twitter Card type")
+    if "og_locale_alternates" in spec:
+        alternates = spec["og_locale_alternates"]
+        if (not isinstance(alternates, list)
+                or any(not isinstance(item, str) or not item or item != item.strip()
+                       or any(char.isspace() for char in item) for item in alternates)
+                or len(set(alternates)) != len(alternates)):
+            raise ValueError("'og_locale_alternates' must be an array of distinct non-blank locales")
     if "html_lang" in spec and (
         not isinstance(spec["html_lang"], str)
         or not spec["html_lang"]
@@ -563,6 +575,13 @@ def verify_contract(
         fail("og_type_equals", spec["og_type_equals"], page.og_type_content)
     if "og_locale_equals" in spec and page.og_locale_content != spec["og_locale_equals"].strip():
         fail("og_locale_equals", spec["og_locale_equals"], page.og_locale_content)
+    if "og_locale_alternates" in spec:
+        # Locale alternatives form an unordered multivalue declaration; a
+        # duplicate is a regression even when every expected locale is present.
+        expected = sorted(spec["og_locale_alternates"])
+        actual = sorted(page.og_locale_alternates)
+        if actual != expected:
+            fail("og_locale_alternates", expected, actual)
     if "og_site_name_equals" in spec:
         # The first explicit social-preview site label is a publishing contract;
         # do not infer the brand from the host, title or a later duplicate.

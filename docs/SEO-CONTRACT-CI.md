@@ -44,6 +44,7 @@ how valid contracts or manifests are read.
 | `description_equals` | Match the first active HTML head meta description content (opt-in, case-sensitive) |
 | `og_type_equals` | Match the first active HTML head Open Graph `og:type` object classification (opt-in, case-sensitive) |
 | `og_locale_equals` | Match the first explicit head Open Graph `og:locale` sharing locale (opt-in, case-sensitive) |
+| `og_locale_alternates` | Match the complete set of explicit head `og:locale:alternate` values (opt-in, order-insensitive, duplicate-sensitive) |
 | `og_site_name_equals` | Match the first explicit head Open Graph `og:site_name` site-wide brand name (opt-in, case-sensitive) |
 | `og_title_equals` | Match the first active HTML head Open Graph `og:title` content (opt-in, case-sensitive) |
 | `og_description_equals` | Match the first active HTML head Open Graph `og:description` content (opt-in, case-sensitive) |
@@ -174,6 +175,15 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   expecting `en_US`. It does not validate external preview rendering or
   infer the correct locale from visible text. See the
   [Open Graph protocol](https://ogp.me/) for locale conventions.
+  `og_locale_alternates` asserts the exact repeated
+  `<meta property="og:locale:alternate" content="de_DE">` declarations
+  in the active HTML head. For example, `["de_DE", "sl_SI"]` accepts either
+  order, but a missing, extra, blank or duplicated locale fails. An empty
+  array `[]` asserts that there are no explicit alternatives. Each expected
+  locale must be a distinct, non-blank string without whitespace. The
+  comparison is case-sensitive, does not infer alternatives from hreflang
+  or HTML `lang`, and ignores inert and body-only metadata. It checks only
+  local built HTML, not whether social platforms display an alternative.
 
   `og_site_name_equals` independently protects the site-wide brand name
   declared for social previews using `<meta property="og:site_name" content="...">`.
