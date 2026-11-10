@@ -713,9 +713,10 @@ Paths on the left are **relative to `dist`** and must refer to discovered
 HTML artifacts. Paths on the right are **relative to the current working
 directory**, which must be the source repository root. Each right-hand
 source file must exist under that root; traversal, broken links, symlink escapes,
-duplicate JSON keys, unknown artifact paths, unsupported versions and maps
-larger than 1 MB fail with exit code 2. Maps can cover only a subset of the
-build; unmapped findings continue to point to generated HTML. Multiple
+duplicate JSON keys, excessive JSON nesting, unknown artifact paths,
+unsupported versions and maps larger than 1 MB fail with exit code 2.
+Maps can cover only a subset of the build; unmapped findings continue to
+point to generated HTML. Multiple
 artifacts may map to the same source template for statically generated routes.
 Artifact paths must match the build **exactly**, including case. On a
 case-sensitive build, both `en/index.html` and `en/INDEX.HTML` may be mapped
