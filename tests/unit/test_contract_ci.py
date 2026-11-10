@@ -2655,6 +2655,98 @@ def test_og_image_alt_after_new_root_fails_offline_cli_json(tmp_path, capsys):
     }]
 
 
+@pytest.mark.parametrize("metadata", [
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue &amp; white bicycle">'),
+    ('<meta property="og:image:url" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content=" A blue  &amp;  white bicycle ">'),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue &amp; white bicycle">'
+     '<meta property="og:image:alt" content="Later changed caption">'),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue &amp; white bicycle">'
+     '<meta property="og:image" content="https://cdn.example.com/second.jpg">'
+     '<meta property="og:image:alt" content="Second image caption">'),
+    ('<template><meta property="og:image:alt" content="Ghost"></template>'
+     '<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="A blue &amp; white bicycle">'),
+])
+def test_og_image_alt_equals_accepts_first_image_copy(metadata):
+    html = f"<html><head>{metadata}</head><body></body></html>"
+    expected = {"url": URL, "og_image_alt_equals": "A blue & white bicycle"}
+    assert verify_contract(expected, html)["status"] == "pass"
+
+
+@pytest.mark.parametrize("metadata,actual", [
+    ("", None),
+    ('<meta property="og:image:alt" content="Orphan">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="">', ""),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="An outdated bicycle">', "An outdated bicycle"),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image:alt" content="">'
+     '<meta property="og:image:alt" content="A blue bicycle">', ""),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:image" content="https://cdn.example.com/second.jpg">'
+     '<meta property="og:image:alt" content="A blue bicycle">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta property="og:title" content="New group">'
+     '<meta property="og:image:alt" content="A blue bicycle">', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<template><meta property="og:image:alt" content="A blue bicycle"></template>', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<noscript><meta property="og:image:alt" content="A blue bicycle"></noscript>', None),
+    ('<meta property="og:image" content="https://cdn.example.com/first.jpg">'
+     '<meta name="og:image:alt" content="A blue bicycle">', None),
+])
+def test_og_image_alt_equals_detects_absent_changed_or_displaced_copy(metadata, actual):
+    html = (f"<html><head>{metadata}</head><body>"
+            '<meta property="og:image:alt" content="A blue bicycle"></body></html>')
+    expected = {"url": URL, "og_image_alt_equals": "A blue bicycle"}
+    assert verify_contract(expected, html)["issues"] == [{
+        "code": "og_image_alt_equals", "expected": "A blue bicycle", "actual": actual,
+    }]
+
+
+def test_og_image_alt_equals_respects_implicit_head_and_first_duplicate_attribute():
+    html = ('<!doctype html><meta property="og:image" '
+            'content="https://cdn.example.com/first.jpg">'
+            '<meta property="og:image:alt" content="Wrong copy" content="Correct copy">'
+            '<h1>Body begins</h1>')
+    assert verify_contract({"url": URL, "og_image_alt_equals": "Correct copy"}, html)["issues"] == [{
+        "code": "og_image_alt_equals", "expected": "Correct copy", "actual": "Wrong copy",
+    }]
+
+
+@pytest.mark.parametrize("value", [None, True, 0, "", "  ", [], {}])
+def test_og_image_alt_equals_rejects_invalid_expected_copy(value):
+    with pytest.raises(ValueError, match="og_image_alt_equals"):
+        verify_contract({"url": URL, "og_image_alt_equals": value}, HTML)
+
+
+def test_og_image_alt_equals_cli_json_failure_then_success(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "page.html"
+    contract.write_text(json.dumps({"url": URL, "og_image_alt_equals": "A blue bicycle"}),
+                        encoding="utf-8")
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/first.jpg">'
+                        '<meta property="og:image:alt" content="A red bicycle"></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == [{
+        "code": "og_image_alt_equals", "expected": "A blue bicycle", "actual": "A red bicycle",
+    }]
+    artifact.write_text('<html><head><meta property="og:image" '
+                        'content="https://cdn.example.com/first.jpg">'
+                        '<meta property="og:image:alt" content=" A blue bicycle "></head></html>',
+                        encoding="utf-8")
+    assert main([str(contract), str(artifact), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+
 @pytest.mark.parametrize("metadata,expected", [
     ("", True),
     ('<meta name="robots" content="all">', True),

@@ -16,7 +16,7 @@ _ALLOWED = frozenset({
     "og_type_equals", "og_locale_equals", "og_locale_alternates", "og_site_name_equals", "og_title_equals",
     "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
-    "og_image_alt_present", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
+    "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "twitter_image_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
@@ -352,7 +352,7 @@ def _check_contract(spec: object) -> dict:
             raise ValueError(f"'{field}' must be a boolean")
     for field in ("title_equals", "description_equals", "og_type_equals", "og_locale_equals",
                   "og_site_name_equals",
-                  "og_title_equals", "og_description_equals",
+                  "og_title_equals", "og_description_equals", "og_image_alt_equals",
                   "twitter_title_equals", "twitter_description_equals",
                   "h1_text_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
@@ -621,6 +621,13 @@ def verify_contract(
         matches = bool(observed) if spec["og_image_alt_present"] else observed is None
         if not matches:
             fail("og_image_alt_presence", spec["og_image_alt_present"], observed)
+    if "og_image_alt_equals" in spec:
+        # Guard the actual descriptive copy associated with the first image,
+        # not a later image, an orphan alt, or a duplicate declaration.
+        actual = (None if page.og_image_alt_content is None
+                  else " ".join(page.og_image_alt_content.split()))
+        if actual != " ".join(spec["og_image_alt_equals"].split()):
+            fail("og_image_alt_equals", spec["og_image_alt_equals"], actual)
     if "twitter_card_equals" in spec and page.twitter_card_content != spec["twitter_card_equals"]:
         fail("twitter_card_equals", spec["twitter_card_equals"], page.twitter_card_content)
     if "twitter_title_equals" in spec:

@@ -52,6 +52,7 @@ how valid contracts or manifests are read.
 | `og_image_present` | Require a valid absolute HTTP(S) first Open Graph image URL (`true`), or no active image declaration (`false`) |
 | `og_image_equals` | Match the first active Open Graph image URL against an exact absolute HTTP(S) URL (opt-in) |
 | `og_image_alt_present` | Require a non-blank `og:image:alt` for the first Open Graph image (`true`), or no alt declaration attached to that image (`false`) |
+| `og_image_alt_equals` | Match the descriptive `og:image:alt` text attached to the first Open Graph image (opt-in, case-sensitive) |
 | `twitter_card_equals` | Require the first head `<meta name="twitter:card">` to declare the expected X/Twitter Card type (opt-in) |
 | `twitter_title_equals` | Match the first explicit head `<meta name="twitter:title">` content (opt-in, case-sensitive) |
 | `twitter_description_equals` | Match the first explicit head `<meta name="twitter:description">` content (opt-in, case-sensitive) |
@@ -262,6 +263,13 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   actual screen-reader behavior or social platform rendering. Combine it with
   `og_image_present` to require a valid first image URL as well. See the
   [Open Graph protocol](https://ogp.me/) structured properties and arrays rules.
+  `og_image_alt_equals` additionally catches unexpected changes to that
+  first image's alternative description. It requires non-blank expected text,
+  compares after HTML entity decoding and whitespace normalization, and keeps
+  case and punctuation significant. Missing, blank, changed or detached
+  first-image descriptions fail, even if a later image or duplicate matches.
+  This is a static publishing-copy assertion only, not an assessment of the
+  description's accuracy, image accessibility or actual social previews.
   `twitter_card_equals` protects the intended X/Twitter link-preview layout:
   for example, `"twitter_card_equals": "summary_large_image"` catches an
   accidental change to a compact `summary` card or a missing declaration.
