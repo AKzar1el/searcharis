@@ -41,7 +41,11 @@ def read_source_map(file: Path, report: dict, *, source_root: Path) -> dict[str,
     """Read bounded explicit mappings, requiring each source within source_root."""
     if file.stat().st_size > _MAX_BYTES:
         raise ValueError(f"Source map exceeds {_MAX_BYTES} bytes: {file}")
-    mapping = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    try:
+        mapping = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    except RecursionError as error:
+        # A small, deeply nested map must be an input error, not a CLI traceback.
+        raise ValueError("Source-map JSON exceeds supported nesting depth") from error
     if not isinstance(mapping, dict) or set(mapping) != {"version", "sources"}:
         raise ValueError("Source map requires exactly 'version' and 'sources'")
     if type(mapping["version"]) is not int or mapping["version"] != 1:

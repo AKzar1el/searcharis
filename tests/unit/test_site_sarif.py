@@ -300,6 +300,25 @@ def test_sarif_source_map_rejects_duplicate_artifact_keys(tmp_path, capsys, monk
     assert "Invalid input:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("open_token,close_token", [("[", "]"), ('{"nested":', "}")])
+def test_sarif_source_map_rejects_deep_json_as_input_error(
+    tmp_path, capsys, monkeypatch, open_token, close_token
+):
+    manifest = _fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    mapping = tmp_path / "source-map.json"
+    nested = open_token * 6000 + "{}" + close_token * 6000
+    mapping.write_text('{"version":1,"sources":' + nested + "}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="nesting depth"):
+        read_source_map(mapping, {"pages": [], "coverage": {"unlisted": []}},
+                        source_root=tmp_path)
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Source-map JSON exceeds supported nesting depth" in output.err
+
+
 def test_sarif_source_map_rejects_wrong_cased_unknown_artifact(tmp_path, capsys, monkeypatch):
     manifest = _fixture(tmp_path)
     source = tmp_path / "src" / "page.astro"
