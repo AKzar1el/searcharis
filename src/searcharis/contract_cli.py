@@ -13,6 +13,17 @@ from searcharis.contract_ci import verify_contract
 _MAX_INPUT_BYTES = 4_000_000
 
 
+def _label(value: str, *, limit: int = 120) -> str:
+    # An issue code can contain a contract-provided hreflang language key.
+    display = repr(value)[1:-1]
+    return display if len(display) <= limit else display[:limit - 3] + "..."
+
+
+def _preview(value: object, *, limit: int = 120) -> str:
+    display = repr(value)
+    return display if len(display) <= limit else display[:limit - 3] + "..."
+
+
 def _read(path: Path) -> str:
     if path.stat().st_size > _MAX_INPUT_BYTES:
         raise ValueError(f"File exceeds {_MAX_INPUT_BYTES} bytes: {path}")
@@ -50,11 +61,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif report["status"] == "pass":
-        print(f"PASS {report['checked_url']}")
+        print(f"PASS {_label(report['checked_url'])}")
     else:
-        print(f"FAIL {report['checked_url']}")
+        print(f"FAIL {_label(report['checked_url'])}")
         for item in report["issues"]:
-            print(f"  {item['code']}: expected {item['expected']!r}, observed {item['actual']!r}")
+            print(
+                f"  {_label(item['code'])}: expected {_preview(item['expected'])}, "
+                f"observed {_preview(item['actual'])}"
+            )
     return 0 if report["status"] == "pass" else 1
 
 

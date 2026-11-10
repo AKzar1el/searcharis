@@ -1188,6 +1188,56 @@ def test_cli_returns_correct_status(tmp_path, capsys):
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_single_page_human_cli_escapes_hreflang_issue_code(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    language = "en\nFORGED PASS"
+    contract.write_text(json.dumps({"url": URL, "hreflang": {language: URL}}),
+                        encoding="utf-8")
+    artifact.write_text(HTML, encoding="utf-8")
+
+    assert main([str(contract), str(artifact)]) == 1
+    output = capsys.readouterr()
+    assert len(output.out.splitlines()) == 2
+    assert "hreflang:en\\nFORGED PASS" in output.out
+    assert output.err == ""
+
+
+def test_single_page_human_cli_bounds_long_expected_and_observed(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    expected = "E" * 1600
+    actual = "A" * 1600
+    contract.write_text(json.dumps({"url": URL, "title_equals": expected}), encoding="utf-8")
+    artifact.write_text(f"<html><head><title>{actual}</title></head></html>", encoding="utf-8")
+
+    assert main([str(contract), str(artifact)]) == 1
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == 2
+    assert len(output.splitlines()[1]) <= 310
+    assert "..." in output
+
+    assert main([str(contract), str(artifact), "--json"]) == 1
+    finding = json.loads(capsys.readouterr().out)["issues"][0]
+    assert finding == {"code": "title_equals", "expected": expected, "actual": actual}
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_single_page_human_cli_bounds_url_banner(tmp_path, capsys, success):
+    contract = tmp_path / "contract.json"
+    artifact = tmp_path / "index.html"
+    long_url = "https://example.com/" + "p" * 1500
+    contract.write_text(json.dumps({"url": long_url, "title_present": success}),
+                        encoding="utf-8")
+    artifact.write_text(HTML, encoding="utf-8")
+
+    assert main([str(contract), str(artifact)]) == (0 if success else 1)
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("PASS " if success else "FAIL ")
+    assert len(lines[0]) <= 140
+    assert "..." in lines[0]
+
+
 @pytest.mark.parametrize("failure", ["malformed_json", "invalid_contract", "missing_html"])
 def test_json_cli_input_errors_are_machine_readable(tmp_path, capsys, failure):
     contract = tmp_path / "expected.json"

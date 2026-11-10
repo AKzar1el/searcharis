@@ -27,6 +27,11 @@ Human-facing input errors in the contract, site manifest and baseline
 comparison CLIs escape control characters and abbreviate long values so
 malformed local input cannot forge additional CI log lines. Structured JSON
 errors retain their complete diagnostic strings.
+The single-page contract CLI also escapes and abbreviates human-readable
+PASS/FAIL URL labels, issue codes and expected/observed values. This prevents
+malformed hreflang keys from forging log lines and keeps large HTML observations
+bounded. Use `--json` for complete unabridged findings; assertion behavior and
+exit codes are unchanged.
 
 Only fields explicitly specified in the JSON contract are checked. The
 `url` is an absolute base for resolving relative canonical/hreflang URLs;
