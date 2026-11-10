@@ -23,6 +23,10 @@ With `--json`, all three exit outcomes print one JSON object to stdout:
 passing/failing findings have a `status` of `pass`/`fail`, while input
 errors return `{"status":"error","error":"..."}` (exit 2). Without `--json`,
 input errors continue to go to stderr.
+Human-facing input errors in the contract, site manifest and baseline
+comparison CLIs escape control characters and abbreviate long values so
+malformed local input cannot forge additional CI log lines. Structured JSON
+errors retain their complete diagnostic strings.
 
 Only fields explicitly specified in the JSON contract are checked. The
 `url` is an absolute base for resolving relative canonical/hreflang URLs;
