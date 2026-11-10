@@ -498,11 +498,13 @@ than counting one manifest entry as coverage for both artifacts. To obtain
 full coverage, list both exact-cased artifact paths with distinct contract URLs.
 The checker rejects exact duplicates and wrong-cased paths on Windows too;
 merely using a case-insensitive filesystem never silently proves coverage.
-With `--require-full-coverage`, directory symlinks inside the build root are
-rejected as input errors (exit 2). Python's artifact walk does not descend into
-them by default, so otherwise an undeclared page reachable through such a link
-could be missed. Generate a regular build directory for strict CI coverage;
-without that flag, partial-coverage runs retain their previous behavior.
+With `--require-full-coverage`, directory symlinks and linked `.html`/`.htm`
+files inside the build root are rejected as input errors (exit 2). Python's
+artifact walk does not descend into directory links, while linked HTML files
+may not survive artifact publishing; even dangling HTML links could otherwise
+escape coverage. Generate regular HTML files and directories for strict CI
+coverage. Non-HTML file links are outside this HTML-only policy; without the
+flag, partial-coverage runs retain their previous behavior.
 
 The result includes per-page findings and a coverage record listing any built
 HTML not declared in the manifest. Partial adoption is supported: unlisted
