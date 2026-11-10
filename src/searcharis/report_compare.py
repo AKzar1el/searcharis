@@ -146,13 +146,19 @@ def _issues(report: dict) -> dict[tuple[str, str, str, int], dict]:
     return results
 
 
-def _unverified(report: dict) -> dict[tuple[str, str], dict]:
+def _unverified(report: dict) -> dict[tuple[str, str, int], dict]:
     results = {}
     for check in _CHECKS:
         if check not in report:
             continue
+        occurrences: dict[str, int] = {}
         for item in report[check]["unverified_targets"]:
-            key = (check, json.dumps(item, sort_keys=True))
+            signature = json.dumps(item, sort_keys=True)
+            ordinal = occurrences.get(signature, 0)
+            occurrences[signature] = ordinal + 1
+            # A second identical outside-manifest link is still a new
+            # occurrence, just as repeated ordinary page findings are.
+            key = (check, signature, ordinal)
             results[key] = {"check": check, **item}
     return results
 
