@@ -17,6 +17,7 @@ _ALLOWED = frozenset({
     "og_description_equals", "og_url_equals",
     "og_image_present", "og_image_equals",
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
+    "og_image_width_equals", "og_image_height_equals",
     "twitter_image_equals", "twitter_image_alt_equals",
     "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
     "indexable", "followable",
@@ -57,6 +58,8 @@ class _SEOParser(HTMLParser):
         self.og_url_content: str | None = None
         self.og_image_content: str | None = None
         self.og_image_alt_content: str | None = None
+        self.og_image_width_content: str | None = None
+        self.og_image_height_content: str | None = None
         self.twitter_card_content: str | None = None
         self.twitter_title_content: str | None = None
         self.twitter_description_content: str | None = None
@@ -272,6 +275,13 @@ class _SEOParser(HTMLParser):
             if (self.in_head and values.get("property") == "og:image:alt"
                     and self._first_og_image_open and self.og_image_alt_content is None):
                 self.og_image_alt_content = (values.get("content") or "").strip()
+            if self.in_head and self._first_og_image_open:
+                for property_name, attribute in (
+                    ("og:image:width", "og_image_width_content"),
+                    ("og:image:height", "og_image_height_content"),
+                ):
+                    if values.get("property") == property_name and getattr(self, attribute) is None:
+                        setattr(self, attribute, (values.get("content") or "").strip())
         elif tag == "link" and self.in_head:
             rels = (values.get("rel") or "").lower().split()
             href = values.get("href")
@@ -400,6 +410,9 @@ def _check_contract(spec: object) -> dict:
     for field in ("h1_min", "h1_max", "img_missing_alt_max"):
         if field in spec and (type(spec[field]) is not int or spec[field] < 0):
             raise ValueError(f"'{field}' must be a non-negative integer")
+    for field in ("og_image_width_equals", "og_image_height_equals"):
+        if field in spec and (type(spec[field]) is not int or spec[field] <= 0):
+            raise ValueError(f"'{field}' must be a positive integer number of pixels")
     if "h1_min" in spec and "h1_max" in spec and spec["h1_min"] > spec["h1_max"]:
         raise ValueError("h1_min may not exceed h1_max")
     if "hreflang" in spec and (not isinstance(spec["hreflang"], dict) or not spec["hreflang"] or any(
@@ -640,6 +653,17 @@ def verify_contract(
                   else " ".join(page.og_image_alt_content.split()))
         if actual != " ".join(spec["og_image_alt_equals"].split()):
             fail("og_image_alt_equals", spec["og_image_alt_equals"], actual)
+    for field, actual in (
+        ("og_image_width_equals", page.og_image_width_content),
+        ("og_image_height_equals", page.og_image_height_content),
+    ):
+        if field in spec:
+            # Compare pixel counts numerically without parsing unbounded
+            # integer strings or accepting signs, units and decimal fractions.
+            matches = (actual is not None and actual.isascii() and actual.isdecimal()
+                       and actual.lstrip("0") == str(spec[field]))
+            if not matches:
+                fail(field, spec[field], actual)
     if "twitter_card_equals" in spec and page.twitter_card_content != spec["twitter_card_equals"]:
         fail("twitter_card_equals", spec["twitter_card_equals"], page.twitter_card_content)
     if "twitter_title_equals" in spec:
