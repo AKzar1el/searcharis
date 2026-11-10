@@ -491,6 +491,59 @@ def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
         assert "line one\\nline two" in lines[1]
 
 
+def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp_path, capsys):
+    baseline = _report([("index.html", [])], strict=True, checks=("hreflang_clusters",))
+    candidate = _report(
+        [("index.html", [{"code": "title\nFORGED ISSUE", "expected": True, "actual": False}])],
+        unlisted=("other\nFORGED UNLISTED.html",), strict=True,
+        checks=("hreflang_clusters",),
+    )
+    candidate["hreflang_clusters"]["unverified_targets"] = [{
+        "path": "index.html\nFORGED PATH", "language": "de\nFORGED LOCALE",
+        "target": "https://elsewhere.test/a\nFORGED TARGET",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+
+    assert main([str(before), str(after), "--fail-on-new-unverified-targets"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 5  # Summary, issue, unlisted, unverified summary and target.
+    assert all(not line.startswith("FORGED") for line in lines)
+    assert "title\\nFORGED ISSUE" in lines[1]
+    assert "other\\nFORGED UNLISTED.html" in lines[2]
+    assert "de\\nFORGED LOCALE" in lines[4]
+    assert "a\\nFORGED TARGET" in lines[4]
+
+
+def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, capsys):
+    long_path = "x" * 800 + ".html"
+    long_target = "https://elsewhere.test/" + "q" * 1000
+    baseline = _report([("index.html", [])], strict=True, checks=("canonical_consistency",))
+    candidate = _report(
+        [(long_path, [{"code": "code" + "k" * 800, "expected": True, "actual": False}])],
+        unlisted=("u" * 1000 + ".html",), strict=True,
+        checks=("canonical_consistency",),
+    )
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": long_path, "target": long_target},
+    ]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+
+    assert main([str(before), str(after), "--fail-on-new-unverified-targets"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 6  # Summary, new issue, removed, unlisted, count, target.
+    assert max(map(len, lines)) < 550
+    assert "..." in lines[1] and "..." in lines[-1]
+
+    assert main([str(before), str(after), "--json", "--fail-on-new-unverified-targets"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["new_issues"][0]["path"] == long_path
+    assert data["new_unverified_targets"][0]["target"] == long_target
+
+
 @pytest.mark.parametrize("nonfinite", ["NaN", "Infinity", "-Infinity", "1e999"])
 def test_cli_rejects_nonfinite_values_in_local_reports(tmp_path, capsys, nonfinite):
     report = _report([("en/index.html", [_issue()])])
