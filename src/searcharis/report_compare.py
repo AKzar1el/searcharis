@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+from searcharis.cli_error_display import human_input_error
+
 _MAX_REPORT_BYTES = 16_000_000
 _CHECKS = ("canonical_consistency", "hreflang_clusters", "hreflang_reciprocity")
 
@@ -273,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
         else:
-            print(f"Invalid or incompatible report: {error}", file=sys.stderr)
+            print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
     if args.json:
