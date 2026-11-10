@@ -15,6 +15,7 @@ from searcharis.contract_ci import _is_http_url, verify_contract
 _MAX_INPUT_BYTES = 4_000_000
 _MAX_PAGES = 10_000
 _MAX_DISCOVERED = 20_000
+_HTML_EXTENSIONS = frozenset({".html", ".htm"})
 
 
 def _read_limited(path: Path) -> str:
@@ -32,7 +33,7 @@ def _manifest_path(value: object) -> str:
         or ":" in value
         or value.startswith("/")
         or any(part in {"", ".", ".."} for part in value.split("/"))
-        or PurePosixPath(value).suffix.lower() != ".html"
+        or PurePosixPath(value).suffix.lower() not in _HTML_EXTENSIONS
     ):
         raise ValueError(f"Unsafe or non-HTML manifest path: {value!r}")
     return value
@@ -252,7 +253,7 @@ def verify_manifest(
     # assuming that a partial adoption must block a release.
     discovered: set[str] = set()
     for candidate in root.rglob("*"):
-        if not candidate.is_file() or candidate.suffix.lower() != ".html":
+        if not candidate.is_file() or candidate.suffix.lower() not in _HTML_EXTENSIONS:
             continue
         if not candidate.resolve().is_relative_to(root):
             raise ValueError(f"HTML artifact resolves outside build root: {candidate}")
