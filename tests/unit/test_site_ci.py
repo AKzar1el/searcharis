@@ -168,6 +168,57 @@ def test_real_symlinked_html_directory_cannot_bypass_strict_coverage(tmp_path):
         verify_manifest(manifest, tmp_path, require_full_coverage=True)
 
 
+@pytest.mark.parametrize("extension", [".html", ".HTM"])
+def test_strict_coverage_rejects_linked_html_file_even_when_declared(
+    tmp_path, monkeypatch, capsys, extension,
+):
+    manifest = _setup(tmp_path)
+    linked = tmp_path / f"alias{extension}"
+    linked.write_text(_page(f"{BASE}en/"), encoding="utf-8")
+    manifest["pages"].append({
+        "path": linked.name,
+        "contract": {"url": f"{BASE}alias/", "title_present": True},
+    })
+    original_is_symlink = type(tmp_path).is_symlink
+
+    # Model an in-root file symlink without relying on Windows privileges.
+    def is_symlink(path):
+        return path == linked or original_is_symlink(path)
+
+    monkeypatch.setattr(type(tmp_path), "is_symlink", is_symlink)
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+    with pytest.raises(ValueError, match="symlinked HTML artifact"):
+        verify_manifest(manifest, tmp_path, require_full_coverage=True)
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_path), str(tmp_path), "--require-full-coverage", "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "error"
+    assert "symlinked HTML artifact" in error["error"]
+
+
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_real_in_root_symlinked_html_file_rejected_in_strict_coverage(
+    tmp_path, target_exists,
+):
+    manifest = _setup(tmp_path)
+    alias = tmp_path / "alias.html"
+    target = tmp_path / "en" / ("index.html" if target_exists else "missing.html")
+    try:
+        alias.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("Creating file symlinks is not permitted on this host")
+
+    if target_exists:
+        manifest["pages"].append({
+            "path": "alias.html", "contract": {"url": f"{BASE}alias/", "title_present": True},
+        })
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+    with pytest.raises(ValueError, match="symlinked HTML artifact"):
+        verify_manifest(manifest, tmp_path, require_full_coverage=True)
+
+
 @pytest.mark.parametrize("extension", [".htm", ".HTM"])
 def test_manifest_can_assert_legacy_htm_artifact(tmp_path, extension):
     manifest = _setup(tmp_path)

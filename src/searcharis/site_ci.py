@@ -253,13 +253,21 @@ def verify_manifest(
     # assuming that a partial adoption must block a release.
     discovered: set[str] = set()
     for candidate in root.rglob("*"):
-        if require_full_coverage and candidate.is_symlink() and candidate.is_dir():
-            # pathlib does not descend into directory symlinks by default.
-            # Their HTML routes would escape strict coverage silently.
-            raise ValueError(
-                "Cannot verify full coverage through symlinked build directory: "
-                f"{candidate.relative_to(root).as_posix()}"
-            )
+        if require_full_coverage and candidate.is_symlink():
+            if candidate.is_dir():
+                # pathlib does not descend into directory symlinks by default.
+                # Their HTML routes would escape strict coverage silently.
+                raise ValueError(
+                    "Cannot verify full coverage through symlinked build directory: "
+                    f"{candidate.relative_to(root).as_posix()}"
+                )
+            if candidate.suffix.lower() in _HTML_EXTENSIONS:
+                # A linked HTML route may not survive artifact publishing; a
+                # dangling link is not reported by is_file() at all.
+                raise ValueError(
+                    "Cannot verify full coverage through symlinked HTML artifact: "
+                    f"{candidate.relative_to(root).as_posix()}"
+                )
         if not candidate.is_file() or candidate.suffix.lower() not in _HTML_EXTENSIONS:
             continue
         if not candidate.resolve().is_relative_to(root):
