@@ -535,6 +535,22 @@ uv run python -m searcharis.site_cli seo-manifest.json dist \
   --require-full-coverage
 ```
 
+For a first-pass one-command onboarding check, add `--check-built` to the
+generator invocation. It verifies the generated assertions against the same
+local HTML with strict page coverage and prints a bounded PASS/FAIL summary
+and issue codes to stderr, leaving stdout as manifest JSON (or silent with
+`--output`). Exit 0 means those assertions passed; exit 1 means an assertion
+failed; exit 2 means invalid/unreadable input or an unwritable destination.
+On assertion mismatch, `--output` still saves the **reviewable** create-only
+manifest; on invalid HTML input, no manifest is created. This is an optional
+initial feedback loop, not a replacement for checking the reviewed, committed
+manifest via `site_cli` on future CI builds. No network URLs are fetched.
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --check-built --output seo-manifest.json
+```
+
 The generator is read-only with respect to the build and makes **no HTTP
 requests**. It emits deterministic version-1 manifest entries for regular
 `.html`/`.htm` files in lexical path order, with `title_present: true`

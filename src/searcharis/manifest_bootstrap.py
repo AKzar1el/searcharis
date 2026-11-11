@@ -14,7 +14,13 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_http_url
-from searcharis.site_ci import _HTML_EXTENSIONS, _MAX_PAGES, _manifest_path, _read_limited
+from searcharis.site_ci import (
+    _HTML_EXTENSIONS,
+    _MAX_PAGES,
+    _manifest_path,
+    _read_limited,
+    verify_manifest,
+)
 
 
 def _base_url(value: str) -> str:
@@ -226,6 +232,10 @@ def main(argv: list[str] | None = None) -> int:
         "--route-map", type=Path, metavar="JSON_FILE",
         help="Apply reviewed build-path to public-route overrides from a local JSON file",
     )
+    parser.add_argument(
+        "--check-built", action="store_true",
+        help="Also verify generated SEO assertions against local HTML, exiting 1 on mismatch",
+    )
     args = parser.parse_args(argv)
     try:
         manifest = generate_manifest(
@@ -237,6 +247,12 @@ def main(argv: list[str] | None = None) -> int:
             expect_noindex_for=tuple(args.expect_noindex_for),
             route_overrides=read_route_map(args.route_map) if args.route_map else None,
         )
+        # Validate before creating the output file so malformed HTML never
+        # leaves a misleading manifest. Assertion mismatches remain reviewable.
+        checked = (
+            verify_manifest(manifest, args.build_dir, require_full_coverage=True)
+            if args.check_built else None
+        )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
             with args.output.open("x", encoding="utf-8", newline="\n") as output:
@@ -246,6 +262,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.output is None:
         print(payload, end="")
+    if checked is not None:
+        summary = checked["summary"]
+        print(
+            f"{checked['status'].upper()} {summary['passed']}/{summary['checked']} "
+            "generated SEO contracts passed against local HTML",
+            file=sys.stderr,
+        )
+        # Bounded, escaped diagnostics are safe for untrusted build filenames.
+        failed = [page for page in checked["pages"] if page["status"] == "fail"]
+        for page in failed[:10]:
+            label = human_input_error(ValueError(page["path"]), limit=100)
+            codes = ", ".join(issue["code"] for issue in page["issues"][:8])
+            print(f"  FAIL {label}: {codes}", file=sys.stderr)
+        if len(failed) > 10:
+            print(f"  ... and {len(failed) - 10} more failing pages", file=sys.stderr)
+        return 0 if checked["status"] == "pass" else 1
     return 0
 
 
