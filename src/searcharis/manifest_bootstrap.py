@@ -42,7 +42,9 @@ def _route_for(path: str) -> str:
     return path
 
 
-def generate_manifest(build_dir: Path, base_url: str) -> dict:
+def generate_manifest(
+    build_dir: Path, base_url: str, *, expect_self_canonical: bool = False,
+) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
     root = build_dir.resolve(strict=True)
@@ -76,9 +78,12 @@ def generate_manifest(build_dir: Path, base_url: str) -> dict:
         if url in seen_urls:
             raise ValueError(f"Multiple build HTML pages map to the same URL: {url}")
         seen_urls.add(url)
+        contract = {"url": url, "title_present": True}
+        if expect_self_canonical:
+            contract["canonical"] = url
         pages.append({
             "path": path,
-            "contract": {"url": url, "title_present": True},
+            "contract": contract,
         })
     return {"version": 1, "pages": pages}
 
@@ -97,9 +102,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Write UTF-8 JSON to a new file (never overwrite an existing file)",
     )
+    parser.add_argument(
+        "--expect-self-canonical",
+        action="store_true",
+        help="Opt in to requiring each page's canonical to equal its candidate public URL",
+    )
     args = parser.parse_args(argv)
     try:
-        manifest = generate_manifest(args.build_dir, args.site_base_url)
+        manifest = generate_manifest(
+            args.build_dir, args.site_base_url,
+            expect_self_canonical=args.expect_self_canonical,
+        )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
             with args.output.open("x", encoding="utf-8", newline="\n") as output:

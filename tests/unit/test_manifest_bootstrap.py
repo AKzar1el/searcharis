@@ -2,6 +2,7 @@
 
 import json
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -79,6 +80,81 @@ def test_starter_title_policy_fails_when_built_title_is_missing(tmp_path):
     report = verify_manifest(manifest, tmp_path, require_full_coverage=True)
     assert report["status"] == "fail"
     assert report["pages"][0]["issues"][0]["code"] == "title_presence"
+
+
+def test_opt_in_self_canonical_populates_explicit_expected_urls(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "en" / "index.html")
+    _html(build / "about us.html")
+
+    basic = generate_manifest(build, "https://example.com/docs/")
+    assert all("canonical" not in page["contract"] for page in basic["pages"])
+
+    manifest = generate_manifest(
+        build, "https://example.com/docs/", expect_self_canonical=True,
+    )
+    assert [page["contract"]["canonical"] for page in manifest["pages"]] == [
+        "https://example.com/docs/about%20us.html",
+        "https://example.com/docs/en/",
+        "https://example.com/docs/",
+    ]
+    assert all(
+        page["contract"]["canonical"] == page["contract"]["url"]
+        for page in manifest["pages"]
+    )
+
+
+def test_opt_in_self_canonical_detects_missing_or_changed_built_link(tmp_path):
+    html = tmp_path / "index.html"
+    _html(html)
+    manifest = generate_manifest(
+        tmp_path, "https://example.com/", expect_self_canonical=True,
+    )
+    assert verify_manifest(manifest, tmp_path)["status"] == "fail"
+
+    html.write_text(
+        '<html><head><title>Example</title>'
+        '<link rel="canonical" href="https://example.com/"></head></html>',
+        encoding="utf-8",
+    )
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+    html.write_text(
+        '<html><head><title>Example</title>'
+        '<link rel="canonical" href="https://example.com/other/"></head></html>',
+        encoding="utf-8",
+    )
+    assert verify_manifest(manifest, tmp_path)["status"] == "fail"
+
+
+def test_cli_opt_in_self_canonical_is_json_and_offline(tmp_path, monkeypatch, capsys):
+    _html(tmp_path / "index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(tmp_path), "https://example.com/", "--expect-self-canonical"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["pages"][0]["contract"] == {
+        "url": "https://example.com/",
+        "title_present": True,
+        "canonical": "https://example.com/",
+    }
+
+
+@pytest.mark.parametrize("generator", ["astro", "vite"])
+def test_opt_in_self_canonical_passes_static_generator_artifacts(generator):
+    build = (
+        Path(__file__).resolve().parents[2]
+        / "examples/seo-contract/generator-fixtures"
+        / generator
+        / "artifacts"
+    )
+    manifest = generate_manifest(
+        build, "https://fixtures.invalid/", expect_self_canonical=True,
+    )
+    report = verify_manifest(manifest, build, require_full_coverage=True)
+    assert report["status"] == "pass"
+    assert report["summary"]["checked"] == 2
+    assert report["coverage"]["unlisted"] == []
 
 
 def test_bootstrap_escapes_route_characters_without_leaking_urls(tmp_path):
