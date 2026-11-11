@@ -842,10 +842,29 @@ complete hreflang sets. Sites intentionally using partial reciprocal language
 links can use `--check-hreflang-reciprocity` alone. Neither flag checks whether
 the language codes match the content, fetches any URLs or verifies live indexing.
 
-## Compare two local JSON reports without blocking existing defects
+## Compare local builds or JSON reports without blocking existing defects
 
 Teams adopting contracts on an older website can gate **new** regressions
-without temporarily failing on known pre-existing issues. Run the site checker
+without temporarily failing on known pre-existing issues. For two trusted
+**local build directories**, the one-command offline workflow is:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --require-full-coverage
+```
+
+It reads the same **reviewed manifest** against both built HTML directories,
+compares the resulting reports in memory and returns **0** for no regression,
+**1** for new regressions, or **2** for invalid inputs. Pre-existing page
+failures remain visible but do not block the candidate. To preserve complete
+comparison data, add `--json`; to reject new unlisted files without strict
+coverage, use `--fail-on-new-unlisted`. The same canonical and hreflang
+cross-page flags as `site_cli` work with
+`--fail-on-new-unverified-targets`. Baseline and candidate directories must
+be distinct, and the baseline build must come from a review-controlled
+trusted revision, not an arbitrary unverified artifact. No URLs are fetched.
+
+For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving their complete `--json` outputs:
 
