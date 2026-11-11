@@ -45,6 +45,7 @@ def _route_for(path: str) -> str:
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
+    expect_description: bool = False,
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
@@ -84,6 +85,8 @@ def generate_manifest(
             contract["canonical"] = url
         if expect_indexable:
             contract["indexable"] = True
+        if expect_description:
+            contract["description_present"] = True
         pages.append({
             "path": path,
             "contract": contract,
@@ -115,12 +118,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Opt in to flagging noindex robots/googlebot meta in every built page",
     )
+    parser.add_argument(
+        "--expect-description",
+        action="store_true",
+        help="Opt in to requiring non-empty head meta descriptions in every built page",
+    )
     args = parser.parse_args(argv)
     try:
         manifest = generate_manifest(
             args.build_dir, args.site_base_url,
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
+            expect_description=args.expect_description,
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
