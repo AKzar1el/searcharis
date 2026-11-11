@@ -125,3 +125,48 @@ def build_sarif_report(report: dict, *, sources: dict[str, str] | None = None) -
             }
         ],
     }
+
+
+def build_comparison_sarif(
+    comparison: dict, candidate: dict, *, sources: dict[str, str] | None = None,
+    gate_new_unlisted: bool = False, gate_new_unverified_targets: bool = False,
+) -> dict:
+    """Export only blocking *new* regressions, not tolerated baseline debt."""
+    candidate_urls = {page["path"]: page["checked_url"] for page in candidate["pages"]}
+    grouped: dict[tuple[str, str], list[dict]] = {}
+
+    def add(path: str, url: str, issue: dict) -> None:
+        grouped.setdefault((path, url), []).append(issue)
+
+    for item in comparison["new_issues"]:
+        add(item["path"], item["checked_url"], item["issue"])
+    for item in comparison["removed_pages"]:
+        add(item["path"], item["checked_url"], {
+            "code": "removed_page",
+            "expected": "page present in candidate report",
+            "actual": "missing from candidate report",
+        })
+    if gate_new_unverified_targets:
+        for item in comparison["new_unverified_targets"]:
+            destination = {"target": item["target"]}
+            if "language" in item:
+                destination["language"] = item["language"]
+            add(item["path"], candidate_urls[item["path"]], {
+                "code": f"{item['check']}_unverified_target",
+                "expected": "target checked against a reviewed manifest page",
+                "actual": destination,
+            })
+
+    # Reuse the existing SARIF formatter, escaping and stable issue fingerprints.
+    # These are document-level anchors, not inferred template/source line numbers.
+    report = {
+        "pages": [
+            {"path": path, "checked_url": url, "issues": issues}
+            for (path, url), issues in sorted(grouped.items())
+        ],
+        "coverage": {
+            "require_full_coverage": gate_new_unlisted,
+            "unlisted": comparison["new_unlisted"] if gate_new_unlisted else [],
+        },
+    }
+    return build_sarif_report(report, sources=sources)

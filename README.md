@@ -125,6 +125,9 @@ For regression-only CI on a legacy site, compare a trusted baseline build and
 the candidate directly with `python -m searcharis.build_compare`; it tolerates
 unchanged known defects without writing intermediate JSON reports. See the
 [baseline comparison guide](docs/SEO-CONTRACT-CI.md#compare-local-builds-or-json-reports-without-blocking-existing-defects).
+Use `--sarif` for machine-readable findings limited to *new blocking* issues;
+an optional reviewed `--sarif-source-map` links those findings to checked-in
+source files without guessing exact source lines or uploading anything.
 
 For a single page, use `contract_cli`; for a ready-made multi-page contract,
 use `site_cli` directly:
