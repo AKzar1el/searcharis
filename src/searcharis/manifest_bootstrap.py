@@ -36,6 +36,10 @@ def _base_url(value: str) -> str:
     # the original base. Encoded dots may also be normalized by user agents.
     if any(part in {".", ".."} for part in unquote(parts.path).split("/")):
         raise ValueError("Invalid site base URL: path must not contain dot segments")
+    # urljoin removes empty path segments for subpages but not for the root
+    # index route; preserve one unambiguous URL prefix for every page.
+    if "//" in parts.path:
+        raise ValueError("Invalid site base URL: path must not contain repeated slashes")
     return value if parts.path else value + "/"
 
 

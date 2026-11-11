@@ -579,6 +579,9 @@ def test_bootstrap_escapes_route_characters_without_leaking_urls(tmp_path):
     "https://example.com/docs/../", "https://example.com/docs/./",
     "https://example.com/docs/%2e%2e/", "https://example.com/docs/.%2E/",
     "https://example.com/%2e/docs/", "https://example.com/docs/%2e./",
+    "https://example.com/docs//", "https://example.com/docs///",
+    "https://example.com//docs/", "https://example.com//",
+    "https://example.com/a//b/",
 ])
 def test_invalid_or_ambiguous_base_urls_fail_closed(tmp_path, base):
     _html(tmp_path / "index.html")
@@ -605,6 +608,20 @@ def test_dot_segment_base_cli_fails_without_creating_manifest(tmp_path, capsys):
     assert result == 2
     assert not target.exists()
     assert capsys.readouterr().out == ""
+
+
+def test_repeated_slash_base_cli_fails_without_creating_manifest(tmp_path, capsys):
+    _html(tmp_path / "index.html")
+    _html(tmp_path / "about.html")
+    target = tmp_path / "manifest.json"
+    result = main([
+        str(tmp_path), "https://example.com/docs//", "--output", str(target),
+    ])
+    assert result == 2
+    assert not target.exists()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Invalid input:" in captured.err
 
 
 def test_cli_rejects_invalid_base_with_input_error_and_no_json(tmp_path, capsys):
