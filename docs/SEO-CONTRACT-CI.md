@@ -547,6 +547,10 @@ HTML or directories, empty builds and more than 10,000 pages are rejected.
 The base URL must not contain `.` or `..` path segments, including
 percent-encoded variants: URL joining can otherwise move some generated page
 URLs outside the intended prefix while leaving the index URL unchanged.
+Repeated literal slashes in the base URL path are also rejected: Python's URL
+joining collapses them for subpages but can retain them for `index.html`,
+producing inconsistent public URL candidates. Supply the intended single-slash
+prefix explicitly rather than relying on normalization.
 `--output` writes UTF-8 without a BOM and refuses to overwrite an existing
 file; omit it to print JSON on stdout.
 
