@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "path": "index.html",
+      "contract": {
+        "url": "https://seo-ci.invalid/",
+        "title_present": true,
+        "description_present": true
+      }
+    },
+    {
+      "path": "pricing/index.html",
+      "contract": {
+        "url": "https://seo-ci.invalid/pricing/",
+        "title_present": true
+      }
+    }
+  ]
+}
