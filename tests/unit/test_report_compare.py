@@ -2,6 +2,7 @@
 
 import json
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -347,6 +348,64 @@ def test_comparison_rejects_corrupt_cross_page_check_counts(check, count_key, ba
         compare_reports(report, report, fail_on_new_unverified_targets=True)
 
 
+@pytest.mark.parametrize("check,count_key", [
+    ("canonical_consistency", "internal_targets_checked"),
+    ("hreflang_reciprocity", "checked_pairs"),
+    ("hreflang_clusters", "checked_pairs"),
+])
+def test_comparison_rejects_impossible_cross_page_check_counts(check, count_key):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])], checks=(check,),
+    )
+    # Canonical has at most one internal target per source; each hreflang
+    # check counts each directed peer pair at most once.
+    report[check][count_key] = 3
+    with pytest.raises(ValueError, match=f"invalid {check} data"):
+        compare_reports(report, report)
+
+
+def test_comparison_rejects_impossible_canonical_internal_plus_external_total():
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["internal_targets_checked"] = 1
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://elsewhere.test/",
+    }]
+    with pytest.raises(ValueError, match="invalid canonical_consistency data"):
+        compare_reports(report, report)
+
+
+def test_comparison_accepts_real_fixture_maximum_hreflang_pair_counts():
+    fixtures = (Path(__file__).resolve().parents[2] /
+                "examples/seo-contract/generator-fixtures/astro")
+    manifest = json.loads((fixtures / "manifest.json").read_text(encoding="utf-8"))
+    report = verify_manifest(
+        manifest, fixtures / "artifacts", require_full_coverage=True,
+        check_hreflang_reciprocity=True, check_hreflang_clusters=True,
+        check_canonical_consistency=True,
+    )
+    assert report["hreflang_clusters"]["checked_pairs"] == 2
+    assert report["hreflang_reciprocity"]["checked_pairs"] == 2
+    assert compare_reports(report, report, fail_on_new_unverified_targets=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_rejects_impossible_cross_page_counts_as_input_error(tmp_path, capsys, json_output):
+    report = _report([("index.html", [])], checks=("hreflang_clusters",))
+    report["hreflang_clusters"]["checked_pairs"] = 1
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+    else:
+        assert "hreflang_clusters" in output.err
+        assert not output.out
+
+
 @pytest.mark.parametrize("check", [
     "canonical_consistency", "hreflang_reciprocity", "hreflang_clusters",
 ])
@@ -688,15 +747,16 @@ def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, cap
 def test_cli_human_output_limits_many_findings_without_losing_json(tmp_path, capsys, monkeypatch):
     baseline = _report(
         [("index.html", [])] + [(f"old-{i}.html", []) for i in range(25)],
-        strict=True, checks=("canonical_consistency",),
+        strict=True, checks=("hreflang_clusters",),
     )
     candidate = _report(
         [("index.html", [_issue(f"value-{i}") for i in range(25)])],
         unlisted=tuple(f"new-{i}.html" for i in range(25)),
-        strict=True, checks=("canonical_consistency",),
+        strict=True, checks=("hreflang_clusters",),
     )
-    candidate["canonical_consistency"]["unverified_targets"] = [
-        {"path": "index.html", "target": f"https://outside.test/{i}"}
+    candidate["hreflang_clusters"]["unverified_targets"] = [
+        {"path": "index.html", "language": f"lang-{i}",
+         "target": f"https://outside.test/{i}"}
         for i in range(25)
     ]
     before, after = tmp_path / "before.json", tmp_path / "after.json"
@@ -713,7 +773,7 @@ def test_cli_human_output_limits_many_findings_without_losing_json(tmp_path, cap
     assert sum(line.startswith("  NEW ") for line in lines) == 20
     assert sum(line.startswith("  REMOVED ") for line in lines) == 20
     assert sum(line.startswith("  UNLISTED ") for line in lines) == 20
-    assert sum(line.startswith("    canonical_consistency ") for line in lines) == 20
+    assert sum(line.startswith("    hreflang_clusters ") for line in lines) == 20
     assert len(lines) == 86  # Summary, four capped sections, and target count.
     assert sum("5 more" in line and "--json" in line for line in lines) == 4
 

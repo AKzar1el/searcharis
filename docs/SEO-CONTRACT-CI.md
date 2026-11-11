@@ -762,6 +762,11 @@ Optional cross-page check summaries must contain non-negative integer pair or
 target counts, and every unverified destination must identify a page included
 in that report. Corrupt or inconsistent summary data returns input error **2**
 instead of being silently accepted as a valid comparison.
+The comparator also rejects impossible cross-page counts: canonical internal
+and outside-manifest destinations combined cannot exceed the number of checked
+pages, while hreflang directed peer-pair counts cannot exceed `pages * (pages - 1)`.
+These bounds validate the saved report metadata; they do not independently
+re-check its built HTML or fetch any destinations.
 Each newly generated page report also includes a deterministic SHA-256 of its
 declared SEO contract (not the HTML). The comparator rejects different
 assertions for the same artifact between baseline and candidate, instead of

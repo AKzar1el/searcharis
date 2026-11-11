@@ -125,6 +125,16 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             or not isinstance(data.get("unverified_targets"), list)
         ):
             raise ValueError(f"{name}: invalid {check} data")
+        # Each page contributes at most one off-self canonical destination;
+        # each hreflang check counts each directed internal peer once.
+        n_pages = len(pages)
+        impossible_count = (
+            data[count_key] + len(data["unverified_targets"]) > n_pages
+            if check == "canonical_consistency"
+            else data[count_key] > n_pages * (n_pages - 1)
+        )
+        if impossible_count:
+            raise ValueError(f"{name}: invalid {check} data: impossible check count")
         if any(
             not isinstance(item, dict)
             or not isinstance(item.get("path"), str)
