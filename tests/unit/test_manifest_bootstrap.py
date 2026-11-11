@@ -189,6 +189,50 @@ def test_cli_opt_in_indexability_guard_is_json_and_offline(tmp_path, monkeypatch
     assert manifest["pages"][0]["contract"]["indexable"] is True
 
 
+def test_opt_in_description_presence_is_explicit_and_composable(tmp_path):
+    _html(tmp_path / "index.html")
+    basic = generate_manifest(tmp_path, "https://example.com/")
+    assert "description_present" not in basic["pages"][0]["contract"]
+
+    manifest = generate_manifest(
+        tmp_path, "https://example.com/", expect_description=True,
+        expect_self_canonical=True, expect_indexable=True,
+    )
+    assert manifest["pages"][0]["contract"] == {
+        "url": "https://example.com/",
+        "title_present": True,
+        "canonical": "https://example.com/",
+        "indexable": True,
+        "description_present": True,
+    }
+
+
+@pytest.mark.parametrize("description", [None, "", "  "])
+def test_opt_in_description_detects_missing_or_blank_head_meta(tmp_path, description):
+    page = tmp_path / "index.html"
+    _html(page)
+    manifest = generate_manifest(tmp_path, "https://example.com/", expect_description=True)
+    meta = "" if description is None else f'<meta name="description" content="{description}">'
+    page.write_text(f"<html><head><title>Example</title>{meta}</head></html>")
+    report = verify_manifest(manifest, tmp_path)
+    assert report["status"] == "fail"
+    assert report["pages"][0]["issues"][0]["code"] == "description_presence"
+
+    page.write_text(
+        '<html><head><title>Example</title><meta name="description" '
+        'content="A useful page summary"></head></html>'
+    )
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
+def test_cli_opt_in_description_is_json_and_offline(tmp_path, monkeypatch, capsys):
+    _html(tmp_path / "index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(tmp_path), "https://example.com/", "--expect-description"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["pages"][0]["contract"]["description_present"] is True
+
+
 @pytest.mark.parametrize("generator", ["astro", "vite"])
 def test_opt_in_indexability_guard_passes_static_generator_artifacts(generator):
     build = (

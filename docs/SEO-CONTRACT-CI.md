@@ -578,6 +578,22 @@ access or search-index inclusion. The flag is off by default and can be
 combined with `--expect-self-canonical`; remove or adjust the assertion for
 intentional noindex pages before making the reviewed manifest a CI gate.
 
+For pages where your team requires a populated HTML meta description before
+release, opt in to a description-presence assertion:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-description --output seo-manifest.json
+```
+
+This adds `description_present: true` to each generated page contract. The
+checker then rejects missing or blank `<meta name="description">` content in
+the HTML head. It does not generate descriptions, check their uniqueness or
+quality, or guarantee a Google Search snippet; Google may create snippets from
+visible page text instead. The flag is disabled by default and combines with
+the canonical/indexability opt-ins. Review intentional exceptions before
+making the generated contract a CI gate.
+
 **Review the proposed URLs against your actual hosting routes**, especially
 when the site uses rewritten extensions, custom redirects or dynamic routes.
 Artifact filenames alone cannot prove public URLs. Add the desired explicit
