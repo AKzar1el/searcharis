@@ -1,6 +1,7 @@
 """One-command, local-only baseline/candidate SEO build comparisons."""
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -138,6 +139,47 @@ def test_nested_build_roots_are_rejected_before_comparison(
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "error"
     assert "overlapping build directories" in result["error"]
+
+
+def test_hardlinked_build_html_cannot_masquerade_as_independent_baseline(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    (candidate / "index.html").unlink()
+    try:
+        os.link(baseline / "index.html", candidate / "index.html")
+    except OSError as error:
+        pytest.skip(f"Filesystem does not support hard links: {error}")
+
+    # A later candidate write silently mutates the baseline as well. Without
+    # shared-file validation, the comparator reports a false PASS.
+    (candidate / "index.html").write_text(
+        "<html><head></head></html>", encoding="utf-8"
+    )
+    assert (baseline / "index.html").read_text(encoding="utf-8") == (
+        candidate / "index.html"
+    ).read_text(encoding="utf-8")
+
+    assert _run(manifest, baseline, candidate, "--json") == 2
+    result = json.loads(capsys.readouterr().out)
+    assert "share a hard-linked HTML artifact" in result["error"]
+
+
+def test_hardlinked_html_under_different_page_names_is_rejected(tmp_path, capsys):
+    manifest, baseline, candidate, data = _fixture(tmp_path)
+    data["pages"].append({
+        "path": "about.html",
+        "contract": {"url": "https://example.test/about", "title_present": True},
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    for root in (baseline, candidate):
+        (root / "about.html").write_text("<title>About</title>", encoding="utf-8")
+    (candidate / "index.html").unlink()
+    try:
+        os.link(baseline / "about.html", candidate / "index.html")
+    except OSError as error:
+        pytest.skip(f"Filesystem does not support hard links: {error}")
+
+    assert _run(manifest, baseline, candidate, "--json") == 2
+    assert "about.html and index.html" in json.loads(capsys.readouterr().out)["error"]
 
 
 def test_comparison_never_uses_network(tmp_path, monkeypatch, capsys):
