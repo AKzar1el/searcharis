@@ -290,6 +290,47 @@ def _print_omitted(items: list, category: str) -> None:
         print(f"  ... {remaining} more {category}; use --json for complete findings")
 
 
+def print_comparison(
+    result: dict, *, as_json: bool = False, fail_on_new_unverified_targets: bool = False
+) -> None:
+    """Render one comparison identically for saved reports and live local builds."""
+    if as_json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+    summary = result["summary"]
+    print(
+        f"{result['status'].upper()} "
+        f"{summary['new_issues']} new issues, {summary['existing_issues']} existing, "
+        f"{summary['resolved_issues']} resolved; {summary['removed_pages']} removed pages, "
+        f"{summary['new_unlisted']} new unlisted HTML"
+    )
+    for item in result["new_issues"][:_MAX_HUMAN_DETAILS]:
+        issue = item["issue"]
+        print(
+            f"  NEW {_label(item['path'])} ({_label(item['checked_url'])}): "
+            f"{_label(issue['code'])} "
+            f"(expected {_preview(issue['expected'])}, observed {_preview(issue['actual'])})"
+        )
+    _print_omitted(result["new_issues"], "new issues")
+    for item in result["removed_pages"][:_MAX_HUMAN_DETAILS]:
+        print(f"  REMOVED {_label(item['path'])} ({_label(item['checked_url'])})")
+    _print_omitted(result["removed_pages"], "removed pages")
+    for path in result["new_unlisted"][:_MAX_HUMAN_DETAILS]:
+        print(f"  UNLISTED {_label(path)}")
+    _print_omitted(result["new_unlisted"], "unlisted HTML paths")
+    if summary["new_unverified_targets"]:
+        label = "UNVERIFIED" if fail_on_new_unverified_targets else "NOTE"
+        print(f"  {label} {summary['new_unverified_targets']} new targets not verified offline")
+        if fail_on_new_unverified_targets:
+            for item in result["new_unverified_targets"][:_MAX_HUMAN_DETAILS]:
+                locale = f" [{_label(item['language'])}]" if "language" in item else ""
+                print(
+                    f"    {item['check']} {_label(item['path'])}{locale} "
+                    f"-> {_label(item['target'])}"
+                )
+            _print_omitted(result["new_unverified_targets"], "unverified targets")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare two local SEO site JSON reports")
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
@@ -317,41 +358,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
-        print(json.dumps(result, indent=2, sort_keys=True))
-    else:
-        summary = result["summary"]
-        print(
-            f"{result['status'].upper()} "
-            f"{summary['new_issues']} new issues, {summary['existing_issues']} existing, "
-            f"{summary['resolved_issues']} resolved; {summary['removed_pages']} removed pages, "
-            f"{summary['new_unlisted']} new unlisted HTML"
-        )
-        for item in result["new_issues"][:_MAX_HUMAN_DETAILS]:
-            issue = item["issue"]
-            print(
-                f"  NEW {_label(item['path'])} ({_label(item['checked_url'])}): "
-                f"{_label(issue['code'])} "
-                f"(expected {_preview(issue['expected'])}, observed {_preview(issue['actual'])})"
-            )
-        _print_omitted(result["new_issues"], "new issues")
-        for item in result["removed_pages"][:_MAX_HUMAN_DETAILS]:
-            print(f"  REMOVED {_label(item['path'])} ({_label(item['checked_url'])})")
-        _print_omitted(result["removed_pages"], "removed pages")
-        for path in result["new_unlisted"][:_MAX_HUMAN_DETAILS]:
-            print(f"  UNLISTED {_label(path)}")
-        _print_omitted(result["new_unlisted"], "unlisted HTML paths")
-        if summary["new_unverified_targets"]:
-            label = "UNVERIFIED" if args.fail_on_new_unverified_targets else "NOTE"
-            print(f"  {label} {summary['new_unverified_targets']} new targets not verified offline")
-            if args.fail_on_new_unverified_targets:
-                for item in result["new_unverified_targets"][:_MAX_HUMAN_DETAILS]:
-                    locale = f" [{_label(item['language'])}]" if "language" in item else ""
-                    print(
-                        f"    {item['check']} {_label(item['path'])}{locale} "
-                        f"-> {_label(item['target'])}"
-                    )
-                _print_omitted(result["new_unverified_targets"], "unverified targets")
+    print_comparison(
+        result,
+        as_json=args.json,
+        fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
+    )
     return 1 if result["status"] == "regression" else 0
 
 

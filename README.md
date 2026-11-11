@@ -121,6 +121,11 @@ indexability, description, route-map and per-page policies only after reviewing
 actual hosting routes. Built HTML checks cannot prove HTTP response status,
 headers, redirects, JavaScript-rendered metadata or Google indexing.
 
+For regression-only CI on a legacy site, compare a trusted baseline build and
+the candidate directly with `python -m searcharis.build_compare`; it tolerates
+unchanged known defects without writing intermediate JSON reports. See the
+[baseline comparison guide](docs/SEO-CONTRACT-CI.md#compare-local-builds-or-json-reports-without-blocking-existing-defects).
+
 For a single page, use `contract_cli`; for a ready-made multi-page contract,
 use `site_cli` directly:
 
