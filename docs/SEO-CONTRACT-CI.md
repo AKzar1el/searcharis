@@ -594,6 +594,28 @@ visible page text instead. The flag is disabled by default and combines with
 the canonical/indexability opt-ins. Review intentional exceptions before
 making the generated contract a CI gate.
 
+If a reviewed built page is intentionally exempt from the optional canonical,
+indexability and description assertions (for example a static `404.html`),
+keep it in strict coverage while omitting those opt-ins only for that path:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-self-canonical --expect-indexable --expect-description \
+  --skip-opt-ins-for 404.html --output seo-manifest.json
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage
+```
+
+`--skip-opt-ins-for` accepts an exact, case-sensitive build-relative `.html` or
+`.htm` path, not a URL, directory or glob; repeat it for more reviewed pages.
+Unknown, unsafe or duplicate exception paths fail as input errors rather than
+silently weakening CI. Every excepted page remains in the manifest and retains
+the default `title_present: true` check; other pages retain all requested
+opt-ins. The option is invalid unless at least one `--expect-*` flag is set.
+Review exclusions and expected URLs before committing the manifest. This
+offline HTML checker cannot establish whether an error page actually returns
+an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
+
 **Review the proposed URLs against your actual hosting routes**, especially
 when the site uses rewritten extensions, custom redirects or dynamic routes.
 Artifact filenames alone cannot prove public URLs. Add the desired explicit

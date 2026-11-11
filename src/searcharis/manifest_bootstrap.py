@@ -45,7 +45,7 @@ def _route_for(path: str) -> str:
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
-    expect_description: bool = False,
+    expect_description: bool = False, skip_opt_ins_for: tuple[str, ...] = (),
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
@@ -73,6 +73,20 @@ def generate_manifest(
     if not paths:
         raise ValueError("No HTML pages found in the supplied build directory")
 
+    if skip_opt_ins_for and not (
+        expect_self_canonical or expect_indexable or expect_description
+    ):
+        raise ValueError("Cannot skip optional assertions when none are requested")
+    skipped: set[str] = set()
+    available = set(paths)
+    for requested in skip_opt_ins_for:
+        path = _manifest_path(requested)
+        if path in skipped:
+            raise ValueError(f"duplicate skip opt-ins path: {path}")
+        if path not in available:
+            raise ValueError(f"unknown skip opt-ins path: {path}")
+        skipped.add(path)
+
     seen_urls: set[str] = set()
     pages = []
     for path in sorted(paths):
@@ -81,12 +95,13 @@ def generate_manifest(
             raise ValueError(f"Multiple build HTML pages map to the same URL: {url}")
         seen_urls.add(url)
         contract = {"url": url, "title_present": True}
-        if expect_self_canonical:
-            contract["canonical"] = url
-        if expect_indexable:
-            contract["indexable"] = True
-        if expect_description:
-            contract["description_present"] = True
+        if path not in skipped:
+            if expect_self_canonical:
+                contract["canonical"] = url
+            if expect_indexable:
+                contract["indexable"] = True
+            if expect_description:
+                contract["description_present"] = True
         pages.append({
             "path": path,
             "contract": contract,
@@ -123,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Opt in to requiring non-empty head meta descriptions in every built page",
     )
+    parser.add_argument(
+        "--skip-opt-ins-for", metavar="BUILD_PATH", action="append", default=[],
+        help="Keep this exact built HTML path in coverage, but omit optional assertions "
+             "for it (repeatable; title is still required)",
+    )
     args = parser.parse_args(argv)
     try:
         manifest = generate_manifest(
@@ -130,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
             expect_description=args.expect_description,
+            skip_opt_ins_for=tuple(args.skip_opt_ins_for),
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
