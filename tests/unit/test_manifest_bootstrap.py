@@ -140,6 +140,72 @@ def test_cli_opt_in_self_canonical_is_json_and_offline(tmp_path, monkeypatch, ca
     }
 
 
+def test_opt_in_indexability_guard_is_explicit_and_composes_with_canonical(tmp_path):
+    _html(tmp_path / "index.html")
+    default = generate_manifest(tmp_path, "https://example.com/")
+    assert "indexable" not in default["pages"][0]["contract"]
+
+    manifest = generate_manifest(
+        tmp_path, "https://example.com/",
+        expect_indexable=True,
+        expect_self_canonical=True,
+    )
+    assert manifest["pages"][0]["contract"] == {
+        "url": "https://example.com/",
+        "title_present": True,
+        "canonical": "https://example.com/",
+        "indexable": True,
+    }
+
+
+@pytest.mark.parametrize("placement", ["head", "body"])
+@pytest.mark.parametrize("bot", ["robots", "googlebot"])
+def test_opt_in_indexability_guard_detects_noindex_in_built_html(
+    tmp_path, placement, bot,
+):
+    html = tmp_path / "index.html"
+    _html(html)
+    manifest = generate_manifest(
+        tmp_path, "https://example.com/", expect_indexable=True,
+    )
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+    robots = f'<meta name="{bot}" content="noindex,follow">'
+    if placement == "head":
+        html.write_text(f"<html><head><title>Example</title>{robots}</head></html>")
+    else:
+        html.write_text(f"<html><head><title>Example</title></head><body>{robots}</body></html>")
+    assert verify_manifest(manifest, tmp_path)["status"] == "fail"
+
+    default = generate_manifest(tmp_path, "https://example.com/")
+    assert verify_manifest(default, tmp_path)["status"] == "pass"
+
+
+def test_cli_opt_in_indexability_guard_is_json_and_offline(tmp_path, monkeypatch, capsys):
+    _html(tmp_path / "index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(tmp_path), "https://example.com/", "--expect-indexable"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["pages"][0]["contract"]["indexable"] is True
+
+
+@pytest.mark.parametrize("generator", ["astro", "vite"])
+def test_opt_in_indexability_guard_passes_static_generator_artifacts(generator):
+    build = (
+        Path(__file__).resolve().parents[2]
+        / "examples/seo-contract/generator-fixtures"
+        / generator
+        / "artifacts"
+    )
+    manifest = generate_manifest(
+        build, "https://fixtures.invalid/", expect_indexable=True,
+    )
+    report = verify_manifest(manifest, build, require_full_coverage=True)
+    assert report["status"] == "pass"
+    assert report["summary"]["checked"] == 2
+    assert report["coverage"]["unlisted"] == []
+
+
 @pytest.mark.parametrize("generator", ["astro", "vite"])
 def test_opt_in_self_canonical_passes_static_generator_artifacts(generator):
     build = (

@@ -562,6 +562,22 @@ that intentionally canonicalize to another URL, such as duplicates, or before
 verifying the generated URL mappings against your host's routing rules. No
 canonical value is inferred from the HTML and no public URL is fetched.
 
+For a set of pages deliberately intended to remain indexable, opt in to
+protecting against accidental `noindex` in the built HTML:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-indexable --output seo-manifest.json
+```
+
+This adds `indexable: true` to each generated page contract. The offline
+checker then reports a mismatch when active `robots` or `googlebot` meta
+restricts Google indexing, including a robots meta tag in the HTML body.
+It does **not** inspect `X-Robots-Tag` HTTP headers, robots.txt, live crawler
+access or search-index inclusion. The flag is off by default and can be
+combined with `--expect-self-canonical`; remove or adjust the assertion for
+intentional noindex pages before making the reviewed manifest a CI gate.
+
 **Review the proposed URLs against your actual hosting routes**, especially
 when the site uses rewritten extensions, custom redirects or dynamic routes.
 Artifact filenames alone cannot prove public URLs. Add the desired explicit
