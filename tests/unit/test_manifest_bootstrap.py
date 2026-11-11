@@ -73,6 +73,63 @@ def test_cli_output_file_is_utf8_and_never_overwritten(tmp_path, capsys):
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_opt_in_check_built_returns_mismatch_but_prints_reviewable_manifest(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text("<html><head></head><body></body></html>")
+    assert main([str(build), "https://example.com/", "--check-built"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
+    assert "FAIL 0/1" in captured.err
+    assert "title_presence" in captured.err
+    # Without the opt-in, generation alone is not an assertion check.
+    assert main([str(build), "https://example.com/"]) == 0
+
+
+def test_opt_in_check_built_accepts_valid_pages_without_network(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    target = tmp_path / "seo-manifest.json"
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([
+        str(build), "https://example.com/", "--check-built", "--output", str(target),
+    ]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "PASS 1/1" in captured.err
+    assert verify_manifest(json.loads(target.read_text()), build)["status"] == "pass"
+
+
+def test_opt_in_check_built_keeps_reviewable_manifest_on_failed_assertion(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    target = tmp_path / "seo-manifest.json"
+    assert main([
+        str(build), "https://example.com/", "--expect-self-canonical",
+        "--check-built", "--output", str(target),
+    ]) == 1
+    assert json.loads(target.read_text())["pages"][0]["contract"]["canonical"] == (
+        "https://example.com/"
+    )
+    assert "canonical" in capsys.readouterr().err
+    # Create-only protection is unchanged even for a failed optional check.
+    original = target.read_bytes()
+    assert main([str(build), "https://example.com/", "--output", str(target)]) == 2
+    assert target.read_bytes() == original
+
+
+def test_opt_in_check_built_input_errors_do_not_create_output(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    (build / "index.html").write_bytes(b"\xff")
+    target = tmp_path / "seo-manifest.json"
+    assert main([
+        str(build), "https://example.com/", "--check-built", "--output", str(target),
+    ]) == 2
+    assert not target.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 def test_starter_title_policy_fails_when_built_title_is_missing(tmp_path):
     _html(tmp_path / "index.html")
     (tmp_path / "index.html").write_text("<html><head></head><body></body></html>")
