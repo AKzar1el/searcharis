@@ -616,6 +616,35 @@ Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
 
+If the hosting layer rewrites a built file's public path (for example,
+`about.html` is served at `/about/`), explicitly review and supply only those
+exceptions in a local `routes.json` file:
+
+```json
+{
+  "version": 1,
+  "routes": {"about.html": "about/"}
+}
+```
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/docs/ \
+  --route-map routes.json --expect-self-canonical --output seo-manifest.json
+```
+
+The map's keys must exactly match existing, case-sensitive build-relative HTML
+paths. Values are **unescaped relative public routes** appended beneath the
+operator-provided base URL: `about/` above means
+`https://example.com/docs/about/`, not `https://example.com/about/`.
+The generator percent-encodes spaces and other path characters. It rejects
+duplicate JSON keys, missing build paths, URL collisions, absolute URLs,
+leading slashes, traversal, encoded separators, queries and fragments; it
+never fetches a mapped URL or modifies a built artifact. Unmapped pages keep
+their deterministic candidate routes. The map is an explicitly reviewed hint,
+not proof that a host actually serves that route; check hosting rewrites and
+redirects before asserting self-canonicals. Keep the reviewed manifest in
+version control and do not auto-regenerate it on every build.
+
 **Review the proposed URLs against your actual hosting routes**, especially
 when the site uses rewritten extensions, custom redirects or dynamic routes.
 Artifact filenames alone cannot prove public URLs. Add the desired explicit
