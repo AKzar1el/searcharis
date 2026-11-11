@@ -498,11 +498,35 @@ def test_bootstrap_escapes_route_characters_without_leaking_urls(tmp_path):
     "https://example.com/#fragment", "https://example.com/?",
     "https://example.com/#", "https://example.com\\path/",
     "https://example.com:99999/",
+    "https://example.com/docs/../", "https://example.com/docs/./",
+    "https://example.com/docs/%2e%2e/", "https://example.com/docs/.%2E/",
+    "https://example.com/%2e/docs/", "https://example.com/docs/%2e./",
 ])
 def test_invalid_or_ambiguous_base_urls_fail_closed(tmp_path, base):
     _html(tmp_path / "index.html")
     with pytest.raises(ValueError, match="base URL"):
         generate_manifest(tmp_path, base)
+
+
+def test_encoded_non_dot_public_base_path_still_preserves_prefix(tmp_path):
+    _html(tmp_path / "index.html")
+    _html(tmp_path / "about.html")
+    result = generate_manifest(tmp_path, "https://example.com/my%20docs/")
+    assert [page["contract"]["url"] for page in result["pages"]] == [
+        "https://example.com/my%20docs/about.html",
+        "https://example.com/my%20docs/",
+    ]
+
+
+def test_dot_segment_base_cli_fails_without_creating_manifest(tmp_path, capsys):
+    _html(tmp_path / "index.html")
+    target = tmp_path / "manifest.json"
+    result = main([
+        str(tmp_path), "https://example.com/docs/../", "--output", str(target),
+    ])
+    assert result == 2
+    assert not target.exists()
+    assert capsys.readouterr().out == ""
 
 
 def test_cli_rejects_invalid_base_with_input_error_and_no_json(tmp_path, capsys):

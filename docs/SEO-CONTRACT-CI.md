@@ -544,6 +544,9 @@ input, not discovered from the HTML: `index.html` maps to the base path,
 characters are percent-encoded. Prefix deployments such as
 `https://example.com/docs/` are supported. Duplicate inferred URLs, linked
 HTML or directories, empty builds and more than 10,000 pages are rejected.
+The base URL must not contain `.` or `..` path segments, including
+percent-encoded variants: URL joining can otherwise move some generated page
+URLs outside the intended prefix while leaving the index URL unchanged.
 `--output` writes UTF-8 without a BOM and refuses to overwrite an existing
 file; omit it to print JSON on stdout.
 

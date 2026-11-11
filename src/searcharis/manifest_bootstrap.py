@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_http_url
@@ -32,6 +32,10 @@ def _base_url(value: str) -> str:
             "Invalid site base URL: provide an absolute HTTP(S) URL ending in / "
             "without query, fragment or credentials"
         )
+    # urljoin can collapse raw dot segments, while an empty index route retains
+    # the original base. Encoded dots may also be normalized by user agents.
+    if any(part in {".", ".."} for part in unquote(parts.path).split("/")):
+        raise ValueError("Invalid site base URL: path must not contain dot segments")
     return value if parts.path else value + "/"
 
 
