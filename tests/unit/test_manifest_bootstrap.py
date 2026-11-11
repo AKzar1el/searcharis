@@ -233,6 +233,84 @@ def test_cli_opt_in_description_is_json_and_offline(tmp_path, monkeypatch, capsy
     assert manifest["pages"][0]["contract"]["description_present"] is True
 
 
+def test_skip_opt_ins_for_reviewed_exception_keeps_full_coverage(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title><meta name="description" content="Home">'
+        '<link rel="canonical" href="https://example.com/"></head></html>',
+        encoding="utf-8",
+    )
+    _html(build / "404.html")
+    (build / "404.html").write_text(
+        '<html><head><title>Not found</title><meta name="robots" content="noindex">'
+        '</head></html>', encoding="utf-8",
+    )
+    options = {
+        "expect_self_canonical": True,
+        "expect_indexable": True,
+        "expect_description": True,
+    }
+    unreviewed = generate_manifest(build, "https://example.com/", **options)
+    assert verify_manifest(unreviewed, build, require_full_coverage=True)["status"] == "fail"
+
+    reviewed = generate_manifest(
+        build, "https://example.com/", skip_opt_ins_for=("404.html",), **options,
+    )
+    assert [page["path"] for page in reviewed["pages"]] == ["404.html", "index.html"]
+    assert reviewed["pages"][0]["contract"] == {
+        "url": "https://example.com/404.html", "title_present": True,
+    }
+    assert reviewed["pages"][1]["contract"]["indexable"] is True
+    result = verify_manifest(reviewed, build, require_full_coverage=True)
+    assert result["status"] == "pass"
+    assert result["coverage"]["discovered"] == 2
+    assert result["coverage"]["unlisted"] == []
+
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title><meta name="robots" content="noindex">'
+        '<meta name="description" content="Home">'
+        '<link rel="canonical" href="https://example.com/"></head></html>',
+        encoding="utf-8",
+    )
+    assert verify_manifest(reviewed, build, require_full_coverage=True)["status"] == "fail"
+
+
+@pytest.mark.parametrize("path", ["../404.html", "missing.html", "404.HTML", "404.html/../404.html"])
+def test_skip_opt_ins_for_rejects_unsafe_or_unknown_exact_paths(tmp_path, path):
+    _html(tmp_path / "404.html")
+    with pytest.raises(ValueError, match="skip|Unsafe|unknown"):
+        generate_manifest(
+            tmp_path, "https://example.com/", expect_indexable=True,
+            skip_opt_ins_for=(path,),
+        )
+
+
+def test_skip_opt_ins_for_rejects_duplicates_and_no_optional_assertions(tmp_path):
+    _html(tmp_path / "404.html")
+    with pytest.raises(ValueError, match="duplicate"):
+        generate_manifest(
+            tmp_path, "https://example.com/", expect_indexable=True,
+            skip_opt_ins_for=("404.html", "404.html"),
+        )
+    with pytest.raises(ValueError, match="optional"):
+        generate_manifest(tmp_path, "https://example.com/", skip_opt_ins_for=("404.html",))
+
+
+def test_cli_skip_opt_ins_for_is_explicit_exact_path_and_offline(tmp_path, capsys, monkeypatch):
+    _html(tmp_path / "index.html")
+    _html(tmp_path / "404.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(tmp_path), "https://example.com/", "--expect-indexable",
+            "--skip-opt-ins-for", "404.html"]
+    assert main(args) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert "indexable" not in manifest["pages"][0]["contract"]
+    assert manifest["pages"][1]["contract"]["indexable"] is True
+    assert main(args + ["--skip-opt-ins-for", "missing.html"]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("generator", ["astro", "vite"])
 def test_opt_in_indexability_guard_passes_static_generator_artifacts(generator):
     build = (
