@@ -62,8 +62,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # Comparing a build with itself silently passes even when a CI input was
         # wired incorrectly. Resolve aliases before touching either build.
-        if args.baseline_dir.resolve() == args.candidate_dir.resolve():
+        baseline_root = args.baseline_dir.resolve()
+        candidate_root = args.candidate_dir.resolve()
+        if baseline_root == candidate_root:
             raise ValueError("Baseline and candidate must be different build directories")
+        # Site verification walks HTML recursively. Nested roots would make one
+        # snapshot include the other's pages and corrupt comparison coverage.
+        if baseline_root.is_relative_to(candidate_root) or candidate_root.is_relative_to(
+            baseline_root
+        ):
+            raise ValueError("Baseline and candidate must use non-overlapping build directories")
         manifest = read_manifest(args.manifest)
         checks = {
             "require_full_coverage": args.require_full_coverage,

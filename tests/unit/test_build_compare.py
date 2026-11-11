@@ -118,6 +118,28 @@ def test_same_build_directory_is_not_a_valid_baseline(tmp_path, capsys):
     assert "different build directories" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("baseline_is_parent", [True, False])
+def test_nested_build_roots_are_rejected_before_comparison(
+    tmp_path, capsys, baseline_is_parent
+):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    if baseline_is_parent:
+        nested = baseline / "nested-candidate"
+        candidate = nested
+    else:
+        nested = candidate / "nested-baseline"
+        baseline = nested
+    nested.mkdir()
+    (nested / "index.html").write_text(
+        "<html><head><title>Old</title></head></html>", encoding="utf-8"
+    )
+
+    assert _run(manifest, baseline, candidate, "--json") == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "overlapping build directories" in result["error"]
+
+
 def test_comparison_never_uses_network(tmp_path, monkeypatch, capsys):
     manifest, baseline, candidate, _ = _fixture(tmp_path)
 

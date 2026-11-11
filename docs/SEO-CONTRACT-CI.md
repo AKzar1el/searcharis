@@ -861,8 +861,10 @@ comparison data, add `--json`; to reject new unlisted files without strict
 coverage, use `--fail-on-new-unlisted`. The same canonical and hreflang
 cross-page flags as `site_cli` work with
 `--fail-on-new-unverified-targets`. Baseline and candidate directories must
-be distinct, and the baseline build must come from a review-controlled
-trusted revision, not an arbitrary unverified artifact. No URLs are fetched.
+be separate, non-overlapping trees (neither nested inside the other); the
+checker rejects nested roots before recursively discovering HTML. The
+baseline build must come from a review-controlled trusted revision, not an
+arbitrary unverified artifact. No URLs are fetched.
 
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
