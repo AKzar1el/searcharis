@@ -91,27 +91,46 @@ tests/live/              opt-in hosted validator smoke test
 docs/                    architecture, demo script, submission material
 ```
 
-## Offline SEO contract CI (new)
+## Offline SEO contract CI (no cloud required)
 
-A separate, dependency-free verifier checks **built HTML** for explicit SEO
-contracts before release. It never fetches remote pages or mutates the live
-Searcharis incident workflow.
+Searcharis can check **already-built HTML** for SEO regressions before release.
+It does not fetch public URLs, run your site generator, need Google Cloud
+credentials, or change the original live incident workflow.
+
+Try the one-command first-use check on the repository's **compiled Vite**
+two-page example (prints a reviewable starter manifest and a PASS/FAIL
+summary; requires Python 3.11+ and `uv`):
+
+```sh
+uv run python -m searcharis.manifest_bootstrap examples/seo-contract/generator-fixtures/vite/artifacts https://example.com/ --check-built
+```
+
+For your own Astro, Vite or other static HTML build, replace the directory and
+explicit public base URL. `--output` creates a new file and **never overwrites**
+an existing one:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap path/to/dist https://www.example.com/ --check-built --output seo-manifest.json
+# Review page URLs and SEO assertions, then commit seo-manifest.json once.
+uv run python -m searcharis.site_cli seo-manifest.json path/to/dist --require-full-coverage
+```
+
+Run `site_cli` against the **reviewed, committed** manifest on subsequent CI
+builds; do not regenerate it as part of each check. Add optional canonical,
+indexability, description, route-map and per-page policies only after reviewing
+actual hosting routes. Built HTML checks cannot prove HTTP response status,
+headers, redirects, JavaScript-rendered metadata or Google indexing.
+
+For a single page, use `contract_cli`; for a ready-made multi-page contract,
+use `site_cli` directly:
 
 ```sh
 uv run python -m searcharis.contract_cli examples/seo-contract/expected.json examples/seo-contract/page.html --json
-```
-
-See [contract usage and limitations](docs/SEO-CONTRACT-CI.md) and the
-[prepared Revenue Shot worker charter](docs/REVENUE_SHOT.md).
-
-For static builds with multiple routes, run the local manifest verifier:
-
-```sh
 uv run python -m searcharis.site_cli examples/seo-contract/site-manifest.json examples/seo-contract --json
 ```
 
-It reports coverage and per-page errors; use `--require-full-coverage` to
-fail on undeclared built HTML. It does not fetch URLs or require GCP.
+See [setup, options and limitations](docs/SEO-CONTRACT-CI.md) and the
+[Revenue Shot worker charter](docs/REVENUE_SHOT.md).
 
 ## Local development
 
