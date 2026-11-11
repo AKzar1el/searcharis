@@ -125,6 +125,11 @@ For regression-only CI on a legacy site, compare a trusted baseline build and
 the candidate directly with `python -m searcharis.build_compare`; it tolerates
 unchanged known defects without writing intermediate JSON reports. See the
 [baseline comparison guide](docs/SEO-CONTRACT-CI.md#compare-local-builds-or-json-reports-without-blocking-existing-defects).
+Try the [ready-to-run offline regression demo](examples/seo-contract/regression-demo/README.md)
+to see one new pricing-page title regression reported while an unchanged
+home-page description defect remains permitted. This example intentionally
+returns exit code 1; real gates must use independently produced, trusted
+build snapshots and a reviewed manifest.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.
