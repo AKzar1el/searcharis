@@ -14,6 +14,24 @@ from searcharis.site_sarif import build_comparison_sarif
 from searcharis.site_source_map import read_source_map
 
 
+def _reject_shared_html_files(
+    baseline_root: Path, candidate_root: Path, baseline: dict, candidate: dict
+) -> None:
+    """A hard link makes two otherwise disjoint builds one mutable snapshot."""
+    baseline_files: dict[tuple[int, int], str] = {}
+    for page in baseline["pages"]:
+        info = (baseline_root / page["path"]).stat()
+        if info.st_ino:  # Some filesystems do not expose a usable file ID.
+            baseline_files[(info.st_dev, info.st_ino)] = page["path"]
+    for page in candidate["pages"]:
+        info = (candidate_root / page["path"]).stat()
+        if info.st_ino and (info.st_dev, info.st_ino) in baseline_files:
+            raise ValueError(
+                "Baseline and candidate share a hard-linked HTML artifact: "
+                f"{baseline_files[(info.st_dev, info.st_ino)]} and {page['path']}"
+            )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Gate new SEO regressions between two local static HTML builds"
@@ -81,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)
+        _reject_shared_html_files(baseline_root, candidate_root, baseline, candidate)
         sources = (
             read_source_map(args.sarif_source_map, candidate, source_root=Path.cwd())
             if args.sarif_source_map else {}
