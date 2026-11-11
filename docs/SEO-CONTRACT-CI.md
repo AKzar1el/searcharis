@@ -547,6 +547,21 @@ HTML or directories, empty builds and more than 10,000 pages are rejected.
 `--output` writes UTF-8 without a BOM and refuses to overwrite an existing
 file; omit it to print JSON on stdout.
 
+If your site deliberately uses **self-referencing canonical tags** on each
+static page, opt in to generating canonical assertions too:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-self-canonical --output seo-manifest.json
+```
+
+This adds an explicit `canonical` contract equal to each *candidate* page URL;
+the checker then fails if the built HTML has no canonical tag or points
+elsewhere. The flag is **off by default**. Do not enable it blindly on pages
+that intentionally canonicalize to another URL, such as duplicates, or before
+verifying the generated URL mappings against your host's routing rules. No
+canonical value is inferred from the HTML and no public URL is fetched.
+
 **Review the proposed URLs against your actual hosting routes**, especially
 when the site uses rewritten extensions, custom redirects or dynamic routes.
 Artifact filenames alone cannot prove public URLs. Add the desired explicit
