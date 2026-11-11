@@ -419,6 +419,51 @@ def test_comparison_rejects_unverified_target_from_unknown_page(check):
         compare_reports(report, report, fail_on_new_unverified_targets=True)
 
 
+@pytest.mark.parametrize("check", [
+    "canonical_consistency", "hreflang_reciprocity", "hreflang_clusters",
+])
+def test_comparison_rejects_falsely_unverified_manifest_target(check):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])], checks=(check,),
+    )
+    target = {
+        "path": "en/index.html",
+        "target": "https://example.test/de/index.html",
+    }
+    if check == "hreflang_clusters":
+        target["language"] = "de"
+    # The generator only records outside-manifest destinations here. A target
+    # that is already checked locally must not masquerade as unverified.
+    report[check]["unverified_targets"] = [target]
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_rejects_falsely_unverified_manifest_target(tmp_path, capsys, json_output):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("canonical_consistency",),
+    )
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html",
+        "target": "https://example.test/de/index.html",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+        assert "canonical_consistency" in json.loads(output.out)["error"]
+    else:
+        assert "canonical_consistency" in output.err
+        assert not output.out
+
+
 @pytest.mark.parametrize("json_output", [True, False])
 @pytest.mark.parametrize("missing", [True, False])
 def test_cli_rejects_corrupt_cross_page_counts_as_input_error(

@@ -760,8 +760,11 @@ workflow, decide whether a baseline is trustworthy or prove real search
 indexing health.
 Optional cross-page check summaries must contain non-negative integer pair or
 target counts, and every unverified destination must identify a page included
-in that report. Corrupt or inconsistent summary data returns input error **2**
-instead of being silently accepted as a valid comparison.
+in that report. An unverified target cannot also be the declared URL of a
+checked page in the same report: such a destination was locally verifiable and
+must not masquerade as outside-manifest. Corrupt or inconsistent summary data
+returns input error **2** instead of being silently accepted as a valid
+comparison.
 The comparator also rejects impossible cross-page counts: canonical internal
 and outside-manifest destinations combined cannot exceed the number of checked
 pages, while hreflang directed peer-pair counts cannot exceed `pages * (pages - 1)`.

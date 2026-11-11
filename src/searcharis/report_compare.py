@@ -140,6 +140,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             or not isinstance(item.get("path"), str)
             or item["path"] not in listed_paths
             or not isinstance(item.get("target"), str)
+            or item["target"] in urls
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]
         ):
