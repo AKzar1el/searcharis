@@ -311,6 +311,142 @@ def test_cli_skip_opt_ins_for_is_explicit_exact_path_and_offline(tmp_path, capsy
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_reviewed_route_overrides_support_host_rewrites_without_changing_coverage(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "about.html")
+    (build / "about.html").write_text(
+        '<html><head><title>About</title>'
+        '<link rel="canonical" href="https://example.com/docs/about/">'
+        '</head></html>', encoding="utf-8",
+    )
+    manifest = generate_manifest(
+        build, "https://example.com/docs/", expect_self_canonical=True,
+        route_overrides={"about.html": "about/"},
+        skip_opt_ins_for=("index.html",),
+    )
+    assert [page["contract"]["url"] for page in manifest["pages"]] == [
+        "https://example.com/docs/about/", "https://example.com/docs/",
+    ]
+    assert manifest["pages"][0]["contract"]["canonical"] == (
+        "https://example.com/docs/about/"
+    )
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("route", [
+    "/other/", "//evil.test/path", "../escape/", "a/../b/", "a/./b/",
+    "a//b/", "https://evil.test/", "a?b", "a#b", "a\\b", "a%2fb",
+    ".", "..", "a//", " ", "a\nb", 123,
+])
+def test_reviewed_route_overrides_reject_unsafe_values(tmp_path, route):
+    _html(tmp_path / "index.html")
+    with pytest.raises(ValueError, match="route|unsafe"):
+        generate_manifest(
+            tmp_path, "https://example.com/", route_overrides={"index.html": route},
+        )
+
+
+@pytest.mark.parametrize("path", ["missing.html", "../index.html", "Index.html"])
+def test_reviewed_route_overrides_reject_unlisted_or_unsafe_page(tmp_path, path):
+    _html(tmp_path / "index.html")
+    with pytest.raises(ValueError, match="route|Unsafe|unknown"):
+        generate_manifest(
+            tmp_path, "https://example.com/", route_overrides={path: "home/"},
+        )
+
+
+def test_reviewed_route_overrides_detect_collisions_with_inferred_urls(tmp_path):
+    _html(tmp_path / "a.html")
+    _html(tmp_path / "b.html")
+    with pytest.raises(ValueError, match="same URL"):
+        generate_manifest(
+            tmp_path, "https://example.com/", route_overrides={"a.html": "b.html"},
+        )
+
+
+def test_reviewed_route_overrides_encode_unescaped_paths_under_public_prefix(tmp_path):
+    _html(tmp_path / "index.html")
+    result = generate_manifest(
+        tmp_path, "https://example.com/docs/",
+        route_overrides={"index.html": "about us/"},
+    )
+    assert result["pages"][0]["contract"]["url"] == (
+        "https://example.com/docs/about%20us/"
+    )
+    assert generate_manifest(tmp_path, "https://example.com/docs/")["pages"][0][
+        "contract"
+    ]["url"] == "https://example.com/docs/"
+
+
+def test_cli_reviewed_route_map_json_is_offline_and_fail_closed(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    _html(build / "about.html")
+    route_map = tmp_path / "routes.json"
+    route_map.write_text(
+        '{"version":1,"routes":{"about.html":"about/"}}', encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/docs/", "--route-map", str(route_map)]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["pages"][0]["contract"]["url"] == (
+        "https://example.com/docs/about/"
+    )
+    for bad in (
+        '{"version":1,"routes":{"about.html":"about/","about.html":"alt/"}}',
+        '{"version":true,"routes":{"about.html":"about/"}}',
+        '{"version":1,"routes":{"unknown.html":"about/"}}',
+        '{"version":1,"routes":{}}',
+        '{"version":1,"routes":{"about.html":"https://evil.test/"}}',
+        '{',
+    ):
+        route_map.write_text(bad, encoding="utf-8")
+        assert main(args) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Invalid input:" in captured.err
+
+
+def test_invalid_route_map_never_creates_or_overwrites_output(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    route_map = tmp_path / "routes.json"
+    route_map.write_text('{"version":1,"routes":{"nope.html":"a/"}}', encoding="utf-8")
+    destination = tmp_path / "manifest.json"
+    args = [str(build), "https://example.com/", "--route-map", str(route_map),
+            "--output", str(destination)]
+    assert main(args) == 2
+    assert not destination.exists()
+    destination.write_text("original", encoding="utf-8")
+    route_map.write_text('{"version":1,"routes":{"index.html":"home/"}}',
+                         encoding="utf-8")
+    assert main(args) == 2
+    assert destination.read_text(encoding="utf-8") == "original"
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("generator,path,route", [
+    ("astro", "en/index.html", "english/"),
+    ("vite", "pricing/index.html", "plans/"),
+])
+def test_reviewed_route_map_preserves_full_static_fixture_coverage(generator, path, route):
+    build = (
+        Path(__file__).resolve().parents[2]
+        / "examples/seo-contract/generator-fixtures"
+        / generator / "artifacts"
+    )
+    manifest = generate_manifest(
+        build, "https://fixtures.invalid/", route_overrides={path: route},
+    )
+    assert next(page for page in manifest["pages"] if page["path"] == path)[
+        "contract"
+    ]["url"] == f"https://fixtures.invalid/{route}"
+    result = verify_manifest(manifest, build, require_full_coverage=True)
+    assert result["status"] == "pass"
+    assert result["summary"]["checked"] == 2
+    assert result["coverage"]["unlisted"] == []
+
+
 @pytest.mark.parametrize("generator", ["astro", "vite"])
 def test_opt_in_indexability_guard_passes_static_generator_artifacts(generator):
     build = (

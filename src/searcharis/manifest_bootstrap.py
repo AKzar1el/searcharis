@@ -14,7 +14,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_http_url
-from searcharis.site_ci import _HTML_EXTENSIONS, _MAX_PAGES, _manifest_path
+from searcharis.site_ci import _HTML_EXTENSIONS, _MAX_PAGES, _manifest_path, _read_limited
 
 
 def _base_url(value: str) -> str:
@@ -42,10 +42,50 @@ def _route_for(path: str) -> str:
     return path
 
 
+def _reviewed_route(value: object) -> str:
+    """Require a local, unescaped path relative to the explicit public base."""
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or not value.isprintable()
+        or value.startswith("/")
+        or any(char in value for char in "\\:%?#")
+        or (value and any(part in {"", ".", ".."} for part in value.rstrip("/").split("/")))
+        or value.endswith("//")
+    ):
+        raise ValueError(f"Unsafe reviewed public route: {value!r}")
+    return value
+
+
+def read_route_map(path: Path) -> dict[str, str]:
+    """Read a bounded, explicit local route map without collapsing duplicate keys."""
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate route-map JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(_read_limited(path), object_pairs_hook=unique_keys)
+    except RecursionError as error:
+        raise ValueError("Route-map JSON exceeds supported nesting depth") from error
+    if not isinstance(payload, dict) or set(payload) != {"version", "routes"}:
+        raise ValueError("Route map requires exactly 'version' and 'routes'")
+    if type(payload["version"]) is not int or payload["version"] != 1:
+        raise ValueError("Unsupported route-map version (expected integer 1)")
+    routes = payload["routes"]
+    if not isinstance(routes, dict) or not 1 <= len(routes) <= _MAX_PAGES:
+        raise ValueError(f"Route-map 'routes' must contain 1 to {_MAX_PAGES} entries")
+    return routes
+
+
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
     expect_description: bool = False, skip_opt_ins_for: tuple[str, ...] = (),
+    route_overrides: dict[str, str] | None = None,
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
@@ -87,10 +127,23 @@ def generate_manifest(
             raise ValueError(f"unknown skip opt-ins path: {path}")
         skipped.add(path)
 
+    reviewed_routes: dict[str, str] = {}
+    if route_overrides is not None:
+        if not isinstance(route_overrides, dict) or not route_overrides:
+            raise ValueError("Route overrides require a nonempty path-to-route mapping")
+        if len(route_overrides) > _MAX_PAGES:
+            raise ValueError(f"Route overrides exceed {_MAX_PAGES} pages")
+        for requested, route in route_overrides.items():
+            path = _manifest_path(requested)
+            if path not in available:
+                raise ValueError(f"unknown route-map build path: {path}")
+            reviewed_routes[path] = _reviewed_route(route)
+
     seen_urls: set[str] = set()
     pages = []
     for path in sorted(paths):
-        url = urljoin(base, quote(_route_for(path), safe="/-._~"))
+        route = reviewed_routes.get(path, _route_for(path))
+        url = urljoin(base, quote(route, safe="/-._~"))
         if url in seen_urls:
             raise ValueError(f"Multiple build HTML pages map to the same URL: {url}")
         seen_urls.add(url)
@@ -143,6 +196,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Keep this exact built HTML path in coverage, but omit optional assertions "
              "for it (repeatable; title is still required)",
     )
+    parser.add_argument(
+        "--route-map", type=Path, metavar="JSON_FILE",
+        help="Apply reviewed build-path to public-route overrides from a local JSON file",
+    )
     args = parser.parse_args(argv)
     try:
         manifest = generate_manifest(
@@ -151,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             expect_indexable=args.expect_indexable,
             expect_description=args.expect_description,
             skip_opt_ins_for=tuple(args.skip_opt_ins_for),
+            route_overrides=read_route_map(args.route_map) if args.route_map else None,
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
