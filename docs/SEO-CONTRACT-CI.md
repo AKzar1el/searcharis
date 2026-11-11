@@ -614,10 +614,33 @@ uv run python -m searcharis.site_cli seo-manifest.json dist \
 Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
-opt-ins. The option is invalid unless at least one `--expect-*` flag is set.
+opt-ins. The option requires at least one positive global `--expect-self-canonical`,
+`--expect-indexable`, or `--expect-description` flag.
 Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
+
+For a reviewed page that **must remain noindex**, do not merely exempt it from
+the indexability check. Opt in to an exact-path negative assertion instead:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-indexable --expect-description \
+  --skip-opt-ins-for 404.html --expect-noindex-for 404.html \
+  --output seo-manifest.json
+```
+
+`--expect-noindex-for` emits `indexable: false` for each explicitly named
+build-relative HTML path. The existing checker then fails when the supplied
+HTML lacks an active robots/googlebot `noindex` or `none` directive.
+Other pages still receive `indexable: true` when requested. It also works
+without `--expect-indexable` for a negative-only policy. When the same page
+is listed under `--skip-opt-ins-for`, canonical/description/positive
+indexability opt-ins are omitted, but the explicit `indexable: false`
+assertion remains. Unsafe, unknown, case-mismatched or duplicate paths fail
+closed. No page is automatically classified as an error page; review each
+choice, and do not infer real HTTP status, `X-Robots-Tag` headers, robots.txt
+or actual indexing from static HTML.
 
 If the hosting layer rewrites a built file's public path (for example,
 `about.html` is served at `/about/`), explicitly review and supply only those

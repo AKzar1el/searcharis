@@ -89,6 +89,7 @@ def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
     expect_description: bool = False, skip_opt_ins_for: tuple[str, ...] = (),
+    expect_noindex_for: tuple[str, ...] = (),
     route_overrides: dict[str, str] | None = None,
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
@@ -131,6 +132,15 @@ def generate_manifest(
             raise ValueError(f"unknown skip opt-ins path: {path}")
         skipped.add(path)
 
+    noindex_paths: set[str] = set()
+    for requested in expect_noindex_for:
+        path = _manifest_path(requested)
+        if path in noindex_paths:
+            raise ValueError(f"duplicate expect-noindex path: {path}")
+        if path not in available:
+            raise ValueError(f"unknown expect-noindex path: {path}")
+        noindex_paths.add(path)
+
     reviewed_routes: dict[str, str] = {}
     if route_overrides is not None:
         if not isinstance(route_overrides, dict) or not route_overrides:
@@ -155,10 +165,13 @@ def generate_manifest(
         if path not in skipped:
             if expect_self_canonical:
                 contract["canonical"] = url
-            if expect_indexable:
+            if expect_indexable and path not in noindex_paths:
                 contract["indexable"] = True
             if expect_description:
                 contract["description_present"] = True
+        # An explicit negative assertion survives a skip of positive opt-ins.
+        if path in noindex_paths:
+            contract["indexable"] = False
         pages.append({
             "path": path,
             "contract": contract,
@@ -201,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
              "for it (repeatable; title is still required)",
     )
     parser.add_argument(
+        "--expect-noindex-for", metavar="BUILD_PATH", action="append", default=[],
+        help="Require HTML robots/googlebot noindex for this exact built HTML path "
+             "(repeatable; can be combined with --skip-opt-ins-for)",
+    )
+    parser.add_argument(
         "--route-map", type=Path, metavar="JSON_FILE",
         help="Apply reviewed build-path to public-route overrides from a local JSON file",
     )
@@ -212,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
             expect_indexable=args.expect_indexable,
             expect_description=args.expect_description,
             skip_opt_ins_for=tuple(args.skip_opt_ins_for),
+            expect_noindex_for=tuple(args.expect_noindex_for),
             route_overrides=read_route_map(args.route_map) if args.route_map else None,
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
