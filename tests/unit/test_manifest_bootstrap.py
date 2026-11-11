@@ -311,6 +311,84 @@ def test_cli_skip_opt_ins_for_is_explicit_exact_path_and_offline(tmp_path, capsy
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_reviewed_noindex_paths_enforce_negative_policy_without_dropping_coverage(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "404.html")
+    (build / "404.html").write_text(
+        '<html><head><title>Not found</title>'
+        '<meta name="robots" content="noindex"></head></html>',
+        encoding="utf-8",
+    )
+    options = {
+        "expect_indexable": True,
+        "expect_description": True,
+        "skip_opt_ins_for": ("404.html",),
+        "expect_noindex_for": ("404.html",),
+    }
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title>'
+        '<meta name="description" content="Home"></head></html>',
+        encoding="utf-8",
+    )
+    manifest = generate_manifest(build, "https://example.com/", **options)
+    assert manifest["pages"][0]["contract"] == {
+        "url": "https://example.com/404.html",
+        "title_present": True,
+        "indexable": False,
+    }
+    assert manifest["pages"][1]["contract"]["indexable"] is True
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "pass"
+
+    _html(build / "404.html")
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "fail"
+    (build / "404.html").write_text(
+        '<html><head><title>Not found</title>'
+        '<meta name="robots" content="noindex"></head></html>',
+        encoding="utf-8",
+    )
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title><meta name="robots" content="noindex">'
+        '<meta name="description" content="Home"></head></html>',
+        encoding="utf-8",
+    )
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "fail"
+
+
+@pytest.mark.parametrize("path", [
+    "../404.html", "missing.html", "404.HTML", "404.html/../404.html",
+])
+def test_reviewed_noindex_paths_reject_unsafe_or_unknown_entries(tmp_path, path):
+    _html(tmp_path / "404.html")
+    with pytest.raises(ValueError, match="noindex|Unsafe|unknown"):
+        generate_manifest(
+            tmp_path, "https://example.com/", expect_noindex_for=(path,),
+        )
+
+
+def test_reviewed_noindex_paths_reject_duplicates(tmp_path):
+    _html(tmp_path / "404.html")
+    with pytest.raises(ValueError, match="duplicate"):
+        generate_manifest(
+            tmp_path, "https://example.com/",
+            expect_noindex_for=("404.html", "404.html"),
+        )
+
+
+def test_cli_reviewed_noindex_is_offline_and_fails_closed(tmp_path, monkeypatch, capsys):
+    _html(tmp_path / "404.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(tmp_path), "https://example.com/", "--expect-noindex-for", "404.html"]
+    assert main(args) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["pages"][0]["contract"]["indexable"] is False
+    assert verify_manifest(manifest, tmp_path)["status"] == "fail"
+    assert main(args + ["--expect-noindex-for", "404.html"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Invalid input:" in captured.err
+
+
 def test_reviewed_route_overrides_support_host_rewrites_without_changing_coverage(tmp_path):
     build = tmp_path / "dist"
     _html(build / "index.html")
