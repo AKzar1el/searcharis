@@ -5,6 +5,8 @@ import socket
 import subprocess
 import sys
 
+import pytest
+
 from searcharis.report_compare import compare_reports
 from searcharis.site_ci import verify_manifest
 
@@ -139,3 +141,112 @@ def test_python_module_entrypoint_accepts_two_builds(tmp_path):
     assert invocation.returncode == 0
     assert invocation.stderr == ""
     assert json.loads(invocation.stdout)["status"] == "pass"
+
+
+def test_sarif_reports_only_new_page_failures_not_existing_ones(tmp_path, capsys):
+    manifest, baseline, candidate, data = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    data["pages"].append({
+        "path": "about.html",
+        "contract": {"url": "https://example.test/about", "title_present": True},
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    (baseline / "about.html").write_text(
+        "<html><head><title>About</title></head></html>", encoding="utf-8"
+    )
+    (candidate / "about.html").write_text(
+        "<html><head></head></html>", encoding="utf-8"
+    )
+
+    assert _run(manifest, baseline, candidate, "--sarif") == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["version"] == "2.1.0"
+    results = report["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "title_presence"
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"][
+        "uri"
+    ] == "about.html"
+    assert results[0]["partialFingerprints"]["searcharis/issue/v1"]
+
+
+def test_sarif_no_new_regressions_has_empty_results_even_with_known_defects(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    assert _run(manifest, baseline, candidate, "--sarif") == 0
+    run = json.loads(capsys.readouterr().out)["runs"][0]
+    assert run["results"] == []
+    assert run["tool"]["driver"]["rules"] == []
+
+
+def test_sarif_includes_only_gated_new_unlisted_html(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    (candidate / "new #route.html").write_text("<title>Test</title>", encoding="utf-8")
+    assert _run(manifest, baseline, candidate, "--sarif") == 0
+    assert json.loads(capsys.readouterr().out)["runs"][0]["results"] == []
+    for flag in ("--fail-on-new-unlisted", "--require-full-coverage"):
+        assert _run(manifest, baseline, candidate, "--sarif", flag) == 1
+        results = json.loads(capsys.readouterr().out)["runs"][0]["results"]
+        assert len(results) == 1
+        assert results[0]["ruleId"] == "unlisted_html"
+        assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"][
+            "uri"
+        ] == "new%20%23route.html"
+
+
+def test_sarif_new_unverified_target_is_included_only_when_gated(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    (candidate / "index.html").write_text(
+        '<html><head><title>Old</title>'
+        '<link rel="canonical" href="https://external.test/"></head></html>',
+        encoding="utf-8",
+    )
+    flags = ("--sarif", "--check-canonical-consistency")
+    assert _run(manifest, baseline, candidate, *flags) == 0
+    assert json.loads(capsys.readouterr().out)["runs"][0]["results"] == []
+    assert _run(manifest, baseline, candidate, *flags, "--fail-on-new-unverified-targets") == 1
+    result = json.loads(capsys.readouterr().out)["runs"][0]["results"]
+    assert len(result) == 1
+    assert result[0]["ruleId"] == "canonical_consistency_unverified_target"
+    assert "https://external.test/" in result[0]["message"]["text"]
+
+
+def test_sarif_source_map_links_reviewed_existing_source(tmp_path, capsys, monkeypatch):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="OK", candidate_title=""
+    )
+    source = tmp_path / "src" / "page.astro"
+    source.parent.mkdir()
+    source.write_text("<title>Source</title>", encoding="utf-8")
+    mapping = tmp_path / "source-map.json"
+    mapping.write_text(json.dumps({
+        "version": 1, "sources": {"index.html": "src/page.astro"}
+    }), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert _run(manifest, baseline, candidate, "--sarif", "--sarif-source-map", str(mapping)) == 1
+    finding = json.loads(capsys.readouterr().out)["runs"][0]["results"][0]
+    location = finding["locations"][0]["physicalLocation"]["artifactLocation"]
+    assert location == {"uri": "src/page.astro"}
+    assert finding["relatedLocations"][0]["physicalLocation"]["artifactLocation"][
+        "uri"
+    ] == "index.html"
+
+
+def test_sarif_source_map_rejects_unknown_or_escaping_paths(tmp_path, capsys, monkeypatch):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    mapping = tmp_path / "source-map.json"
+    mapping.write_text(json.dumps({
+        "version": 1, "sources": {"absent.html": "../outside.py"}
+    }), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert _run(manifest, baseline, candidate, "--sarif", "--sarif-source-map", str(mapping)) == 2
+    assert "Invalid input" in capsys.readouterr().err
+
+
+def test_sarif_and_json_outputs_are_mutually_exclusive(tmp_path):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        _run(manifest, baseline, candidate, "--sarif", "--json")
+    assert error.value.code == 2

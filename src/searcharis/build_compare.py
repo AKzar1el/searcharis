@@ -10,6 +10,8 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.report_compare import compare_reports, print_comparison
 from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_sarif import build_comparison_sarif
+from searcharis.site_source_map import read_source_map
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,8 +45,19 @@ def main(argv: list[str] | None = None) -> int:
         "--fail-on-new-unverified-targets", action="store_true",
         help="Block newly unverified targets from enabled cross-page checks",
     )
-    parser.add_argument("--json", action="store_true", help="Print machine-readable comparison")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print machine-readable comparison")
+    output.add_argument(
+        "--sarif", action="store_true",
+        help="Print SARIF 2.1.0 findings only for new blocking regressions",
+    )
+    parser.add_argument(
+        "--sarif-source-map", type=Path,
+        help="Optional reviewed build-to-repository source mapping (SARIF only)",
+    )
     args = parser.parse_args(argv)
+    if args.sarif_source_map and not args.sarif:
+        parser.error("--sarif-source-map requires --sarif")
 
     try:
         # Comparing a build with itself silently passes even when a CI input was
@@ -60,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)
+        sources = (
+            read_source_map(args.sarif_source_map, candidate, source_root=Path.cwd())
+            if args.sarif_source_map else {}
+        )
         result = compare_reports(
             baseline, candidate,
             fail_on_new_unlisted=args.fail_on_new_unlisted,
@@ -72,10 +89,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    print_comparison(
-        result, as_json=args.json,
-        fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
-    )
+    if args.sarif:
+        sarif = build_comparison_sarif(
+            result, candidate, sources=sources,
+            gate_new_unlisted=args.require_full_coverage or args.fail_on_new_unlisted,
+            gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+        )
+        print(json.dumps(sarif, indent=2, sort_keys=True))
+    else:
+        print_comparison(
+            result, as_json=args.json,
+            fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
+        )
     return 1 if result["status"] == "regression" else 0
 
 

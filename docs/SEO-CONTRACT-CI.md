@@ -864,6 +864,24 @@ cross-page flags as `site_cli` work with
 be distinct, and the baseline build must come from a review-controlled
 trusted revision, not an arbitrary unverified artifact. No URLs are fetched.
 
+For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --fail-on-new-unlisted --sarif
+```
+
+The exit codes remain 0/1/2 and `--sarif` is mutually exclusive with `--json`.
+Existing baseline debt and resolved issues do not become SARIF alerts. New
+unlisted HTML is emitted only with `--require-full-coverage` or
+`--fail-on-new-unlisted`; new external canonical/hreflang targets are emitted
+only when `--fail-on-new-unverified-targets` is enabled alongside a cross-page
+check. Use `--sarif-source-map source-map.json` to anchor new findings to
+explicitly reviewed, existing repository sources as described below. Unmapped
+results refer to built HTML; line 1 is a document-level anchor, not a guessed
+template line. Capture output as UTF-8 and do not treat it as evidence of
+deployed URLs, Google indexing, source provenance, or customer adoption.
+
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving their complete `--json` outputs:
