@@ -1,16 +1,19 @@
 # Searcharis
 
-**Autonomous Search Regression Guardian**
+**Offline SEO regression CI and an evidence-gated deployment incident demo**
 
-Searcharis is an event-driven agent that reacts to successful website deployments, audits the live public site, asks Gemini to classify the resulting evidence, applies a deterministic authorization policy, opens a bounded GitHub incident for material search regressions, and refuses to close that incident until a fresh external audit proves the original finding is gone.
+Searcharis has two independent workflows:
+
+- **Local-first SEO CI (no cloud required):** check already-built HTML against a reviewed page manifest, or compare a trusted baseline build against a candidate to block only new SEO regressions. Local checks can emit human-readable, JSON or SARIF results. [Try the offline quickstart](#offline-seo-contract-ci-no-cloud-required).
+- **Original agentic incident workflow:** react to deployment events, audit the live site, use Gemini to classify evidence and apply deterministic policy before opening or closing bounded GitHub incidents. This historical hackathon demonstration requires separately configured cloud services; it is **not** a prerequisite for offline CI.
 
 Built for the **Taskmaster** track of the All Things Agentic Hackathon.
 
-> **Judging availability:** keep https://searcharis-ingress-2wzjcu6mqa-uc.a.run.app live and testable through **October 1, 2026 at 11:45 PM PT**. Do not tear down the judging environment before that deadline. See [`docs/JUDGING-OPERATIONS.md`](docs/JUDGING-OPERATIONS.md).
+> **Historical judging checkpoint:** the original availability request covered the hosted demo at https://searcharis-ingress-2wzjcu6mqa-uc.a.run.app through **October 1, 2026 at 11:45 PM PT**. That date has passed; it is not an ongoing instruction or proof of current hosting status. Check for any organizer extension and obtain separate approval before changing the hosted environment. See [`docs/JUDGING-OPERATIONS.md`](docs/JUDGING-OPERATIONS.md).
 
 ## The problem
 
-A deployment can silently remove a title, canonical, viewport declaration, structured data, or another search-critical signal. The failure may be technically small while its business impact is delayed and difficult to attribute. Conventional monitoring checks availability; Searcharis checks whether a successful deployment changed the site's search-facing contract and then owns the incident lifecycle until recovery is independently verified.
+In the original incident workflow, a deployment can silently remove a title, canonical, viewport declaration, structured data, or another search-critical signal. The failure may be technically small while its business impact is delayed and difficult to attribute. Conventional monitoring checks availability; the deployment agent checks whether a successful deployment changed the site's search-facing contract and then owns the incident lifecycle until recovery is independently verified.
 
 ## What makes it agentic
 
