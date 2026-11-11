@@ -523,6 +523,38 @@ report invalid built links as findings rather than accepting ambiguous hosts.
 
 ## Multi-page static build manifest (offline)
 
+### Bootstrap a starter manifest from a local build
+
+For a first-time Astro or React/Vite static site integration, generate the
+manifest from the **already built** HTML rather than hand-writing each route:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --output seo-manifest.json
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage
+```
+
+The generator is read-only with respect to the build and makes **no HTTP
+requests**. It emits deterministic version-1 manifest entries for regular
+`.html`/`.htm` files in lexical path order, with `title_present: true`
+as the initial meaningful check. The public base URL is an explicit required
+input, not discovered from the HTML: `index.html` maps to the base path,
+`en/index.html` to `en/`, and `about.html` to `about.html`. URL path
+characters are percent-encoded. Prefix deployments such as
+`https://example.com/docs/` are supported. Duplicate inferred URLs, linked
+HTML or directories, empty builds and more than 10,000 pages are rejected.
+`--output` writes UTF-8 without a BOM and refuses to overwrite an existing
+file; omit it to print JSON on stdout.
+
+**Review the proposed URLs against your actual hosting routes**, especially
+when the site uses rewritten extensions, custom redirects or dynamic routes.
+Artifact filenames alone cannot prove public URLs. Add the desired explicit
+canonical, hreflang, description, H1 and indexing assertions before relying
+on this manifest as a release contract. Regenerate only as a conscious
+onboarding/editing step; do not automatically replace a reviewed manifest
+on every CI run, since doing so would discard intentional assertions.
+
 Use a versioned manifest to check several built HTML pages in one CI command:
 
 ```sh
