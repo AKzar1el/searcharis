@@ -98,9 +98,11 @@ entry points reject invalid declared URLs as input errors (exit 2), including
 for contracts that assert only a page title. This validates URL syntax only;
 it does not fetch or check whether the URL resolves.
 Multi-page manifests also reject duplicate declared page identities when URLs
-differ only in scheme or hostname casing. This does not lowercase URLs in
-reports or merge differently cased paths or query strings, which can identify
-different pages on a server.
+differ only in scheme or hostname casing, an explicit HTTP(S) default port
+(`:80` for HTTP, `:443` for HTTPS), or an empty versus `/` root path. These
+scheme-based equivalences follow RFC 3986 section 6.2.3. Reports retain the
+original URLs; non-default ports, different schemes, paths and query strings
+remain distinct, including path and query casing.
 Expected `canonical` and `hreflang` destinations in contracts must also be
 absolute HTTP(S) URLs with valid syntax. Invalid expected destinations (such as
 relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are

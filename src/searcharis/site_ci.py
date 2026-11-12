@@ -40,10 +40,14 @@ def _manifest_path(value: object) -> str:
     return value
 
 
-def _page_url_identity(url: str) -> tuple[str, str, str, str]:
-    """Compare scheme/authority without case while preserving route and query case."""
+def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
+    """Compare HTTP(S) page identities without collapsing distinct routes or queries."""
     parts = urlsplit(url)
-    return parts.scheme, parts.netloc.lower(), parts.path, parts.query
+    # RFC 3986 6.2.3: a default port and an empty root path do not
+    # identify a separate HTTP(S) resource. Contracts are validated upstream.
+    default_port = 80 if parts.scheme == "http" else 443
+    port = None if parts.port in (None, default_port) else parts.port
+    return parts.scheme, parts.hostname or "", port, parts.path or "/", parts.query
 
 
 def verify_manifest(
@@ -69,7 +73,7 @@ def verify_manifest(
 
     reports: list[dict] = []
     listed: set[str] = set()
-    urls: set[tuple[str, str, str, str]] = set()
+    urls: set[tuple[str, str, int | None, str, str]] = set()
     observed_links: dict[str, dict[str, list[str]]] = {}
     observed_canonicals: dict[str, list[str]] = {}
     for entry in pages:

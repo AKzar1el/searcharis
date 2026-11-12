@@ -476,6 +476,53 @@ def test_site_cli_rejects_hostname_case_duplicate_as_input_error(tmp_path, capsy
     assert "Duplicate contract URL" in result["error"]
 
 
+@pytest.mark.parametrize("first_url,second_url", [
+    ("https://example.com/same/", "https://example.com:443/same/"),
+    ("http://example.com/same/", "http://example.com:80/same/"),
+    ("https://example.com/", "https://example.com"),
+    ("http://example.com", "http://example.com:80/"),
+    ("https://[::1]/", "https://[::1]:443/"),
+])
+def test_manifest_rejects_duplicate_urls_with_default_ports_or_empty_root(
+    tmp_path, first_url, second_url
+):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(manifest["pages"], (first_url, second_url), strict=True):
+        entry["contract"] = {"url": url, "title_present": True}
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
+def test_site_cli_rejects_default_port_duplicate_as_input_error(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/", "https://example.com:443/"),
+        strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_file), str(tmp_path), "--json"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "Duplicate contract URL" in result["error"]
+
+
+@pytest.mark.parametrize("second_url", [
+    "https://example.com:8443/same/",
+    "http://example.com:443/same/",
+    "https://example.com/same/?q=one",
+    "https://example.com/Same/",
+])
+def test_manifest_retains_distinct_ports_schemes_paths_and_queries(tmp_path, second_url):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/same/", second_url), strict=True
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
 @pytest.mark.parametrize("second_url", [
     "https://EXAMPLE.com/Same/?q=one",
     "https://EXAMPLE.com/same/?q=ONE",
