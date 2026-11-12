@@ -446,6 +446,52 @@ def test_duplicate_contract_urls_rejected(tmp_path):
         verify_manifest(manifest, tmp_path)
 
 
+@pytest.mark.parametrize("second_url", [
+    "https://EXAMPLE.com/same/",
+    "https://example.COM/same/",
+    "HTTPS://ExAmPlE.COM/same/",
+])
+def test_manifest_rejects_duplicate_urls_with_hostname_case_variants(tmp_path, second_url):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/same/", second_url), strict=True
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
+def test_site_cli_rejects_hostname_case_duplicate_as_input_error(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/same/", "https://EXAMPLE.com/same/"),
+        strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_file), str(tmp_path), "--json"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "Duplicate contract URL" in result["error"]
+
+
+@pytest.mark.parametrize("second_url", [
+    "https://EXAMPLE.com/Same/?q=one",
+    "https://EXAMPLE.com/same/?q=ONE",
+    "http://EXAMPLE.com/same/?q=one",
+    "https://EXAMPLE.com:8443/same/?q=one",
+])
+def test_manifest_preserves_path_and_query_case_distinctions(tmp_path, second_url):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/same/?q=one", second_url),
+        strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
 def test_manifest_cannot_treat_fragment_variants_as_distinct_search_pages(tmp_path, capsys):
     manifest = _setup(tmp_path)
     for entry, fragment in zip(manifest["pages"], ("#one", "#two"), strict=True):
