@@ -470,3 +470,91 @@ def test_junit_file_is_mutually_exclusive_with_stdout_modes(
             conflicting_flag,
         )
     assert error.value.code == 2
+
+
+def test_sarif_file_writes_utf8_regression_json_without_stdout(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="OK", candidate_title=""
+    )
+    report = tmp_path / "seo-regressions.sarif"
+    assert _run(manifest, baseline, candidate, "--sarif-file", str(report)) == 1
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    raw = report.read_bytes()
+    assert b"\x00" not in raw
+    result = json.loads(raw.decode("utf-8"))
+    assert result["version"] == "2.1.0"
+    assert [issue["ruleId"] for issue in result["runs"][0]["results"]] == [
+        "title_presence"
+    ]
+
+
+def test_sarif_file_preserves_pass_when_only_baseline_debt_remains(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    report = tmp_path / "seo-regressions.sarif"
+    assert _run(manifest, baseline, candidate, "--sarif-file", str(report)) == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(report.read_text(encoding="utf-8"))["runs"][0]["results"] == []
+
+
+def test_sarif_file_never_overwrites_existing_artifacts(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "seo-regressions.sarif"
+    report.write_bytes(b"existing user artifact")
+    assert _run(manifest, baseline, candidate, "--sarif-file", str(report)) == 2
+    assert report.read_bytes() == b"existing user artifact"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("build", ["baseline", "candidate"])
+def test_sarif_file_cannot_mutate_either_build_snapshot(tmp_path, capsys, build):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = (baseline if build == "baseline" else candidate) / "report.sarif"
+    assert _run(manifest, baseline, candidate, "--sarif-file", str(report)) == 2
+    assert not report.exists()
+    assert "build directories" in capsys.readouterr().err
+
+
+def test_sarif_file_not_created_when_comparison_input_invalid(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "seo-regressions.sarif"
+    assert _run(manifest, baseline, candidate / "missing", "--sarif-file", str(report)) == 2
+    assert not report.exists()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("flag", ["--sarif", "--json", "--junit", "--junit-file"])
+def test_sarif_file_is_exclusive_with_other_report_formats(tmp_path, flag):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    args = ("--sarif-file", str(tmp_path / "seo.sarif"), flag)
+    if flag == "--junit-file":
+        args += (str(tmp_path / "seo.xml"),)
+    with pytest.raises(SystemExit) as error:
+        _run(manifest, baseline, candidate, *args)
+    assert error.value.code == 2
+
+
+def test_sarif_file_works_with_reviewed_source_mapping(tmp_path, capsys, monkeypatch):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="OK", candidate_title=""
+    )
+    source = tmp_path / "src" / "page.astro"
+    source.parent.mkdir()
+    source.write_text("<title>Source</title>", encoding="utf-8")
+    mapping = tmp_path / "source-map.json"
+    mapping.write_text(json.dumps({
+        "version": 1, "sources": {"index.html": "src/page.astro"}
+    }), encoding="utf-8")
+    report = tmp_path / "seo-regressions.sarif"
+    monkeypatch.chdir(tmp_path)
+    assert _run(
+        manifest, baseline, candidate, "--sarif-file", str(report),
+        "--sarif-source-map", str(mapping),
+    ) == 1
+    assert capsys.readouterr().out == ""
+    finding = json.loads(report.read_text(encoding="utf-8"))["runs"][0]["results"][0]
+    assert finding["locations"][0]["physicalLocation"]["artifactLocation"] == {
+        "uri": "src/page.astro"
+    }

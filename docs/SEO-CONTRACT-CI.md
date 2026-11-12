@@ -902,11 +902,28 @@ uv run python -m searcharis.build_compare manifest.json baseline-build candidate
 ```
 
 The exit codes remain 0/1/2 and `--sarif` is mutually exclusive with `--json`.
+For an upload-ready UTF-8 JSON artifact path without shell redirection, use:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --fail-on-new-unlisted --sarif-file seo-regressions.sarif
+```
+
+`--sarif-file` uses exclusive create (never overwrites an existing artifact),
+refuses destinations inside either build snapshot, writes no SARIF to stdout,
+and retains comparison exit codes 0/1/2. It avoids Windows PowerShell 5.1's
+default UTF-16LE `>` redirection, which is unsuitable for JSON upload consumers.
+The file can be supplied to an explicitly configured SARIF consumer such as
+GitHub code scanning's `upload-sarif` action via its `sarif_file` input
+([GitHub documentation](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/integrate-with-existing-tools/upload-sarif-file));
+this tool does not upload, provision code scanning, or change any workflow.
+Actual ingestion depends on the repository's enabled GitHub features and
+permissions and has not been verified here. Use a fresh file path each run.
 Existing baseline debt and resolved issues do not become SARIF alerts. New
 unlisted HTML is emitted only with `--require-full-coverage` or
 `--fail-on-new-unlisted`; new external canonical/hreflang targets are emitted
 only when `--fail-on-new-unverified-targets` is enabled alongside a cross-page
-check. Use `--sarif-source-map source-map.json` to anchor new findings to
+check. Use `--sarif-source-map source-map.json` with either SARIF mode to anchor new findings to
 explicitly reviewed, existing repository sources as described below. Unmapped
 results refer to built HTML; line 1 is a document-level anchor, not a guessed
 template line. Capture output as UTF-8 and do not treat it as evidence of
@@ -931,7 +948,7 @@ the original `--junit` option remains available; ensure your shell saves
 its output in a compatible encoding. See
 [Microsoft's Windows PowerShell encoding reference](https://github.com/MicrosoftDocs/PowerShell-Docs/blob/main/reference/5.1/Microsoft.PowerShell.Core/About/about_Character_Encoding.md).
 
-JUnit output modes are mutually exclusive with `--json` and `--sarif`;
+JUnit output modes are mutually exclusive with `--json`, `--sarif` and `--sarif-file`;
 `--sarif-source-map` remains SARIF-only. The XML contains one failed testcase
 per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
 or newly unverified cross-page target when gated. The testcase name identifies
