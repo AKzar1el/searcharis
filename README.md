@@ -133,6 +133,11 @@ to see one new pricing-page title regression reported while an unchanged
 home-page description defect remains permitted. This example intentionally
 returns exit code 1; real gates must use independently produced, trusted
 build snapshots and a reviewed manifest.
+Use `--json-file seo-regressions.json` to save complete baseline/candidate
+comparison findings directly as UTF-8 for local CI artifact consumers. The
+file must be new and outside both build snapshots; the checker never uploads
+it. Unlike SARIF and JUnit, this JSON includes pre-existing and resolved debt
+as well as newly blocking regressions, while retaining exit codes 0/1/2.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.

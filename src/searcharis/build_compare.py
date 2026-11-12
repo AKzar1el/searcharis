@@ -67,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print machine-readable comparison")
     output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete comparison JSON to a new UTF-8 file; never overwrite",
+    )
+    output.add_argument(
         "--sarif", action="store_true",
         help="Print SARIF 2.1.0 findings only for new blocking regressions",
     )
@@ -174,6 +178,19 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         else:
             print(junit)
+    elif args.json_file:
+        try:
+            target = args.json_file.resolve()
+            if target.is_relative_to(baseline_root) or target.is_relative_to(
+                candidate_root
+            ):
+                raise ValueError("JSON file must be outside both build directories")
+            # Write without shell redirection so Windows consumers receive UTF-8.
+            with args.json_file.open("x", encoding="utf-8", newline="\n") as report:
+                report.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
     else:
         print_comparison(
             result, as_json=args.json,
