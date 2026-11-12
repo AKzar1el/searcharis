@@ -19,6 +19,21 @@ For your own build, supply your **own, reviewed** `seo-manifest.json` and
 `path/to/dist/sitemap.xml`. Run `site_cli` separately on the built HTML to
 check that the actual pages still satisfy their reviewed SEO contracts.
 
+For a site with multiple generated sitemap URL sets, list every local XML file
+explicitly (in any order), so one reviewed manifest is checked against their
+union:
+
+```sh
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --json
+```
+
+Missing indexable URLs and unexpected noindex URLs are evaluated across all
+supplied files. Duplicated URL identities (including aliases) and conflicting
+hosts across files are input errors (exit 2). This is not sitemap index
+resolution: the checker never follows `<sitemapindex>` URLs, reads remote
+content, or automatically discovers files. Supply and review every local URL
+set yourself; an omitted shard can cause an intentional missing-URL failure.
+
 ## Policy (only explicit assertions count)
 
 - `indexable: true` requires the page's reviewed `canonical` URL in the
@@ -35,13 +50,14 @@ check that the actual pages still satisfy their reviewed SEO contracts.
   Duplicate sitemap URL identities and contradictory reviewed intentions are
   input errors rather than silent passes.
 
-Only a single standard-namespace `urlset` with `<url><loc>...</loc></url>` is
-accepted. Sitemap indexes are **not** supported in this first local check.
-Input is limited to 4,000,000 bytes, 50,000 sitemap URLs and 10,000 manifest
-pages. The XML must be UTF-8; DTDs/entities are rejected. Sitemap URLs must be
-absolute, fragment-free, and from one host. Optional XML metadata (`lastmod`,
-`priority`, localized extension tags) is ignored; the check makes no attempt
-to prove any metadata claims.
+Only standard-namespace `urlset` files with `<url><loc>...</loc></url>` are
+accepted. Sitemap indexes remain **unsupported**. Each file is limited to
+4,000,000 bytes and 50,000 URLs; a batch is limited to 16 files, 16,000,000
+total bytes and 100,000 total URLs. The manifest may have up to 10,000 pages.
+The XML must be UTF-8; DTDs/entities are rejected. Sitemap URLs must be
+absolute, fragment-free, and from one host across all files. Optional XML
+metadata (`lastmod`, `priority`, localized extension tags) is ignored; the
+check makes no attempt to prove any metadata claims.
 
 This is a **reviewed intention check**, not a crawler or an indexing
 prediction. It cannot validate live HTTP statuses, redirects, public routing,

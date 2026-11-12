@@ -19,13 +19,13 @@ def _manifest(*contracts):
     }
 
 
-def _sitemap(tmp_path, *urls, xml=None):
+def _sitemap(tmp_path, *urls, xml=None, filename="sitemap.xml"):
     payload = xml if xml is not None else (
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
         + "".join(f"<url><loc>{escape(url)}</loc></url>" for url in urls)
         + "</urlset>"
     )
-    path = tmp_path / "sitemap.xml"
+    path = tmp_path / filename
     path.write_text(payload, encoding="utf-8")
     return path
 
@@ -190,4 +190,120 @@ def test_cli_invalid_sitemap_returns_structured_input_error(tmp_path, capsys):
     manifest.write_text(json.dumps(_manifest({"url": "https://example.test/"})), encoding="utf-8")
     rc = main([str(manifest), str(_sitemap(tmp_path, xml="not xml")), "--json"])
     assert rc == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+def test_multiple_local_urlsets_combine_reviewed_indexability(tmp_path):
+    manifest = _manifest(
+        {"url": "https://example.test/first", "indexable": True},
+        {"url": "https://example.test/second", "indexable": True},
+        {"url": "https://example.test/noindex", "indexable": False},
+    )
+    first = _sitemap(tmp_path, "https://example.test/first", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/second", filename="second.xml")
+    assert verify_sitemap_manifest(manifest, first)["status"] == "fail"
+    report = verify_sitemap_manifest(manifest, [first, second])
+    assert report["status"] == "pass"
+    assert report["summary"]["sitemap_urls"] == 2
+    assert report["summary"]["required"] == 2
+
+
+def test_multiple_local_urlsets_detect_noindex_on_later_file(tmp_path):
+    manifest = _manifest({"url": "https://example.test/noindex", "indexable": False})
+    first = _sitemap(tmp_path, "https://example.test/other", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/noindex", filename="second.xml")
+    report = verify_sitemap_manifest(manifest, [first, second])
+    assert report["status"] == "fail"
+    assert report["present_excluded"] == ["https://example.test/noindex"]
+
+
+def test_cli_accepts_two_explicit_local_urlsets(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest(
+        {"url": "https://example.test/first", "indexable": True},
+        {"url": "https://example.test/second", "indexable": True},
+    )), encoding="utf-8")
+    first = _sitemap(tmp_path, "https://example.test/first", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/second", filename="second.xml")
+    rc = main([str(manifest), str(first), str(second), "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["summary"]["sitemap_urls"] == 2
+
+
+def test_duplicate_identity_across_sitemap_files_is_input_error(tmp_path):
+    manifest = _manifest({"url": "https://example.test/~user", "indexable": True})
+    first = _sitemap(tmp_path, "https://EXAMPLE.test/%7Euser", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test:443/~user", filename="second.xml")
+    with pytest.raises(ValueError, match="Duplicate sitemap"):
+        verify_sitemap_manifest(manifest, [first, second])
+
+
+def test_malformed_second_sitemap_fails_closed(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    second = _sitemap(tmp_path, xml="not xml", filename="broken.xml")
+    with pytest.raises(ValueError, match="Invalid sitemap XML"):
+        verify_sitemap_manifest(manifest, [first, second])
+
+
+def test_sitemap_files_must_have_same_host(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    second = _sitemap(tmp_path, "https://other.test/", filename="second.xml")
+    with pytest.raises(ValueError, match="same host"):
+        verify_sitemap_manifest(manifest, [first, second])
+
+
+def test_repeated_sitemap_file_is_not_silently_counted_twice(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/")
+    with pytest.raises(ValueError, match="Duplicate sitemap"):
+        verify_sitemap_manifest(manifest, [first, first])
+
+
+def test_too_many_sitemap_files_rejected_before_reading(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/")
+    with pytest.raises(ValueError, match="at most 16"):
+        verify_sitemap_manifest(manifest, [first] * 17)
+
+
+def test_total_sitemap_url_limit_applies_across_shards(tmp_path, monkeypatch):
+    import searcharis.sitemap_ci as sitemap_ci
+
+    manifest = _manifest({"url": "https://example.test/one", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/one", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/two", filename="second.xml")
+    monkeypatch.setattr(sitemap_ci, "_MAX_TOTAL_SITEMAP_URLS", 1, raising=False)
+    with pytest.raises(ValueError, match="Combined.*URLs"):
+        verify_sitemap_manifest(manifest, [first, second])
+
+
+def test_total_sitemap_byte_limit_applies_across_files(tmp_path, monkeypatch):
+    import searcharis.sitemap_ci as sitemap_ci
+
+    manifest = _manifest({"url": "https://example.test/one", "indexable": True})
+    first = _sitemap(tmp_path, "https://example.test/one", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/two", filename="second.xml")
+    monkeypatch.setattr(
+        sitemap_ci, "_MAX_TOTAL_SITEMAP_BYTES", first.stat().st_size + second.stat().st_size - 1,
+    )
+    with pytest.raises(ValueError, match="Combined.*bytes"):
+        verify_sitemap_manifest(manifest, [first, second])
+
+
+def test_no_local_sitemap_files_is_input_error(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    with pytest.raises(ValueError, match="at most 16"):
+        verify_sitemap_manifest(manifest, [])
+
+
+def test_cli_fails_closed_on_invalid_later_file(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    first = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    second = _sitemap(tmp_path, xml="<sitemapindex/>", filename="index.xml")
+    assert main([str(manifest), str(first), str(second), "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "error"

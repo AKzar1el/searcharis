@@ -22,12 +22,15 @@ def main(argv: list[str] | None = None) -> int:
         description="Check local XML sitemap against reviewed indexability assertions",
     )
     parser.add_argument("manifest", type=Path, help="Reviewed SEO page manifest (version 1)")
-    parser.add_argument("sitemap", type=Path, help="Local sitemap.xml (URL set, not index)")
+    parser.add_argument(
+        "sitemaps", nargs="+", type=Path,
+        help="One or more explicit local sitemap XML URL sets (not indexes)",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured JSON outcome")
     args = parser.parse_args(argv)
 
     try:
-        report = verify_sitemap_manifest(read_manifest(args.manifest), args.sitemap)
+        report = verify_sitemap_manifest(read_manifest(args.manifest), args.sitemaps)
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
