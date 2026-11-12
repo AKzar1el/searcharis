@@ -91,6 +91,55 @@ def test_canonical_target_alias_cannot_hide_local_nonself_canonical(tmp_path, al
     )
 
 
+@pytest.mark.parametrize("declared_target,observed_alias", [
+    ("https://example.com/~sl/", "https://example.com/%7esl/"),
+    ("https://example.com/sl/?q=A", "https://example.com/sl/?q=%41"),
+    ("https://example.com/a%2Fb/", "https://example.com/a%2fb/"),
+])
+def test_percent_encoded_alias_cannot_hide_nonself_local_canonical(
+    tmp_path, declared_target, observed_alias
+):
+    manifest = _build(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = declared_target
+    _change(tmp_path, "en", [observed_alias])
+    _change(tmp_path, "sl", ["/wrong/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "fail"
+    assert _issues(result, "en")[0]["code"] == "canonical_target_not_self"
+    assert result["canonical_consistency"]["internal_targets_checked"] == 1
+    assert {"path": "en/index.html", "target": observed_alias} not in (
+        result["canonical_consistency"]["unverified_targets"]
+    )
+
+
+def test_percent_encoded_local_alias_accepts_equivalent_self_canonical(tmp_path):
+    manifest = _build(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://example.com/~sl/"
+    _change(tmp_path, "en", ["https://example.com/%7Esl/"])
+    _change(tmp_path, "sl", ["https://example.com/%7esl/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 1, "unverified_targets": [],
+    }
+
+
+def test_percent_encoded_reserved_delimiter_remains_a_distinct_route(tmp_path):
+    manifest = _build(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://example.com/a%2Fb/"
+    _change(tmp_path, "en", ["https://example.com/a/b/"])
+    _change(tmp_path, "sl", ["/wrong/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"]["internal_targets_checked"] == 0
+    assert {"path": "en/index.html", "target": "https://example.com/a/b/"} in (
+        result["canonical_consistency"]["unverified_targets"]
+    )
+
+
 @pytest.mark.parametrize("alias", [
     "https://EXAMPLE.com/sl/",
     "https://example.com:443/sl/",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -17,6 +18,7 @@ _MAX_INPUT_BYTES = 4_000_000
 _MAX_PAGES = 10_000
 _MAX_DISCOVERED = 20_000
 _HTML_EXTENSIONS = frozenset({".html", ".htm"})
+_ENCODED_OCTET = re.compile(r"%[0-9a-fA-F]{2}")
 
 
 def _read_limited(path: Path) -> str:
@@ -40,14 +42,31 @@ def _manifest_path(value: object) -> str:
     return value
 
 
+def _normalize_percent_encoding(component: str) -> str:
+    """Decode only unreserved ASCII; preserve reserved encodings as uppercase hex."""
+
+    def replacement(match: re.Match[str]) -> str:
+        character = chr(int(match.group()[1:], 16))
+        if character.isascii() and (character.isalnum() or character in "-._~"):
+            return character
+        return match.group().upper()
+
+    return _ENCODED_OCTET.sub(replacement, component)
+
+
 def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     """Compare HTTP(S) page identities without collapsing distinct routes or queries."""
     parts = urlsplit(url)
-    # RFC 3986 6.2.3: a default port and an empty root path do not
-    # identify a separate HTTP(S) resource. Contracts are validated upstream.
+    # RFC 3986 6.2.2 and 6.2.3: default ports, empty roots and percent-
+    # encoded unreserved octets do not identify separate resources.
+    # Never decode reserved delimiters such as %2F into a literal slash.
     default_port = 80 if parts.scheme == "http" else 443
     port = None if parts.port in (None, default_port) else parts.port
-    return parts.scheme, parts.hostname or "", port, parts.path or "/", parts.query
+    return (
+        parts.scheme, parts.hostname or "", port,
+        _normalize_percent_encoding(parts.path or "/"),
+        _normalize_percent_encoding(parts.query),
+    )
 
 
 def verify_manifest(
