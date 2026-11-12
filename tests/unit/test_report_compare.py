@@ -479,6 +479,60 @@ def test_comparison_rejects_falsely_unverified_manifest_target(check):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/de/index.html",
+    "https://example.test:443/de/index.html",
+    "https://example.test/de/%69ndex.html",
+    "https://example.test/en/../de/index.html",
+    "https://example.test/de/index.html#fragment",
+])
+def test_comparison_rejects_canonical_target_alias_falsely_marked_unverified(alias):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("canonical_consistency",),
+    )
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": alias,
+    }]
+    with pytest.raises(ValueError, match="invalid canonical_consistency unverified targets"):
+        compare_reports(report, report)
+
+
+def test_archived_hreflang_target_alias_retains_exact_url_matching():
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("hreflang_reciprocity",),
+    )
+    report["hreflang_reciprocity"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    }]
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_rejects_archived_canonical_alias_as_input_error(tmp_path, capsys, json_output):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("canonical_consistency",),
+    )
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+        assert "canonical_consistency" in json.loads(output.out)["error"]
+    else:
+        assert "canonical_consistency" in output.err
+        assert not output.out
+
+
 @pytest.mark.parametrize("json_output", [True, False])
 def test_cli_rejects_falsely_unverified_manifest_target(tmp_path, capsys, json_output):
     report = _report(
