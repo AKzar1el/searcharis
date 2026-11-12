@@ -71,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Print SARIF 2.1.0 findings only for new blocking regressions",
     )
     output.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write SARIF 2.1.0 to a new UTF-8 JSON file; never overwrite existing files",
+    )
+    output.add_argument(
         "--junit", action="store_true",
         help="Print JUnit XML test results only for new blocking regressions",
     )
@@ -83,8 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional reviewed build-to-repository source mapping (SARIF only)",
     )
     args = parser.parse_args(argv)
-    if args.sarif_source_map and not args.sarif:
-        parser.error("--sarif-source-map requires --sarif")
+    if args.sarif_source_map and not (args.sarif or args.sarif_file):
+        parser.error("--sarif-source-map requires --sarif or --sarif-file")
 
     try:
         # Comparing a build with itself silently passes even when a CI input was
@@ -125,13 +129,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.sarif:
+    if args.sarif or args.sarif_file:
         sarif = build_comparison_sarif(
             result, candidate, sources=sources,
             gate_new_unlisted=args.require_full_coverage or args.fail_on_new_unlisted,
             gate_new_unverified_targets=args.fail_on_new_unverified_targets,
         )
-        print(json.dumps(sarif, indent=2, sort_keys=True))
+        serialized = json.dumps(sarif, indent=2, sort_keys=True)
+        if args.sarif_file:
+            try:
+                target = args.sarif_file.resolve()
+                if target.is_relative_to(baseline_root) or target.is_relative_to(
+                    candidate_root
+                ):
+                    raise ValueError("SARIF file must be outside both build directories")
+                # Exclusive creation protects existing artifacts; explicit UTF-8
+                # avoids PowerShell 5.1 stdout redirection's UTF-16LE default.
+                with args.sarif_file.open("x", encoding="utf-8", newline="\n") as report:
+                    report.write(serialized + "\n")
+            except (OSError, UnicodeError, ValueError) as error:
+                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                return 2
+        else:
+            print(serialized)
     elif args.junit or args.junit_file:
         junit = build_comparison_junit(
             result,

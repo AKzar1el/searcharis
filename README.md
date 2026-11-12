@@ -136,6 +136,9 @@ build snapshots and a reviewed manifest.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.
+Use `--sarif-file seo-regressions.sarif` to write a new UTF-8 JSON artifact
+directly for a separately configured SARIF consumer, without PowerShell
+redirection; it refuses existing files and destinations inside either build.
 Use `--junit` instead to emit an offline JUnit XML test report suitable for
 CI report consumers such as GitLab and Jenkins, with existing baseline debt
 excluded and the same regression-only exit status. Publish the XML even if

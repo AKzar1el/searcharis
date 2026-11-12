@@ -75,3 +75,22 @@ def test_runnable_regression_demo_excludes_known_baseline_debt(
     file_junit = ET.parse(report_file).getroot()
     assert file_junit.attrib["failures"] == "1"
     assert "pricing/index.html" in file_junit.find("testcase").attrib["name"]
+
+    sarif_file = tmp_path / "seo-regressions.sarif"
+    sarif_code = compare_builds([
+        str(manifest), str(baseline), str(candidate),
+        "--require-full-coverage", "--sarif-file", str(sarif_file),
+    ])
+    output = capsys.readouterr()
+    assert sarif_code == 1
+    assert output.out == output.err == ""
+    sarif_content = sarif_file.read_bytes()
+    assert b"\x00" not in sarif_content
+    sarif_report = json.loads(sarif_content.decode("utf-8"))
+    assert sarif_report["version"] == "2.1.0"
+    sarif_results = sarif_report["runs"][0]["results"]
+    assert len(sarif_results) == 1
+    assert sarif_results[0]["ruleId"] == "title_presence"
+    assert sarif_results[0]["locations"][0]["physicalLocation"][
+        "artifactLocation"
+    ]["uri"] == "pricing/index.html"
