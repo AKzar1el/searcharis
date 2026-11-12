@@ -53,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write structured UTF-8 JSON findings to a new file without overwriting",
+    )
+    output.add_argument(
         "--sarif",
         action="store_true",
         help="Print SARIF 2.1.0 issues for built HTML (or explicitly mapped sources)",
@@ -86,7 +90,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.json_file:
+        try:
+            if args.json_file.resolve().is_relative_to(args.build_dir.resolve()):
+                raise ValueError("JSON report file must be outside the build directory")
+            # Exclusive create preserves existing CI artifacts; writing UTF-8
+            # avoids the default UTF-16LE stdout redirection of PowerShell 5.1.
+            with args.json_file.open("x", encoding="utf-8", newline="\n") as destination:
+                destination.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.sarif:
         print(json.dumps(build_sarif_report(report, sources=sources), indent=2, sort_keys=True))

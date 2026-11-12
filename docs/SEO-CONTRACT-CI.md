@@ -972,13 +972,22 @@ and [Jenkins JUnit publisher](https://www.jenkins.io/doc/pipeline/steps/junit/).
 
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
-on the candidate build, saving their complete `--json` outputs:
+on the candidate build, saving complete UTF-8 JSON reports directly:
 
 ```sh
-uv run python -m searcharis.site_cli manifest.json baseline-build --json > baseline.json
-uv run python -m searcharis.site_cli manifest.json candidate-build --json > candidate.json
+uv run python -m searcharis.site_cli manifest.json baseline-build --json-file baseline.json
+uv run python -m searcharis.site_cli manifest.json candidate-build --json-file candidate.json
 uv run python -m searcharis.report_compare baseline.json candidate.json --json
 ```
+
+`--json-file PATH` writes the same structured report as `--json` to a new
+UTF-8 file without JSON on stdout. It cannot be combined with `--json` or
+`--sarif`, will not overwrite an existing file, and rejects destinations
+inside the immutable build directory. Input errors (exit 2) do not create a
+report; invalid output destinations also return 2. Use a fresh artifact path
+for each run. This avoids Windows PowerShell 5.1's default UTF-16LE `>`
+redirection, which `report_compare` cannot read as UTF-8. The original
+`--json` stdout mode remains available when your shell preserves UTF-8.
 
 The first two invocations may return **1** when their build has known contract
 failures; when collecting reports, handle that exit status without aborting
