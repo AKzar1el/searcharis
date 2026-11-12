@@ -124,9 +124,10 @@ indexability, description, route-map and per-page policies only after reviewing
 actual hosting routes. Built HTML checks cannot prove HTTP response status,
 headers, redirects, JavaScript-rendered metadata or Google indexing.
 
-For static XML sitemap coverage, the optional `sitemap_cli` checks an existing
-local `sitemap.xml` against explicitly reviewed `indexable: true/false` page
-contracts. It never fetches URLs or guesses which pages should be indexed.
+For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
+explicit local sitemap URL sets against reviewed `indexable: true/false` page
+contracts. It never fetches URLs, resolves sitemap indexes, or guesses which
+pages should be indexed.
 See the [offline sitemap CI guide](docs/OFFLINE-SITEMAP-CI.md) for a runnable
 pass/fail fixture and limitations.
 

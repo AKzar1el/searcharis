@@ -7,6 +7,7 @@ entries are deliberately not treated as errors: the manifest is not a crawl map.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
@@ -17,13 +18,17 @@ from searcharis.site_ci import _MAX_PAGES, _manifest_path, _page_url_identity
 _SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 _MAX_SITEMAP_BYTES = 4_000_000
 _MAX_SITEMAP_URLS = 50_000
+_MAX_SITEMAP_FILES = 16
+_MAX_TOTAL_SITEMAP_BYTES = 16_000_000
+_MAX_TOTAL_SITEMAP_URLS = 100_000
 
 
 def _read_sitemap(path: Path) -> dict[tuple, str]:
     """Read a bounded UTF-8 sitemap URL set; reject DTD and URL aliases."""
-    if path.stat().st_size > _MAX_SITEMAP_BYTES:
+    with path.open("rb") as stream:
+        data = stream.read(_MAX_SITEMAP_BYTES + 1)
+    if len(data) > _MAX_SITEMAP_BYTES:
         raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
-    data = path.read_bytes()
     # ElementTree does not resolve external resources, and rejecting DTDs also
     # avoids entity amplification and XML parser-dependent interpretation.
     decoded = data.decode("utf-8-sig")
@@ -69,7 +74,42 @@ def _read_sitemap(path: Path) -> dict[tuple, str]:
     return urls
 
 
-def verify_sitemap_manifest(manifest: object, sitemap_path: Path) -> dict:
+def _read_sitemaps(paths: Path | Sequence[Path]) -> dict[tuple, str]:
+    """Union explicitly supplied local URL sets without resolving index URLs."""
+    if isinstance(paths, Path):
+        files = (paths,)
+    elif isinstance(paths, Sequence) and all(isinstance(p, Path) for p in paths):
+        files = tuple(paths)
+    else:
+        raise ValueError("Sitemap inputs must be local file paths")
+    if not 1 <= len(files) <= _MAX_SITEMAP_FILES:
+        raise ValueError(f"Supply 1 to at most {_MAX_SITEMAP_FILES} local sitemap files")
+
+    urls: dict[tuple, str] = {}
+    seen_files: set[Path] = set()
+    host: str | None = None
+    total_bytes = 0
+    for path in files:
+        if path in seen_files:
+            raise ValueError(f"Duplicate sitemap file: {path}")
+        seen_files.add(path)
+        total_bytes += path.stat().st_size
+        if total_bytes > _MAX_TOTAL_SITEMAP_BYTES:
+            raise ValueError(f"Combined sitemaps exceed {_MAX_TOTAL_SITEMAP_BYTES} bytes")
+        for identity, location in _read_sitemap(path).items():
+            current_host = urlsplit(location).hostname
+            if host is not None and current_host != host:
+                raise ValueError("Sitemap loc URLs must belong to the same host across files")
+            host = current_host
+            if identity in urls:
+                raise ValueError(f"Duplicate sitemap loc URL identity across files: {location!r}")
+            urls[identity] = location
+            if len(urls) > _MAX_TOTAL_SITEMAP_URLS:
+                raise ValueError(f"Combined sitemaps exceed {_MAX_TOTAL_SITEMAP_URLS} URLs")
+    return urls
+
+
+def verify_sitemap_manifest(manifest: object, sitemap_path: Path | Sequence[Path]) -> dict:
     """Assert only reviewed indexable/noindex intentions against local XML.
 
     An explicitly indexable page expects its explicitly reviewed canonical,
@@ -130,7 +170,7 @@ def verify_sitemap_manifest(manifest: object, sitemap_path: Path) -> dict:
     if not required and not excluded:
         raise ValueError("Sitemap comparison needs an explicit indexable assertion")
 
-    sitemap = _read_sitemap(sitemap_path)
+    sitemap = _read_sitemaps(sitemap_path)
     missing = sorted(url for identity, url in required.items() if identity not in sitemap)
     present = sorted(url for identity, url in excluded.items() if identity in sitemap)
     return {
