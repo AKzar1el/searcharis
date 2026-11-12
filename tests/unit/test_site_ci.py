@@ -509,6 +509,53 @@ def test_manifest_rejects_percent_encoded_equivalent_page_identities(
         verify_manifest(manifest, tmp_path)
 
 
+@pytest.mark.parametrize("first_url,second_url", [
+    ("https://example.com/a/../same/", "https://example.com/same/"),
+    ("https://example.com/same/./", "https://example.com/same/"),
+    ("https://example.com/%2e/same/", "https://example.com/same/"),
+    ("https://example.com/a/%2E%2e/same/", "https://example.com/same/"),
+    ("https://example.com/a/..", "https://example.com/"),
+])
+def test_manifest_rejects_dot_segment_page_identity_aliases(
+    tmp_path, first_url, second_url
+):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(manifest["pages"], (first_url, second_url), strict=True):
+        entry["contract"] = {"url": url, "title_present": True}
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
+def test_site_cli_rejects_dot_segment_duplicate_as_input_error(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/a/../same/", "https://example.com/same/"),
+        strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_file), str(tmp_path), "--json"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "Duplicate contract URL" in result["error"]
+
+
+@pytest.mark.parametrize("second_url", [
+    "https://example.com/same/?next=/a/../b",
+    "https://example.com/a%2F../same/",
+    "https://example.com/a//../same/",
+    "https://example.com/same/.hidden/",
+])
+def test_manifest_preserves_non_dot_segment_url_distinctions(tmp_path, second_url):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/same/", second_url), strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
 def test_site_cli_rejects_unreserved_percent_alias_as_input_error(tmp_path, capsys):
     manifest = _setup(tmp_path)
     for entry, url in zip(

@@ -54,17 +54,50 @@ def _normalize_percent_encoding(component: str) -> str:
     return _ENCODED_OCTET.sub(replacement, component)
 
 
+def _remove_dot_segments(path: str) -> str:
+    """Remove whole URI dot-segments, preserving empty and reserved path segments."""
+    remaining = path
+    output = ""
+    # RFC 3986 section 5.2.4: operate on the path, never on the query.
+    while remaining:
+        if remaining.startswith("../"):
+            remaining = remaining[3:]
+        elif remaining.startswith("./") or remaining.startswith("/./"):
+            remaining = remaining[2:]
+        elif remaining == "/.":
+            remaining = "/"
+        elif remaining.startswith("/../"):
+            remaining = remaining[3:]
+            output = output.rsplit("/", 1)[0]
+        elif remaining == "/..":
+            remaining = "/"
+            output = output.rsplit("/", 1)[0]
+        elif remaining in (".", ".."):
+            remaining = ""
+        else:
+            segment_start = 1 if remaining.startswith("/") else 0
+            next_separator = remaining.find("/", segment_start)
+            if next_separator == -1:
+                output += remaining
+                remaining = ""
+            else:
+                output += remaining[:next_separator]
+                remaining = remaining[next_separator:]
+    return output
+
+
 def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     """Compare HTTP(S) page identities without collapsing distinct routes or queries."""
     parts = urlsplit(url)
     # RFC 3986 6.2.2 and 6.2.3: default ports, empty roots and percent-
-    # encoded unreserved octets do not identify separate resources.
+    # encoded unreserved octets and complete dot-segments do not identify
+    # separate resources. Do not rewrite observed URL strings in reports.
     # Never decode reserved delimiters such as %2F into a literal slash.
     default_port = 80 if parts.scheme == "http" else 443
     port = None if parts.port in (None, default_port) else parts.port
     return (
         parts.scheme, parts.hostname or "", port,
-        _normalize_percent_encoding(parts.path or "/"),
+        _remove_dot_segments(_normalize_percent_encoding(parts.path or "/")),
         _normalize_percent_encoding(parts.query),
     )
 
