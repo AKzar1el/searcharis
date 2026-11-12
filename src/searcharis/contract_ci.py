@@ -396,9 +396,9 @@ def _check_contract(spec: object) -> dict:
     ):
         raise ValueError("'html_lang' must be a non-empty language tag without whitespace")
     if "canonical" in spec and (
-        not isinstance(spec["canonical"], str) or not _is_http_url(spec["canonical"])
+        not isinstance(spec["canonical"], str) or not _is_canonical_url(spec["canonical"])
     ):
-        raise ValueError("'canonical' must be an absolute HTTP(S) URL")
+        raise ValueError("'canonical' must be an absolute HTTP(S) URL without fragments")
     if "og_image_equals" in spec and (
         not isinstance(spec["og_image_equals"], str) or not _is_http_url(spec["og_image_equals"])
     ):
@@ -518,6 +518,13 @@ def _resolve_href(base_url: str, href: str) -> str:
         return href
 
 
+def _resolve_canonical_href(base_url: str, href: str) -> str:
+    resolved = _resolve_href(base_url, href)
+    # urljoin discards an empty trailing '#' even though it is still an
+    # unsupported canonical fragment; retain that evidence for the checker.
+    return resolved + "#" if "#" in href and "#" not in resolved else resolved
+
+
 def _viewport_uses_device_width(content: str) -> bool:
     widths = []
     for directive in content.split(","):
@@ -552,6 +559,12 @@ def _is_http_url(value: str) -> bool:
         )
     except ValueError:
         return False
+
+
+def _is_canonical_url(value: str) -> bool:
+    # Google generally ignores URL fragments for rel=canonical. A bare '#'
+    # is rejected too, while percent-encoded '#' within a path stays valid.
+    return _is_http_url(value) and "#" not in value
 
 
 def verify_contract(
@@ -726,15 +739,15 @@ def verify_contract(
         if actual is None or actual.lower() != spec["html_lang"].lower():
             fail("html_lang", spec["html_lang"], actual)
     if "canonical" in spec or "canonical_present" in spec:
-        observed = [_resolve_href(base_url, item) for item in page.canonicals]
+        observed = [_resolve_canonical_href(base_url, item) for item in page.canonicals]
         if "canonical" in spec and (
-            observed != [spec["canonical"]] or any(not _is_http_url(item) for item in observed)
+            observed != [spec["canonical"]] or any(not _is_canonical_url(item) for item in observed)
         ):
             fail("canonical", [spec["canonical"]], observed)
         if "canonical_present" in spec:
             # Presence means exactly one usable canonical, not any number of
             # declarations; false means no active canonical destinations.
-            valid_single = len(observed) == 1 and _is_http_url(observed[0])
+            valid_single = len(observed) == 1 and _is_canonical_url(observed[0])
             matches = valid_single if spec["canonical_present"] else not observed
             if not matches:
                 fail("canonical_presence", spec["canonical_present"], observed)
@@ -802,5 +815,7 @@ def verify_contract(
         result["observed_hreflang"] = resolved_hreflang
     if include_canonical:
         # Expose observed HTML values for optional cross-page checks; never fetch URLs.
-        result["observed_canonical"] = [_resolve_href(base_url, href) for href in page.canonicals]
+        result["observed_canonical"] = [
+            _resolve_canonical_href(base_url, href) for href in page.canonicals
+        ]
     return result

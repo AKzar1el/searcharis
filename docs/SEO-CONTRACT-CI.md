@@ -74,8 +74,8 @@ how valid contracts or manifests are read.
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
-| `canonical` | Require exactly one matching canonical link |
-| `canonical_present` | Require exactly one valid canonical URL (`true`) or no active canonical destination (`false`) |
+| `canonical` | Require exactly one matching canonical link, without a URL fragment |
+| `canonical_present` | Require exactly one valid fragment-free canonical URL (`true`) or no active canonical destination (`false`) |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
 | `followable` | Assert Googlebot link-following policy in robots/googlebot meta (`true` permits; `false` restricts) |
 | `h1_min`, `h1_max` | Bound the number of H1 elements |
@@ -796,9 +796,13 @@ uv run python -m searcharis.site_cli \
 ```
 
 Each manifest page must have **exactly one** HTML canonical link resolving to
-an HTTP(S) URL. Self-canonical pages pass. A page may point to another page,
-including a deliberate duplicate, but when that target URL is also in the
-manifest its built HTML must contain exactly one canonical to **itself**.
+a fragment-free HTTP(S) URL. Canonical links containing `#fragment` or even a
+trailing `#` fail; ordinary query strings remain allowed. This follows
+[Google's canonical guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls)
+that URL fragments generally aren't supported. Self-canonical pages pass.
+A page may point to another page, including a deliberate duplicate, but when
+that target URL is also in the manifest its built HTML must contain exactly
+one canonical to **itself**.
 This detects canonical chains, cycles, missing links on known targets and
 duplicate canonical declarations. Findings use
 `canonical_consistency.internal_targets_checked` and

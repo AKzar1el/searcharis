@@ -1117,6 +1117,19 @@ def test_valid_nondefault_port_expected_seo_urls_remain_supported():
     assert verify_contract(spec, html)["status"] == "pass"
 
 
+@pytest.mark.parametrize("fragment", ["#section", "#"])
+def test_expected_canonical_fragment_is_invalid_contract_input(fragment):
+    # Google generally does not support URL fragments as canonical identities.
+    with pytest.raises(ValueError, match="canonical.*fragment"):
+        verify_contract({"url": URL, "canonical": URL + fragment}, HTML)
+
+
+def test_canonical_query_string_without_fragment_remains_valid():
+    target = URL + "?view=full"
+    html = f'<html><head><link rel="canonical" href="{target}"></head></html>'
+    assert verify_contract({"url": URL, "canonical": target}, html)["status"] == "pass"
+
+
 def test_encoded_host_in_observed_canonical_is_not_treated_as_valid():
     html = (
         '<html><head><link rel="canonical" '
@@ -1134,14 +1147,32 @@ def test_encoded_host_in_observed_canonical_is_not_treated_as_valid():
 @pytest.mark.parametrize("observed", [
     "https://example.com:/en/",
     "https://[::1]:/en/",
+    "https://example.com/en/#section",
+    "https://example.com/en/#",
 ])
-def test_empty_port_in_observed_canonical_does_not_pass_presence(observed):
+def test_invalid_observed_canonical_does_not_pass_presence(observed):
     html = f'<html><head><link rel="canonical" href="{observed}"></head></html>'
     report = verify_contract({"url": URL, "canonical_present": True}, html)
     assert report["status"] == "fail"
     assert report["issues"] == [{
         "code": "canonical_presence", "expected": True, "actual": [observed],
     }]
+
+
+def test_relative_empty_fragment_canonical_is_not_normalized_to_valid_url():
+    html = '<html><head><link rel="canonical" href="/en/#"></head></html>'
+    report = verify_contract({"url": URL, "canonical_present": True}, html)
+    assert report["issues"] == [{
+        "code": "canonical_presence", "expected": True, "actual": [URL + "#"],
+    }]
+
+
+@pytest.mark.parametrize("href", ["/en/#", "/en/#section"])
+def test_exact_canonical_assertion_rejects_observed_fragments(href):
+    html = f'<html><head><link rel="canonical" href="{href}"></head></html>'
+    report = verify_contract({"url": URL, "canonical": URL}, html)
+    assert report["status"] == "fail"
+    assert report["issues"][0]["code"] == "canonical"
 
 
 def test_single_page_cli_rejects_invalid_expected_canonical(tmp_path, capsys):
