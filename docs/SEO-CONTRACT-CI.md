@@ -103,7 +103,10 @@ differ only in scheme or hostname casing, an explicit HTTP(S) default port
 percent-encoded unreserved characters (e.g. `%7E` versus `~`). Percent
 triplet hex casing (`%2f` versus `%2F`) is also equivalent, but encoded
 reserved delimiters (e.g. `%2F`) are never decoded into a literal slash.
-This follows [RFC 3986 sections 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
+Whole `.` and `..` path segments, including percent-encoded dot spellings,
+are normalized for page identity and opt-in internal canonical target lookup;
+dot-like text inside a path segment or query is not normalized.
+This follows [RFC 3986 sections 5.2.4, 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
 Reports retain original URLs; different schemes, non-default ports, and
 non-equivalent paths/queries (including path and query casing) remain distinct.
 Expected `canonical` and `hreflang` destinations in contracts must also be

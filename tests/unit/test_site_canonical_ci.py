@@ -126,6 +126,35 @@ def test_percent_encoded_local_alias_accepts_equivalent_self_canonical(tmp_path)
     }
 
 
+@pytest.mark.parametrize("observed_alias", [
+    "https://example.com/a/../sl/",
+    "https://example.com/%2e/sl/",
+    "https://example.com/archive/%2E%2e/sl/",
+])
+def test_dot_segment_canonical_alias_cannot_hide_nonself_target(tmp_path, observed_alias):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", [observed_alias])
+    _change(tmp_path, "sl", ["/wrong/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "fail"
+    assert _issues(result, "en")[0]["code"] == "canonical_target_not_self"
+    assert result["canonical_consistency"]["internal_targets_checked"] == 1
+    assert {"path": "en/index.html", "target": observed_alias} not in (
+        result["canonical_consistency"]["unverified_targets"]
+    )
+
+
+def test_dot_segment_canonical_self_alias_does_not_count_external(tmp_path):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", ["https://example.com/archive/../en/"])
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 0, "unverified_targets": [],
+    }
+
+
 def test_percent_encoded_reserved_delimiter_remains_a_distinct_route(tmp_path):
     manifest = _build(tmp_path)
     manifest["pages"][0]["contract"]["url"] = "https://example.com/a%2Fb/"
