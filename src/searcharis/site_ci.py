@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from searcharis.contract_ci import _is_canonical_url, verify_contract
 
@@ -39,6 +40,12 @@ def _manifest_path(value: object) -> str:
     return value
 
 
+def _page_url_identity(url: str) -> tuple[str, str, str, str]:
+    """Compare scheme/authority without case while preserving route and query case."""
+    parts = urlsplit(url)
+    return parts.scheme, parts.netloc.lower(), parts.path, parts.query
+
+
 def verify_manifest(
     manifest: object,
     build_dir: Path,
@@ -62,7 +69,7 @@ def verify_manifest(
 
     reports: list[dict] = []
     listed: set[str] = set()
-    urls: set[str] = set()
+    urls: set[tuple[str, str, str, str]] = set()
     observed_links: dict[str, dict[str, list[str]]] = {}
     observed_canonicals: dict[str, list[str]] = {}
     for entry in pages:
@@ -81,9 +88,10 @@ def verify_manifest(
             include_hreflang=check_hreflang_reciprocity or check_hreflang_clusters,
             include_canonical=check_canonical_consistency,
         )
-        if report["checked_url"] in urls:
+        url_identity = _page_url_identity(report["checked_url"])
+        if url_identity in urls:
             raise ValueError(f"Duplicate contract URL: {report['checked_url']}")
-        urls.add(report["checked_url"])
+        urls.add(url_identity)
         if check_hreflang_reciprocity or check_hreflang_clusters:
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
