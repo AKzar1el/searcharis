@@ -1079,6 +1079,20 @@ def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
         verify_contract({"url": bad_url, "title_present": True}, HTML)
 
 
+@pytest.mark.parametrize("fragment_url", [
+    URL + "#section", URL + "#", URL + "?view=full#section",
+])
+def test_page_contract_url_fragment_cannot_pass_title_only_check(fragment_url):
+    # Fragments do not identify separately indexed pages, even if the HTML title passes.
+    with pytest.raises(ValueError, match="'url'.*fragment"):
+        verify_contract({"url": fragment_url, "title_present": True}, HTML)
+
+
+def test_page_contract_url_query_and_encoded_hash_remain_supported():
+    for url in (URL + "?view=full", URL + "product%23red"):
+        assert verify_contract({"url": url, "title_present": True}, HTML)["status"] == "pass"
+
+
 @pytest.mark.parametrize("url", ["https://example.com:8443/en/", "https://[::1]:8443/en/"])
 def test_non_default_valid_contract_port_is_accepted(url):
     result = verify_contract({"url": url, "title_present": True}, HTML)
@@ -1202,6 +1216,18 @@ def test_single_page_cli_rejects_invalid_contract_url(tmp_path, capsys, bad_url)
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "error"
     assert "HTTP(S) URL" in report["error"]
+
+
+def test_single_page_cli_rejects_fragment_page_identity(tmp_path, capsys):
+    contract = tmp_path / "contract.json"
+    html = tmp_path / "index.html"
+    contract.write_text(json.dumps({"url": URL + "#", "title_present": True}))
+    html.write_text(HTML)
+
+    assert main([str(contract), str(html), "--json"]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "'url'" in report["error"] and "fragment" in report["error"]
 
 
 def test_cli_returns_correct_status(tmp_path, capsys):
