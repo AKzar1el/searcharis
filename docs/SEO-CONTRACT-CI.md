@@ -99,10 +99,13 @@ for contracts that assert only a page title. This validates URL syntax only;
 it does not fetch or check whether the URL resolves.
 Multi-page manifests also reject duplicate declared page identities when URLs
 differ only in scheme or hostname casing, an explicit HTTP(S) default port
-(`:80` for HTTP, `:443` for HTTPS), or an empty versus `/` root path. These
-scheme-based equivalences follow RFC 3986 section 6.2.3. Reports retain the
-original URLs; non-default ports, different schemes, paths and query strings
-remain distinct, including path and query casing.
+(`:80` for HTTP, `:443` for HTTPS), an empty versus `/` root path, or
+percent-encoded unreserved characters (e.g. `%7E` versus `~`). Percent
+triplet hex casing (`%2f` versus `%2F`) is also equivalent, but encoded
+reserved delimiters (e.g. `%2F`) are never decoded into a literal slash.
+This follows [RFC 3986 sections 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
+Reports retain original URLs; different schemes, non-default ports, and
+non-equivalent paths/queries (including path and query casing) remain distinct.
 Expected `canonical` and `hreflang` destinations in contracts must also be
 absolute HTTP(S) URLs with valid syntax. Invalid expected destinations (such as
 relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are
@@ -818,10 +821,12 @@ duplicate canonical declarations. Findings use
 `canonical_consistency.unverified_targets` (with source artifact paths).
 Local canonical target lookup uses the same HTTP(S) page identity as the
 manifest: host/scheme casing, explicit default ports and empty root paths
-cannot turn a known target into an unverified external URL. It still preserves
-distinct paths, queries, non-default ports and schemes, and reports original
-observed target URLs without rewriting them. This rule applies only to
-canonical consistency; the optional hreflang checks remain unchanged.
+cannot turn a known target into an unverified external URL. The same applies
+to unreserved percent-encoded aliases (`%7E` and `~`) and hex digit casing
+within percent triplets. Reserved `%2F` is never conflated with literal `/`.
+It still preserves non-equivalent paths, queries, non-default ports and schemes,
+and reports original observed target URLs without rewriting them. This rule
+applies only to canonical consistency; the optional hreflang checks remain unchanged.
 
 Targets **absent from the manifest** are reported as unverified, not counted as
 checked or treated as verified passes. That includes cross-domain canonicals.

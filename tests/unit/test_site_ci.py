@@ -493,6 +493,37 @@ def test_manifest_rejects_duplicate_urls_with_default_ports_or_empty_root(
         verify_manifest(manifest, tmp_path)
 
 
+@pytest.mark.parametrize("first_url,second_url", [
+    ("https://example.com/~team/", "https://example.com/%7Eteam/"),
+    ("https://example.com/A/", "https://example.com/%41/"),
+    ("https://example.com/a%2Fb/", "https://example.com/a%2fb/"),
+    ("https://example.com/search?q=~", "https://example.com/search?q=%7e"),
+])
+def test_manifest_rejects_percent_encoded_equivalent_page_identities(
+    tmp_path, first_url, second_url
+):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(manifest["pages"], (first_url, second_url), strict=True):
+        entry["contract"] = {"url": url, "title_present": True}
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
+def test_site_cli_rejects_unreserved_percent_alias_as_input_error(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(
+        manifest["pages"], ("https://example.com/~team/", "https://example.com/%7eteam/"),
+        strict=True,
+    ):
+        entry["contract"] = {"url": url, "title_present": True}
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    assert main([str(manifest_file), str(tmp_path), "--json"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert "Duplicate contract URL" in result["error"]
+
+
 def test_site_cli_rejects_default_port_duplicate_as_input_error(tmp_path, capsys):
     manifest = _setup(tmp_path)
     for entry, url in zip(
@@ -519,6 +550,19 @@ def test_manifest_retains_distinct_ports_schemes_paths_and_queries(tmp_path, sec
     for entry, url in zip(
         manifest["pages"], ("https://example.com/same/", second_url), strict=True
     ):
+        entry["contract"] = {"url": url, "title_present": True}
+    assert verify_manifest(manifest, tmp_path)["status"] == "pass"
+
+
+@pytest.mark.parametrize("first_url,second_url", [
+    ("https://example.com/a%2Fb/", "https://example.com/a/b/"),
+    ("https://example.com/search?q=a%26b", "https://example.com/search?q=a&b"),
+])
+def test_manifest_retains_reserved_percent_encoded_delimiters(
+    tmp_path, first_url, second_url
+):
+    manifest = _setup(tmp_path)
+    for entry, url in zip(manifest["pages"], (first_url, second_url), strict=True):
         entry["contract"] = {"url": url, "title_present": True}
     assert verify_manifest(manifest, tmp_path)["status"] == "pass"
 
