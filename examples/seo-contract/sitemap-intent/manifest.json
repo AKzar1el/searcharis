@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "path": "index.html",
+      "contract": {
+        "url": "https://example.com/",
+        "canonical": "https://example.com/",
+        "indexable": true
+      }
+    },
+    {
+      "path": "404.html",
+      "contract": {
+        "url": "https://example.com/404",
+        "indexable": false
+      }
+    }
+  ]
+}
