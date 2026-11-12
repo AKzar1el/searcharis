@@ -217,7 +217,13 @@ def verify_manifest(
 
     canonical_summary = None
     if check_canonical_consistency:
-        by_url = {report["checked_url"]: report for report in reports}
+        # The manifest already rejects duplicate normalized page identities.
+        # Resolve local canonical targets with that same identity rule rather
+        # than treating a hostname/port spelling variant as an external URL.
+        by_identity = {
+            _page_url_identity(report["checked_url"]): report["checked_url"]
+            for report in reports
+        }
         checked_targets = 0
         unverified_targets: list[dict[str, str]] = []
         for report in reports:
@@ -237,21 +243,29 @@ def verify_manifest(
                         "expected": "an absolute HTTP(S) canonical URL without fragments",
                         "actual": target,
                     })
-                elif target != source_url:
-                    if target not in by_url:
-                        unverified_targets.append({
-                            "path": report["path"], "target": target,
-                        })
-                    else:
-                        checked_targets += 1
-                        actual = observed_canonicals[target]
-                        if actual != [target]:
-                            report["issues"].append({
-                                "code": "canonical_target_not_self",
-                                "target": target,
-                                "expected": [target],
-                                "actual": actual,
+                else:
+                    target_identity = _page_url_identity(target)
+                    if target_identity != _page_url_identity(source_url):
+                        destination_url = by_identity.get(target_identity)
+                        if destination_url is None:
+                            unverified_targets.append({
+                                "path": report["path"], "target": target,
                             })
+                        else:
+                            checked_targets += 1
+                            actual = observed_canonicals[destination_url]
+                            destination_is_self = (
+                                len(actual) == 1
+                                and _is_canonical_url(actual[0])
+                                and _page_url_identity(actual[0]) == target_identity
+                            )
+                            if not destination_is_self:
+                                report["issues"].append({
+                                    "code": "canonical_target_not_self",
+                                    "target": target,
+                                    "expected": [destination_url],
+                                    "actual": actual,
+                                })
             if report["issues"]:
                 report["status"] = "fail"
         canonical_summary = {
