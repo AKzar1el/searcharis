@@ -72,6 +72,102 @@ def test_alias_to_local_self_canonical_target_is_valid(tmp_path):
     assert result["canonical_consistency"]["internal_targets_checked"] == 1
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.com/sl/",
+    "https://example.com:443/sl/",
+    "https://EXAMPLE.com:443/sl/",
+])
+def test_canonical_target_alias_cannot_hide_local_nonself_canonical(tmp_path, alias):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", [alias])
+    _change(tmp_path, "sl", ["/wrong/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "fail"
+    assert _issues(result, "en")[0]["code"] == "canonical_target_not_self"
+    assert result["canonical_consistency"]["internal_targets_checked"] == 1
+    assert {"path": "en/index.html", "target": alias} not in (
+        result["canonical_consistency"]["unverified_targets"]
+    )
+
+
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.com/sl/",
+    "https://example.com:443/sl/",
+])
+def test_canonical_local_target_alias_accepts_equivalent_self_link(tmp_path, alias):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", [alias])
+    result = _run(manifest, tmp_path)
+
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 1, "unverified_targets": [],
+    }
+
+
+def test_same_page_canonical_hostname_alias_is_not_external(tmp_path):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", ["https://EXAMPLE.com/en/"])
+    result = _run(manifest, tmp_path)
+
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 0, "unverified_targets": [],
+    }
+
+
+@pytest.mark.parametrize("scheme,default_port", [
+    ("https", 443), ("http", 80),
+])
+def test_root_path_and_default_port_aliases_resolve_local_canonical(
+    tmp_path, scheme, default_port
+):
+    manifest = _build(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = f"{scheme}://example.com"
+    manifest["pages"][1]["contract"]["url"] = f"{scheme}://example.com/en/"
+    _change(tmp_path, "en", [f"{scheme}://EXAMPLE.com:{default_port}/"])
+    _change(tmp_path, "sl", [f"{scheme}://example.com/"])
+
+    result = _run(manifest, tmp_path)
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 1, "unverified_targets": [],
+    }
+
+
+@pytest.mark.parametrize("different_target", [
+    "https://EXAMPLE.com/SL/",
+    "https://EXAMPLE.com/sl/?q=ONE",
+    "https://EXAMPLE.com:8443/sl/",
+    "http://EXAMPLE.com/sl/",
+])
+def test_canonical_cross_page_lookup_preserves_distinct_routes(tmp_path, different_target):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", [different_target])
+    result = _run(manifest, tmp_path)
+
+    assert result["status"] == "pass"
+    assert result["canonical_consistency"] == {
+        "internal_targets_checked": 0,
+        "unverified_targets": [{
+            "path": "en/index.html", "target": different_target,
+        }],
+    }
+
+
+def test_cli_reports_cross_page_canonical_host_alias_failure(tmp_path, capsys):
+    manifest = _build(tmp_path)
+    _change(tmp_path, "en", ["https://EXAMPLE.com/sl/"])
+    _change(tmp_path, "sl", ["/wrong/"])
+    file = tmp_path / "manifest.json"
+    file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(file), str(tmp_path), "--check-canonical-consistency", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert _issues(report, "en")[0]["code"] == "canonical_target_not_self"
+
+
 def test_local_canonical_cycles_fail_on_both_sources(tmp_path):
     manifest = _build(tmp_path)
     _change(tmp_path, "en", ["/sl/"])

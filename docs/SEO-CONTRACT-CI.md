@@ -816,6 +816,12 @@ This detects canonical chains, cycles, missing links on known targets and
 duplicate canonical declarations. Findings use
 `canonical_consistency.internal_targets_checked` and
 `canonical_consistency.unverified_targets` (with source artifact paths).
+Local canonical target lookup uses the same HTTP(S) page identity as the
+manifest: host/scheme casing, explicit default ports and empty root paths
+cannot turn a known target into an unverified external URL. It still preserves
+distinct paths, queries, non-default ports and schemes, and reports original
+observed target URLs without rewriting them. This rule applies only to
+canonical consistency; the optional hreflang checks remain unchanged.
 
 Targets **absent from the manifest** are reported as unverified, not counted as
 checked or treated as verified passes. That includes cross-domain canonicals.
