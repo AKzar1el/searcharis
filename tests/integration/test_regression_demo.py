@@ -2,6 +2,7 @@
 
 import json
 import socket
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from searcharis.build_compare import main as compare_builds
@@ -47,3 +48,14 @@ def test_runnable_regression_demo_excludes_known_baseline_debt(capsys, monkeypat
     assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"][
         "uri"
     ] == "pricing/index.html"
+
+    junit_code = compare_builds([
+        str(manifest), str(baseline), str(candidate),
+        "--require-full-coverage", "--junit",
+    ])
+    junit = ET.fromstring(capsys.readouterr().out)
+    assert junit_code == 1
+    assert junit.attrib["tests"] == "1"
+    assert junit.attrib["failures"] == "1"
+    assert "pricing/index.html" in junit.find("testcase").attrib["name"]
+    assert "title_presence" in junit.find("testcase/failure").attrib["message"]

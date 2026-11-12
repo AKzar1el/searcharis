@@ -10,6 +10,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.report_compare import compare_reports, print_comparison
 from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_junit import build_comparison_junit
 from searcharis.site_sarif import build_comparison_sarif
 from searcharis.site_source_map import read_source_map
 
@@ -69,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
         "--sarif", action="store_true",
         help="Print SARIF 2.1.0 findings only for new blocking regressions",
     )
+    output.add_argument(
+        "--junit", action="store_true",
+        help="Print JUnit XML test results only for new blocking regressions",
+    )
     parser.add_argument(
         "--sarif-source-map", type=Path,
         help="Optional reviewed build-to-repository source mapping (SARIF only)",
@@ -123,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
             gate_new_unverified_targets=args.fail_on_new_unverified_targets,
         )
         print(json.dumps(sarif, indent=2, sort_keys=True))
+    elif args.junit:
+        print(build_comparison_junit(
+            result,
+            gate_new_unlisted=args.require_full_coverage or args.fail_on_new_unlisted,
+            gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+        ))
     else:
         print_comparison(
             result, as_json=args.json,

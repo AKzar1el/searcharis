@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -314,3 +315,85 @@ def test_sarif_and_json_outputs_are_mutually_exclusive(tmp_path):
     with pytest.raises(SystemExit) as error:
         _run(manifest, baseline, candidate, "--sarif", "--json")
     assert error.value.code == 2
+
+
+def test_junit_reports_only_new_blocking_regressions(tmp_path, capsys):
+    manifest, baseline, candidate, data = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    data["pages"].append({
+        "path": "about.html",
+        "contract": {"url": "https://example.test/about", "title_present": True},
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    (baseline / "about.html").write_text(
+        "<html><head><title>About</title></head></html>", encoding="utf-8"
+    )
+    (candidate / "about.html").write_text("<html><head></head></html>", encoding="utf-8")
+
+    assert _run(manifest, baseline, candidate, "--junit") == 1
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert suite.tag == "testsuite"
+    assert suite.attrib["tests"] == "1"
+    assert suite.attrib["failures"] == "1"
+    cases = suite.findall("testcase")
+    assert len(cases) == 1
+    assert "about.html" in cases[0].attrib["name"]
+    failure = cases[0].find("failure")
+    assert failure is not None
+    assert "title_presence" in failure.attrib["message"]
+    assert "index.html" not in ET.tostring(suite, encoding="unicode")
+
+
+def test_junit_emits_one_successful_check_for_tolerated_baseline_debt(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    assert _run(manifest, baseline, candidate, "--junit") == 0
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert suite.attrib["tests"] == "1"
+    assert suite.attrib["failures"] == "0"
+    assert suite.find("testcase") is not None
+    assert suite.find("testcase/failure") is None
+
+
+def test_junit_unlisted_and_unverified_targets_obey_gates(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    (candidate / "extra&route.html").write_text("<title>Extra</title>", encoding="utf-8")
+    assert _run(manifest, baseline, candidate, "--junit") == 0
+    assert ET.fromstring(capsys.readouterr().out).attrib["failures"] == "0"
+    assert _run(manifest, baseline, candidate, "--junit", "--fail-on-new-unlisted") == 1
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert suite.attrib["failures"] == "1"
+    assert "extra&route.html" in suite.find("testcase").attrib["name"]
+
+    (candidate / "index.html").write_text(
+        '<html><head><title>Old</title>'
+        '<link rel="canonical" href="https://outside.test/"></head></html>',
+        encoding="utf-8",
+    )
+    assert _run(manifest, baseline, candidate, "--junit", "--check-canonical-consistency") == 0
+    assert ET.fromstring(capsys.readouterr().out).attrib["failures"] == "0"
+    assert _run(
+        manifest, baseline, candidate, "--junit", "--check-canonical-consistency",
+        "--fail-on-new-unverified-targets",
+    ) == 1
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert suite.attrib["failures"] == "1"
+    assert "canonical_consistency_unverified_target" in suite.find("testcase/failure").attrib["message"]
+
+
+@pytest.mark.parametrize("conflicting_flag", ["--sarif", "--json"])
+def test_junit_output_is_exclusive(tmp_path, conflicting_flag):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        _run(manifest, baseline, candidate, "--junit", conflicting_flag)
+    assert error.value.code == 2
+
+
+def test_junit_bad_input_has_no_malformed_xml_success_report(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    assert _run(manifest, baseline, candidate / "missing", "--junit") == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input" in output.err
