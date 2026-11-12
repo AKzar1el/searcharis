@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 
-from searcharis.contract_ci import _is_http_url, verify_contract
+from searcharis.contract_ci import _is_canonical_url, verify_contract
 
 _MAX_INPUT_BYTES = 4_000_000
 _MAX_PAGES = 10_000
@@ -219,10 +219,10 @@ def verify_manifest(
                 })
             else:
                 target = observed[0]
-                if not _is_http_url(target):
+                if not _is_canonical_url(target):
                     report["issues"].append({
                         "code": "canonical_invalid_url",
-                        "expected": "an absolute HTTP(S) canonical URL",
+                        "expected": "an absolute HTTP(S) canonical URL without fragments",
                         "actual": target,
                     })
                 elif target != source_url:
