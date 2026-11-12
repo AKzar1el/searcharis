@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DEMO = ROOT / "examples" / "seo-contract" / "regression-demo"
 
 
-def test_runnable_regression_demo_excludes_known_baseline_debt(capsys, monkeypatch):
+def test_runnable_regression_demo_excludes_known_baseline_debt(
+    capsys, monkeypatch, tmp_path
+):
     def no_network(*_args, **_kwargs):
         raise AssertionError("Offline regression demo attempted an HTTP connection")
 
@@ -59,3 +61,17 @@ def test_runnable_regression_demo_excludes_known_baseline_debt(capsys, monkeypat
     assert junit.attrib["failures"] == "1"
     assert "pricing/index.html" in junit.find("testcase").attrib["name"]
     assert "title_presence" in junit.find("testcase/failure").attrib["message"]
+
+    report_file = tmp_path / "seo-regressions.xml"
+    file_code = compare_builds([
+        str(manifest), str(baseline), str(candidate),
+        "--require-full-coverage", "--junit-file", str(report_file),
+    ])
+    output = capsys.readouterr()
+    assert file_code == 1
+    assert output.out == ""
+    assert output.err == ""
+    assert b"\x00" not in report_file.read_bytes()
+    file_junit = ET.parse(report_file).getroot()
+    assert file_junit.attrib["failures"] == "1"
+    assert "pricing/index.html" in file_junit.find("testcase").attrib["name"]

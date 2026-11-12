@@ -74,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         "--junit", action="store_true",
         help="Print JUnit XML test results only for new blocking regressions",
     )
+    output.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write JUnit XML directly to a new file; never overwrite existing files",
+    )
     parser.add_argument(
         "--sarif-source-map", type=Path,
         help="Optional reviewed build-to-repository source mapping (SARIF only)",
@@ -128,12 +132,28 @@ def main(argv: list[str] | None = None) -> int:
             gate_new_unverified_targets=args.fail_on_new_unverified_targets,
         )
         print(json.dumps(sarif, indent=2, sort_keys=True))
-    elif args.junit:
-        print(build_comparison_junit(
+    elif args.junit or args.junit_file:
+        junit = build_comparison_junit(
             result,
             gate_new_unlisted=args.require_full_coverage or args.fail_on_new_unlisted,
             gate_new_unverified_targets=args.fail_on_new_unverified_targets,
-        ))
+        )
+        if args.junit_file:
+            try:
+                target = args.junit_file.resolve()
+                if target.is_relative_to(baseline_root) or target.is_relative_to(
+                    candidate_root
+                ):
+                    raise ValueError("JUnit file must be outside both build directories")
+                # Exclusive creation protects existing reports. Writing directly
+                # avoids Windows PowerShell's UTF-16LE stdout redirection.
+                with args.junit_file.open("x", encoding="utf-8", newline="\n") as report:
+                    report.write(junit + "\n")
+            except (OSError, UnicodeError, ValueError) as error:
+                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                return 2
+        else:
+            print(junit)
     else:
         print_comparison(
             result, as_json=args.json,
