@@ -363,6 +363,11 @@ def _check_contract(spec: object) -> dict:
     # corrupt the URL identities used by cross-page consistency checks.
     if not _is_http_url(url):
         raise ValueError("Contract 'url' must be an absolute public-format HTTP(S) URL")
+    # Search engines do not use fragment identifiers as distinct page URLs.
+    # Reject even an empty trailing '#' so two contracts cannot claim separate
+    # indexable page identities based only on different URL fragments.
+    if "#" in url:
+        raise ValueError("Contract 'url' must not contain a URL fragment")
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width", "meta_refresh_present",

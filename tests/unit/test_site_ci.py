@@ -446,6 +446,19 @@ def test_duplicate_contract_urls_rejected(tmp_path):
         verify_manifest(manifest, tmp_path)
 
 
+def test_manifest_cannot_treat_fragment_variants_as_distinct_search_pages(tmp_path, capsys):
+    manifest = _setup(tmp_path)
+    for entry, fragment in zip(manifest["pages"], ("#one", "#two"), strict=True):
+        entry["contract"] = {"url": f"{BASE}landing/{fragment}", "title_present": True}
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert main([str(path), str(tmp_path), "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["status"] == "error"
+    assert "'url'" in error["error"] and "fragment" in error["error"]
+
+
 @pytest.mark.parametrize("bad_url", [
     "https://example.com:invalid/sl/",
     "https://ex%61mple.com/sl/",
