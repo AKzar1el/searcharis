@@ -908,14 +908,25 @@ template line. Capture output as UTF-8 and do not treat it as evidence of
 deployed URLs, Google indexing, source provenance, or customer adoption.
 
 For CI systems that ingest **JUnit XML** (such as GitLab test reports or the
-Jenkins JUnit publisher), use the same local comparison with `--junit`:
+Jenkins JUnit publisher), write a new report file directly using
+`--junit-file`:
 
 ```sh
 uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
-  --require-full-coverage --junit > seo-regressions.xml
+  --require-full-coverage --junit-file seo-regressions.xml
 ```
 
-JUnit is mutually exclusive with `--json` and `--sarif` output;
+`--junit-file` creates one ASCII-compatible UTF-8 XML artifact without
+printing XML to stdout; it never overwrites an existing file and rejects
+destinations inside either build snapshot. Choose a fresh path (or remove a
+previously generated report yourself) before each run. This also avoids
+Windows PowerShell 5.1's `>` redirection, which writes UTF-16LE by default
+even when the generated XML declares US-ASCII. For a stdout-based workflow,
+the original `--junit` option remains available; ensure your shell saves
+its output in a compatible encoding. See
+[Microsoft's Windows PowerShell encoding reference](https://github.com/MicrosoftDocs/PowerShell-Docs/blob/main/reference/5.1/Microsoft.PowerShell.Core/About/about_Character_Encoding.md).
+
+JUnit output modes are mutually exclusive with `--json` and `--sarif`;
 `--sarif-source-map` remains SARIF-only. The XML contains one failed testcase
 per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
 or newly unverified cross-page target when gated. The testcase name identifies
@@ -925,7 +936,9 @@ empty report. XML-special characters and invalid XML controls are escaped or
 replaced, and unusually long diagnostic values are abbreviated; use `--json`
 when complete unabridged details are needed. Exit codes remain **0** for no
 new blockers, **1** for regressions and **2** for malformed/unreadable inputs;
-on exit 2 no JUnit XML is printed and the error goes to stderr. Configure
+on invalid comparison input (exit 2) no file is created. If the output
+destination already exists or cannot be written, exit 2 preserves the
+existing file and reports the error on stderr. Configure
 your CI to publish the XML artifact even when the checker returns 1, while
 retaining that nonzero release-gate result. This is a report conversion,
 **not** a hosted integration, HTTP verification or evidence of adoption.

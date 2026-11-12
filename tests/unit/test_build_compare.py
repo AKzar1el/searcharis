@@ -397,3 +397,76 @@ def test_junit_bad_input_has_no_malformed_xml_success_report(tmp_path, capsys):
     output = capsys.readouterr()
     assert output.out == ""
     assert "Invalid input" in output.err
+
+
+def test_junit_file_writes_parseable_regression_artifact_without_stdout(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="OK", candidate_title=""
+    )
+    report = tmp_path / "seo-regressions.xml"
+    assert _run(manifest, baseline, candidate, "--junit-file", str(report)) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    raw = report.read_bytes()
+    assert raw.startswith(b"<?xml")
+    assert b"\x00" not in raw  # Windows PowerShell redirection can emit UTF-16LE.
+    suite = ET.fromstring(raw)
+    assert suite.attrib["tests"] == "1"
+    assert suite.attrib["failures"] == "1"
+    assert "title_presence" in suite.find("testcase/failure").attrib["message"]
+
+
+def test_junit_file_allows_no_new_regressions_with_known_debt(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    report = tmp_path / "seo-regressions.xml"
+    assert _run(manifest, baseline, candidate, "--junit-file", str(report)) == 0
+    assert capsys.readouterr().out == ""
+    suite = ET.parse(report).getroot()
+    assert suite.attrib["failures"] == "0"
+    assert suite.find("testcase") is not None
+
+
+def test_junit_file_never_overwrites_existing_artifact(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "seo-regressions.xml"
+    report.write_bytes(b"existing user report")
+    assert _run(manifest, baseline, candidate, "--junit-file", str(report)) == 2
+    assert report.read_bytes() == b"existing user report"
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input" in output.err
+
+
+@pytest.mark.parametrize("build", ["baseline", "candidate"])
+def test_junit_file_does_not_mutate_build_snapshots(tmp_path, capsys, build):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = (baseline if build == "baseline" else candidate) / "seo.xml"
+    assert _run(manifest, baseline, candidate, "--junit-file", str(report)) == 2
+    assert not report.exists()
+    assert "build directories" in capsys.readouterr().err
+
+
+def test_junit_file_has_no_artifact_on_invalid_comparison(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "seo-regressions.xml"
+    assert _run(
+        manifest, baseline, candidate / "missing", "--junit-file", str(report)
+    ) == 2
+    assert not report.exists()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("conflicting_flag", ["--junit", "--sarif", "--json"])
+def test_junit_file_is_mutually_exclusive_with_stdout_modes(
+    tmp_path, conflicting_flag
+):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        _run(
+            manifest, baseline, candidate, "--junit-file", str(tmp_path / "seo.xml"),
+            conflicting_flag,
+        )
+    assert error.value.code == 2
