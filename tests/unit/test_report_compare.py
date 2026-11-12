@@ -319,6 +319,46 @@ def test_comparison_still_rejects_exact_duplicate_coverage_paths(unlisted):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/pricing",
+    "https://example.test:443/pricing",
+    "https://example.test/a/../pricing",
+    "https://example.test/%70ricing",
+    "https://example.test/pricing#section",
+])
+def test_archived_reports_reject_equivalent_page_url_identities(alias):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/pricing"
+    report["pages"][1]["checked_url"] = alias
+    with pytest.raises(ValueError, match="duplicate page path or URL"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("different", [
+    "https://example.test/Pricing",
+    "https://example.test/pricing?mode=other",
+    "https://example.test:444/pricing",
+    "https://example.test/pric%2Fing",
+    "http://example.test/pricing",
+])
+def test_archived_reports_preserve_distinct_page_url_identities(different):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/pricing"
+    report["pages"][1]["checked_url"] = different
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+def test_cli_rejects_archived_aliases_in_machine_readable_comparison(tmp_path, capsys):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/"
+    report["pages"][1]["checked_url"] = "https://EXAMPLE.test:443"
+    baseline, candidate = tmp_path / "base.json", tmp_path / "candidate.json"
+    baseline.write_text(json.dumps(report), encoding="utf-8")
+    candidate.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(baseline), str(candidate), "--json"]) == 2
+    assert "duplicate page path or URL" in json.loads(capsys.readouterr().out)["error"]
+
+
 def test_different_check_options_are_not_comparable():
     baseline = _report([("en/index.html", [])])
     changed = _report([("en/index.html", [])], checks=("hreflang_reciprocity",))
