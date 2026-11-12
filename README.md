@@ -136,6 +136,10 @@ build snapshots and a reviewed manifest.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.
+Use `--junit` instead to emit an offline JUnit XML test report suitable for
+CI report consumers such as GitLab and Jenkins, with existing baseline debt
+excluded and the same regression-only exit status. Publish the XML even if
+the checker exits 1; see the [JUnit guide](docs/SEO-CONTRACT-CI.md#compare-local-builds-or-json-reports-without-blocking-existing-defects).
 
 For a single page, use `contract_cli`; for a ready-made multi-page contract,
 use `site_cli` directly:

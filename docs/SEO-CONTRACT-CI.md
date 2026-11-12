@@ -907,6 +907,31 @@ results refer to built HTML; line 1 is a document-level anchor, not a guessed
 template line. Capture output as UTF-8 and do not treat it as evidence of
 deployed URLs, Google indexing, source provenance, or customer adoption.
 
+For CI systems that ingest **JUnit XML** (such as GitLab test reports or the
+Jenkins JUnit publisher), use the same local comparison with `--junit`:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --require-full-coverage --junit > seo-regressions.xml
+```
+
+JUnit is mutually exclusive with `--json` and `--sarif` output;
+`--sarif-source-map` remains SARIF-only. The XML contains one failed testcase
+per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
+or newly unverified cross-page target when gated. The testcase name identifies
+the built artifact and check. If only old known problems remain, the report
+contains one passing `no-new-blocking-regressions` testcase so it is not an
+empty report. XML-special characters and invalid XML controls are escaped or
+replaced, and unusually long diagnostic values are abbreviated; use `--json`
+when complete unabridged details are needed. Exit codes remain **0** for no
+new blockers, **1** for regressions and **2** for malformed/unreadable inputs;
+on exit 2 no JUnit XML is printed and the error goes to stderr. Configure
+your CI to publish the XML artifact even when the checker returns 1, while
+retaining that nonzero release-gate result. This is a report conversion,
+**not** a hosted integration, HTTP verification or evidence of adoption.
+See [GitLab JUnit report documentation](https://docs.gitlab.com/ci/yaml/artifacts_reports/#artifactsreportsjunit)
+and [Jenkins JUnit publisher](https://www.jenkins.io/doc/pipeline/steps/junit/).
+
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving their complete `--json` outputs:
