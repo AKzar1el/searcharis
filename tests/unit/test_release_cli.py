@@ -576,6 +576,9 @@ def test_release_markdown_file_reports_both_blocking_subsystems(tmp_path, capsys
     assert "index.html" in text and "title_presence" in text
     assert "missing" in text.lower() and "https://example.test/" in text
     assert "noindex" in text.lower() and "https://example.test/draft" in text
+    assert "Suggested reviewer actions" in text
+    assert "Add a non-empty HTML title" in text
+    assert "Add missing reviewed canonical URLs" in text
 
 
 @pytest.mark.parametrize("destination", ["existing.md", "dist/report.md"])

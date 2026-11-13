@@ -920,6 +920,24 @@ page-specific meta descriptions
 check cannot establish deployed snippets, search rankings, actual indexing or
 commercial results.
 
+## Suggested reviewer actions in Markdown release reports
+
+The combined offline release gate can save a human-readable reviewer summary:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --markdown-file release-summary.md
+```
+
+When the local gate fails, the Markdown report includes a bounded,
+deduplicated **Suggested reviewer actions** section. It maps known HTML
+issues (for example, duplicate titles/descriptions or stale navigation
+targets) and sitemap discrepancies to fixed remediation hints. Unknown issue
+codes still appear in the blocking findings; they do not inject arbitrary
+instructions. Passing reports omit the action section. Hints never edit the
+build, manifest or sitemap, fetch URLs or prove live routing/search impact.
+Use the full structured report and site-specific policy to decide each fix.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates

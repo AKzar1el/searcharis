@@ -10,6 +10,31 @@ from html import escape
 
 _MAX_FINDINGS = 20
 _MAX_VALUE = 160
+_MAX_ACTIONS = 10
+
+# Fixed reviewer guidance: never interpolate values from an untrusted contract.
+_HTML_ACTIONS = (
+    ("title_presence", "Add a non-empty HTML title to each required page."),
+    ("title_duplicate", "Give reviewed indexable pages distinct HTML titles."),
+    ("description_presence", "Add a non-empty head meta description where required."),
+    ("description_duplicate", "Write page-specific meta descriptions for reviewed indexable pages."),
+    ("navigation_target_unreviewed",
+     "Correct stale navigation links or review the complete route manifest."),
+    ("navigation_fragment_missing",
+     "Correct the fragment or add its matching HTML target."),
+    ("navigation_fragment_ambiguous",
+     "Make linked HTML fragment targets unambiguous in the built page."),
+)
+_SITEMAP_ACTIONS = (
+    ("missing_required",
+     "Add missing reviewed canonical URLs to the supplied sitemap, or correct the expected set."),
+    ("present_excluded",
+     "Remove explicitly excluded URLs from the supplied sitemap, or review the exclusion."),
+    ("present_noncanonical",
+     "Review canonical targets and remove noncanonical URLs from the supplied sitemap."),
+    ("unreviewed_urls",
+     "Review unexpected sitemap URLs against the complete site manifest."),
+)
 
 
 def _code(value: object) -> str:
@@ -91,6 +116,33 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
     if sitemap_count > len(sitemap_items):
         lines.append(
             f"- ... and {sitemap_count - len(sitemap_items)} more sitemap findings"
+        )
+
+    if not passed:
+        issue_codes = {
+            issue["code"]
+            for page in site["pages"]
+            for issue in page["issues"]
+            if isinstance(issue.get("code"), str)
+        }
+        actions = [hint for code, hint in _HTML_ACTIONS if code in issue_codes]
+        if coverage["require_full_coverage"] and coverage["unlisted"]:
+            actions.append(
+                "Add missing built HTML pages to the reviewed manifest, "
+                "or correct the declared coverage policy."
+            )
+        actions.extend(
+            hint for key, hint in _SITEMAP_ACTIONS if sitemap.get(key)
+        )
+        lines.extend(["", "## Suggested reviewer actions", ""])
+        lines.extend(f"- {hint}" for hint in actions[:_MAX_ACTIONS])
+        if len(actions) > _MAX_ACTIONS:
+            lines.append(f"- ... and {len(actions) - _MAX_ACTIONS} more action categories")
+        if not actions:
+            lines.append("- Review the issue codes above against the local manifest and built files.")
+        lines.append(
+            "- No live URL was checked; verify public routing and intended SEO "
+            "policy separately."
         )
 
     lines.extend([
