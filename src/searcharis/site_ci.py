@@ -118,6 +118,7 @@ def verify_manifest(
     check_reviewed_navigation: bool = False,
     check_reviewed_fragments: bool = False,
     check_unique_titles: bool = False,
+    required_inbound_paths: tuple[str, ...] = (),
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -153,7 +154,10 @@ def verify_manifest(
             _read_limited(html_path),
             include_hreflang=check_hreflang_reciprocity or check_hreflang_clusters,
             include_canonical=check_canonical_consistency,
-            include_anchors=check_reviewed_navigation or check_reviewed_fragments,
+            include_anchors=(
+                check_reviewed_navigation or check_reviewed_fragments
+                or bool(required_inbound_paths)
+            ),
             include_fragment_ids=check_reviewed_fragments,
             include_title=check_unique_titles,
         )
@@ -165,7 +169,7 @@ def verify_manifest(
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
-        if check_reviewed_navigation or check_reviewed_fragments:
+        if check_reviewed_navigation or check_reviewed_fragments or required_inbound_paths:
             observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
         if check_unique_titles:
             observed_titles[report["checked_url"]] = report.pop("observed_title")
@@ -180,6 +184,14 @@ def verify_manifest(
             "contract_sha256": hashlib.sha256(contract_json.encode("utf-8")).hexdigest(),
             **report,
         })
+
+    required_inbound = [_manifest_path(path) for path in required_inbound_paths]
+    required_set = set(required_inbound)
+    if len(required_set) != len(required_inbound):
+        raise ValueError("Duplicate required inbound page path")
+    unknown_required = sorted(required_set - listed)
+    if unknown_required:
+        raise ValueError(f"Required inbound page is absent from manifest: {unknown_required}")
 
     if check_unique_titles:
         # Group by declared site origin and normalized built <title>. Reviewers
@@ -208,6 +220,48 @@ def verify_manifest(
                     },
                 })
                 report["status"] = "fail"
+
+    inbound_summary = None
+    if required_inbound:
+        # Only explicitly selected pages require an incoming link. This avoids
+        # treating intentionally standalone pages as automatic SEO failures.
+        targets = {
+            _page_url_identity(report["checked_url"]): report["path"]
+            for report in reports if report["path"] in required_set
+        }
+        linked: set[str] = set()
+        for source in reports:
+            source_url = source["checked_url"]
+            source_identity = _page_url_identity(source_url)
+            anchors = observed_anchors[source_url]
+            for href in anchors["hrefs"]:
+                try:
+                    resolved = urljoin(anchors["base_url"], href)
+                except ValueError:
+                    continue
+                if not _is_http_url(resolved):
+                    continue
+                target_url = urlsplit(resolved)._replace(fragment="").geturl()
+                identity = _page_url_identity(target_url)
+                if identity[:3] != source_identity[:3] or identity == source_identity:
+                    continue
+                target_path = targets.get(identity)
+                if target_path is not None:
+                    linked.add(target_path)
+        missing = sorted(required_set - linked)
+        for report in reports:
+            if report["path"] in required_set and report["path"] not in linked:
+                report["issues"].append({
+                    "code": "reviewed_inbound_link_missing",
+                    "expected": "a link from another reviewed page on the same origin",
+                    "actual": "no such link in reviewed built HTML",
+                })
+                report["status"] = "fail"
+        inbound_summary = {
+            "required_paths": sorted(required_inbound),
+            "linked_paths": sorted(linked),
+            "missing_paths": missing,
+        }
 
     navigation_summary = None
     if check_reviewed_navigation:
@@ -550,6 +604,8 @@ def verify_manifest(
         result["canonical_consistency"] = canonical_summary
     if navigation_summary is not None:
         result["reviewed_navigation"] = navigation_summary
+    if inbound_summary is not None:
+        result["reviewed_inbound"] = inbound_summary
     if fragment_summary is not None:
         result["reviewed_fragments"] = fragment_summary
     return result
