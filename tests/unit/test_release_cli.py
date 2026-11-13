@@ -1,5 +1,6 @@
 """An opt-in offline gate for reviewed built HTML and local sitemap intent."""
 
+import gzip
 import json
 import socket
 import subprocess
@@ -125,6 +126,17 @@ def test_combined_gate_supports_explicit_split_local_sitemaps(tmp_path, capsys):
     code, report, _ = _call(capsys, manifest, build, [sitemap, other])
     assert code == 0
     assert report["sitemap"]["summary"]["sitemap_urls"] == 1
+
+
+def test_combined_gate_accepts_local_gzip_sitemap(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    compressed = tmp_path / "sitemap.xml.gz"
+    compressed.write_bytes(gzip.compress(sitemap.read_bytes(), mtime=0))
+    code, report, err = _call(capsys, manifest, build, [compressed],
+                              "--require-full-coverage")
+    assert code == 0 and err == ""
+    assert report["site"]["status"] == "pass"
+    assert report["sitemap"]["status"] == "pass"
 
 
 def test_coverage_option_applies_to_site_without_skipping_sitemap(tmp_path, capsys):
