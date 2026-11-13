@@ -64,7 +64,9 @@ def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], i
         raise ValueError("Expected XML sitemap urlset with standard namespace")
 
     urls: dict[tuple, str] = {}
-    host: str | None = None
+    # A single urlset must have one protocol and effective authority. A plain
+    # host-only check would accept a mixed HTTP/HTTPS or nondefault-port file.
+    site_scope: tuple[str, str, int | None] | None = None
     for entry in root:
         if entry.tag != _SITEMAP_NS + "url":
             raise ValueError("Unexpected sitemap urlset child")
@@ -78,11 +80,11 @@ def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], i
             or not _is_canonical_url(location)
         ):
             raise ValueError(f"Invalid sitemap loc URL: {location!r}")
-        current_host = urlsplit(location).hostname
-        if host is not None and current_host != host:
-            raise ValueError("Sitemap loc URLs must belong to the same host")
-        host = current_host
         identity = _page_url_identity(location)
+        current_scope = identity[:3]
+        if site_scope is not None and current_scope != site_scope:
+            raise ValueError("Sitemap loc URLs must use the same scheme, host, and port")
+        site_scope = current_scope
         if identity in urls:
             raise ValueError(f"Duplicate sitemap loc URL identity: {location!r}")
         urls[identity] = location

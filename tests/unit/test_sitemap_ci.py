@@ -381,6 +381,28 @@ def test_sitemap_files_must_have_same_host(tmp_path):
         verify_sitemap_manifest(manifest, [first, second])
 
 
+@pytest.mark.parametrize("other_url", [
+    "http://example.test/other",
+    "https://example.test:8443/other",
+])
+@pytest.mark.parametrize("compressed", [False, True])
+def test_one_urlset_cannot_mix_protocol_or_port(tmp_path, other_url, compressed):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    sitemap = _sitemap(tmp_path, "https://example.test/", other_url)
+    if compressed:
+        sitemap = _gzip_sitemap(sitemap)
+    with pytest.raises(ValueError, match="same scheme.*port"):
+        verify_sitemap_manifest(manifest, sitemap)
+
+
+@pytest.mark.parametrize("scheme,port", [("http", 80), ("https", 443)])
+def test_one_urlset_accepts_explicit_default_port_and_host_case(tmp_path, scheme, port):
+    base = f"{scheme}://example.test/"
+    manifest = _manifest({"url": base, "indexable": True})
+    sitemap = _sitemap(tmp_path, f"{scheme}://EXAMPLE.test:{port}/", base + "other")
+    assert verify_sitemap_manifest(manifest, sitemap)["status"] == "pass"
+
+
 def test_repeated_sitemap_file_is_not_silently_counted_twice(tmp_path):
     manifest = _manifest({"url": "https://example.test/", "indexable": True})
     first = _sitemap(tmp_path, "https://example.test/")

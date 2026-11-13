@@ -194,6 +194,15 @@ def test_duplicate_alias_across_sitemap_shards_is_input_error(tmp_path, capsys):
     assert "Duplicate sitemap" in report["error"]
 
 
+def test_release_gate_rejects_mixed_scheme_within_one_sitemap(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    _sitemap(sitemap, ["https://example.test/", "http://example.test/other"])
+    code, report, err = _call(capsys, manifest, build, [sitemap])
+    assert code == 2 and err == ""
+    assert report["status"] == "error"
+    assert "same scheme" in report["error"]
+
+
 def test_human_summary_and_no_outbound_urls(tmp_path, capsys, monkeypatch):
     manifest, build, sitemap = _fixture(tmp_path)
 
