@@ -30,7 +30,7 @@ _HEAD_ELEMENTS = frozenset({
 })
 _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript"})
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
-    "head", "h1", "script", "style", "template", "textarea", "title", "plaintext", "select",
+    "head", "h1", "map", "script", "style", "template", "textarea", "title", "plaintext", "select",
 })
 _TWITTER_CARD_TYPES = frozenset({"summary", "summary_large_image", "app", "player"})
 _IMAGE_MIME = re.compile(r"image/[a-z0-9][a-z0-9.+_-]*", re.IGNORECASE | re.ASCII)
@@ -91,6 +91,7 @@ class _SEOParser(HTMLParser):
         self.in_jsonld = False
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
+        self.map_depth = 0
         self.in_textarea = False
         self.in_plaintext = False
 
@@ -160,7 +161,12 @@ class _SEOParser(HTMLParser):
                 if target in self.fragment_ids:
                     self.duplicate_fragment_ids.add(target)
                 self.fragment_ids.add(target)
-        if self.collect_anchors and tag == "a" and "href" in values:
+        if tag == "map":
+            self.map_depth += 1
+        if (self.collect_anchors and "href" in values
+                and (tag == "a" or (tag == "area" and self.map_depth > 0))):
+            # Image-map hotspots are links too; stray area elements outside a
+            # map are not navigable, and template contents were skipped above.
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
             self.anchors.append((values["href"] or "").strip())
@@ -340,6 +346,8 @@ class _SEOParser(HTMLParser):
             return
         if self.template_depth:
             return
+        if tag == "map":
+            self.map_depth = max(0, self.map_depth - 1)
         if tag == "head":
             self.in_head = False
             self.in_title = False

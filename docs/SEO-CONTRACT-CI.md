@@ -783,7 +783,8 @@ uv run python -m searcharis.site_cli manifest.json dist \
 
 `--check-reviewed-navigation` is also accepted by the combined
 `searcharis.release_cli` offline HTML+sitemap gate. It inspects active HTML
-`<a href>` elements, resolves relative links using the first valid head
+`<a href>` elements and navigable `<area href>` hotspots inside active
+`<map>` elements, resolves relative links using the first valid head
 `<base href>` (otherwise the reviewed page URL), ignores URL fragments and
 deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
@@ -796,7 +797,8 @@ links inspected and unreviewed targets. Default behavior remains unchanged.
 virtual routes, deliberate redirects, URL query variants or hosting rewrite
 rules may require more reviewed route entries or leaving the flag disabled.
 External domains, non-HTTP protocols, and malformed/unresolvable URLs are not
-validated by this check. Inert template/raw-text HTML is ignored. The checker
+validated by this check. Stray `<area>` elements outside a `<map>` and inert
+template/raw-text HTML are ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
 
@@ -813,8 +815,9 @@ uv run python -m searcharis.site_cli manifest.json dist \
 
 The same flag works with `searcharis.release_cli` and may be combined with
 `--check-reviewed-navigation`. It checks each distinct nonempty fragment in
-active HTML `<a href>` links **only when its same-origin URL maps to another
-reviewed built HTML page (or the current page)**. The literal fragment is
+active HTML `<a href>` links and `<map>` image-map `<area href>` hotspots,
+**only when the destination is a reviewed same-origin built HTML page**.
+The literal fragment is
 checked first, then its percent-decoded form, against case-sensitive active
 HTML `id` or legacy `<a name>` attributes. The special `#top` target is
 accepted even without an ID, as required by the HTML navigation standard.
