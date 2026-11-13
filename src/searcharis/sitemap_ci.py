@@ -6,8 +6,11 @@ entries are deliberately not treated as errors: the manifest is not a crawl map.
 
 from __future__ import annotations
 
+import gzip
 import re
+import zlib
 from collections.abc import Sequence
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
@@ -25,8 +28,20 @@ _MAX_TOTAL_SITEMAP_URLS = 100_000
 
 def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], int]:
     """Read a bounded UTF-8 URL set, returning its actual byte count."""
-    with path.open("rb") as stream:
-        data = stream.read(min(_MAX_SITEMAP_BYTES, remaining_bytes) + 1)
+    if path.suffix.lower() == ".gz":
+        # Bound BOTH the compressed input and decompressed output before parsing.
+        with path.open("rb") as stream:
+            compressed = stream.read(_MAX_SITEMAP_BYTES + 1)
+        if len(compressed) > _MAX_SITEMAP_BYTES:
+            raise ValueError(f"Compressed sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
+        try:
+            with gzip.GzipFile(fileobj=BytesIO(compressed)) as stream:
+                data = stream.read(min(_MAX_SITEMAP_BYTES, remaining_bytes) + 1)
+        except (EOFError, OSError, zlib.error) as error:
+            raise ValueError(f"Invalid gzip sitemap: {path}") from error
+    else:
+        with path.open("rb") as stream:
+            data = stream.read(min(_MAX_SITEMAP_BYTES, remaining_bytes) + 1)
     if len(data) > _MAX_SITEMAP_BYTES:
         raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
     if len(data) > remaining_bytes:

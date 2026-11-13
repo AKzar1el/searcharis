@@ -25,7 +25,13 @@ union:
 
 ```sh
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --json
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml.gz dist/sitemap-2.xml --json
 ```
+
+Local files with a `.gz` suffix are decompressed as gzip before XML validation;
+plain `.xml` files and mixed compressed/plain batches work unchanged. Invalid
+or truncated gzip data is an input error (exit 2). The checker does not download
+or decompress remote URLs from sitemap index entries.
 
 Missing indexable URLs and unexpected noindex URLs are evaluated across all
 supplied files. Duplicated URL identities (including aliases) and conflicting
@@ -79,8 +85,10 @@ their individual machine-readable outputs and SARIF options where available.
 
 Only standard-namespace `urlset` files with `<url><loc>...</loc></url>` are
 accepted. Sitemap indexes remain **unsupported**. Each file is limited to
-4,000,000 bytes and 50,000 URLs; a batch is limited to 16 files, 16,000,000
-total bytes and 100,000 total URLs. The manifest may have up to 10,000 pages.
+4,000,000 uncompressed XML bytes and 50,000 URLs; `.gz` inputs also have a
+4,000,000-byte compressed input cap. A batch is limited to 16 files, 16,000,000
+total **uncompressed** XML bytes and 100,000 total URLs. The manifest may have
+up to 10,000 pages.
 The XML must be UTF-8; DTDs/entities are rejected. Sitemap URLs must be
 absolute, fragment-free, and from one host across all files. Optional XML
 metadata (`lastmod`, `priority`, localized extension tags) is ignored; the

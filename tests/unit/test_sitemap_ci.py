@@ -1,5 +1,6 @@
 """Offline sitemap intent checks: explicit policy, no network or hosting inference."""
 
+import gzip
 import json
 from html import escape
 
@@ -28,6 +29,92 @@ def _sitemap(tmp_path, *urls, xml=None, filename="sitemap.xml"):
     path = tmp_path / filename
     path.write_text(payload, encoding="utf-8")
     return path
+
+
+def _gzip_sitemap(path):
+    compressed = path.with_suffix(path.suffix + ".gz")
+    compressed.write_bytes(gzip.compress(path.read_bytes(), mtime=0))
+    return compressed
+
+
+def test_explicit_local_gzip_urlset_passes(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    raw = _sitemap(tmp_path, "https://example.test/")
+    report = verify_sitemap_manifest(manifest, _gzip_sitemap(raw))
+    assert report["status"] == "pass"
+    assert report["summary"]["sitemap_urls"] == 1
+
+
+def test_mixed_gzip_and_plain_shards_detect_noindex(tmp_path):
+    manifest = _manifest(
+        {"url": "https://example.test/", "indexable": True},
+        {"url": "https://example.test/noindex", "indexable": False},
+    )
+    plain = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    compressed = _gzip_sitemap(_sitemap(
+        tmp_path, "https://example.test/noindex", filename="second.xml",
+    ))
+    report = verify_sitemap_manifest(manifest, [plain, compressed])
+    assert report["status"] == "fail"
+    assert report["present_excluded"] == ["https://example.test/noindex"]
+
+
+@pytest.mark.parametrize("payload", [b"not gzip", gzip.compress(b"<xml/>")[:-5]])
+def test_corrupt_or_truncated_gzip_is_input_error(tmp_path, payload):
+    compressed = tmp_path / "broken.xml.gz"
+    compressed.write_bytes(payload)
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    with pytest.raises(ValueError, match="gzip"):
+        verify_sitemap_manifest(manifest, compressed)
+
+
+def test_gzip_inflated_bytes_cannot_exceed_shard_limit(tmp_path, monkeypatch):
+    import searcharis.sitemap_ci as sitemap_ci
+
+    raw = _sitemap(tmp_path, *(["https://example.test/long"] * 20))
+    packed = _gzip_sitemap(raw)
+    assert packed.stat().st_size < raw.stat().st_size
+    monkeypatch.setattr(sitemap_ci, "_MAX_SITEMAP_BYTES", packed.stat().st_size + 1)
+    with pytest.raises(ValueError, match="Sitemap exceeds"):
+        verify_sitemap_manifest(
+            _manifest({"url": "https://example.test/", "indexable": True}), packed,
+        )
+
+
+def test_gzip_compressed_input_is_bounded(tmp_path, monkeypatch):
+    import searcharis.sitemap_ci as sitemap_ci
+
+    packed = _gzip_sitemap(_sitemap(tmp_path, "https://example.test/"))
+    monkeypatch.setattr(sitemap_ci, "_MAX_SITEMAP_BYTES", packed.stat().st_size - 1)
+    with pytest.raises(ValueError, match="Compressed sitemap exceeds"):
+        verify_sitemap_manifest(
+            _manifest({"url": "https://example.test/", "indexable": True}), packed,
+        )
+
+
+def test_aggregate_budget_counts_inflated_bytes(tmp_path, monkeypatch):
+    import searcharis.sitemap_ci as sitemap_ci
+
+    first = _sitemap(tmp_path, "https://example.test/one", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/two", filename="second.xml")
+    limit = first.stat().st_size + second.stat().st_size - 1
+    monkeypatch.setattr(sitemap_ci, "_MAX_TOTAL_SITEMAP_BYTES", limit)
+    with pytest.raises(ValueError, match="Combined.*bytes"):
+        verify_sitemap_manifest(
+            _manifest({"url": "https://example.test/one", "indexable": True}),
+            [_gzip_sitemap(first), _gzip_sitemap(second)],
+        )
+
+
+def test_cli_corrupt_gzip_returns_structured_input_error(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    compressed = tmp_path / "broken.xml.gz"
+    compressed.write_bytes(b"not gzip")
+    assert main([str(manifest), str(compressed), "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
 
 
 def test_pass_only_for_explicit_required_and_excluded_urls(tmp_path):
