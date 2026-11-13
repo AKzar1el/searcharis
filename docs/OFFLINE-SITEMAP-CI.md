@@ -26,6 +26,7 @@ union:
 ```sh
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml.gz dist/sitemap-2.xml --json
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --require-indexability-coverage --json
 ```
 
 Local files with a `.gz` suffix are decompressed as gzip before XML validation;
@@ -47,6 +48,7 @@ indexability checks, run one opt-in command with the same reviewed manifest:
 
 ```sh
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --require-indexability-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
 ```
@@ -61,6 +63,16 @@ flags `--require-full-coverage`, `--check-hreflang-reciprocity`,
 existing meanings. The sitemap gate always requires at least one explicitly
 reviewed `indexable` assertion, so teams with no such policy should use
 `site_cli` alone until the manifest is reviewed.
+
+For an exhaustively reviewed manifest, add `--require-indexability-coverage`
+to either sitemap CLI or the combined release CLI. This opt-in policy requires
+every **listed manifest page** to declare `indexable: true` or `indexable: false`;
+missing assertions are input errors (exit 2), not silent passes. Without the
+flag, partial policies retain their existing behavior and unasserted pages are
+counted but not checked for sitemap inclusion. To also require that *all built
+HTML pages* are listed in the manifest, use both
+`--require-indexability-coverage` and `--require-full-coverage` on `release_cli`.
+Neither option infers public routes or deployed indexing state.
 
 Use `--json-file PATH` instead of `--json` to save the same complete combined
 report directly as UTF-8 for CI consumers (including Windows PowerShell 5.1,

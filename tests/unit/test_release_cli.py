@@ -67,6 +67,29 @@ def test_both_checks_pass_and_report_both_results(tmp_path, capsys):
     assert report["sitemap"]["summary"]["excluded"] == 1
 
 
+def test_release_gate_strict_indexability_coverage_accepts_reviewed_policy(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    code, report, err = _call(
+        capsys, manifest, build, [sitemap], "--require-indexability-coverage",
+    )
+    assert code == 0 and err == ""
+    assert report["sitemap"]["summary"]["unasserted_pages"] == 0
+
+
+def test_release_gate_strict_indexability_coverage_fails_unasserted_policy(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    del data["pages"][1]["contract"]["indexable"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    assert _call(capsys, manifest, build, [sitemap])[0] == 0
+    code, report, err = _call(
+        capsys, manifest, build, [sitemap], "--require-indexability-coverage",
+    )
+    assert code == 2 and err == ""
+    assert report["status"] == "error"
+    assert "explicit indexability" in report["error"]
+
+
 def test_html_regression_blocks_when_sitemap_passes(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
     (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")

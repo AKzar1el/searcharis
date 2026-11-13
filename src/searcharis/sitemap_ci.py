@@ -125,7 +125,12 @@ def _read_sitemaps(paths: Path | Sequence[Path]) -> dict[tuple, str]:
     return urls
 
 
-def verify_sitemap_manifest(manifest: object, sitemap_path: Path | Sequence[Path]) -> dict:
+def verify_sitemap_manifest(
+    manifest: object,
+    sitemap_path: Path | Sequence[Path],
+    *,
+    require_indexability_coverage: bool = False,
+) -> dict:
     """Assert only reviewed indexable/noindex intentions against local XML.
 
     An explicitly indexable page expects its explicitly reviewed canonical,
@@ -181,6 +186,10 @@ def verify_sitemap_manifest(manifest: object, sitemap_path: Path | Sequence[Path
         else:
             unasserted += 1
 
+    if require_indexability_coverage and unasserted:
+        raise ValueError(
+            f"{unasserted} reviewed page(s) lack an explicit indexability assertion"
+        )
     if required.keys() & excluded.keys():
         raise ValueError("Manifest indexability and canonical sitemap intentions conflict")
     if not required and not excluded:

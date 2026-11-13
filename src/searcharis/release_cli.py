@@ -36,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if built HTML pages are missing from the reviewed manifest",
     )
     parser.add_argument(
+        "--require-indexability-coverage", action="store_true",
+        help="Require explicit indexable true/false for every reviewed manifest page",
+    )
+    parser.add_argument(
         "--check-hreflang-reciprocity", action="store_true",
         help="Require reciprocal hreflang links between reviewed built pages",
     )
@@ -65,7 +69,10 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
         )
-        sitemap = verify_sitemap_manifest(reviewed_manifest, args.sitemaps)
+        sitemap = verify_sitemap_manifest(
+            reviewed_manifest, args.sitemaps,
+            require_indexability_coverage=args.require_indexability_coverage,
+        )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
