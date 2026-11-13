@@ -23,12 +23,14 @@ _MAX_TOTAL_SITEMAP_BYTES = 16_000_000
 _MAX_TOTAL_SITEMAP_URLS = 100_000
 
 
-def _read_sitemap(path: Path) -> dict[tuple, str]:
-    """Read a bounded UTF-8 sitemap URL set; reject DTD and URL aliases."""
+def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], int]:
+    """Read a bounded UTF-8 URL set, returning its actual byte count."""
     with path.open("rb") as stream:
-        data = stream.read(_MAX_SITEMAP_BYTES + 1)
+        data = stream.read(min(_MAX_SITEMAP_BYTES, remaining_bytes) + 1)
     if len(data) > _MAX_SITEMAP_BYTES:
         raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
+    if len(data) > remaining_bytes:
+        raise ValueError(f"Combined sitemaps exceed {_MAX_TOTAL_SITEMAP_BYTES} bytes")
     # ElementTree does not resolve external resources, and rejecting DTDs also
     # avoids entity amplification and XML parser-dependent interpretation.
     decoded = data.decode("utf-8-sig")
@@ -71,7 +73,7 @@ def _read_sitemap(path: Path) -> dict[tuple, str]:
         urls[identity] = location
         if len(urls) > _MAX_SITEMAP_URLS:
             raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_URLS} URLs")
-    return urls
+    return urls, len(data)
 
 
 def _read_sitemaps(paths: Path | Sequence[Path]) -> dict[tuple, str]:
@@ -93,10 +95,9 @@ def _read_sitemaps(paths: Path | Sequence[Path]) -> dict[tuple, str]:
         if path in seen_files:
             raise ValueError(f"Duplicate sitemap file: {path}")
         seen_files.add(path)
-        total_bytes += path.stat().st_size
-        if total_bytes > _MAX_TOTAL_SITEMAP_BYTES:
-            raise ValueError(f"Combined sitemaps exceed {_MAX_TOTAL_SITEMAP_BYTES} bytes")
-        for identity, location in _read_sitemap(path).items():
+        shard, actual_bytes = _read_sitemap(path, _MAX_TOTAL_SITEMAP_BYTES - total_bytes)
+        total_bytes += actual_bytes
+        for identity, location in shard.items():
             current_host = urlsplit(location).hostname
             if host is not None and current_host != host:
                 raise ValueError("Sitemap loc URLs must belong to the same host across files")

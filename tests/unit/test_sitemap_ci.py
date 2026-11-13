@@ -292,6 +292,37 @@ def test_total_sitemap_byte_limit_applies_across_files(tmp_path, monkeypatch):
         verify_sitemap_manifest(manifest, [first, second])
 
 
+@pytest.mark.parametrize("reported_size", [1, 10_000_000])
+def test_total_sitemap_byte_limit_uses_read_bytes_not_stale_stat(
+    tmp_path, monkeypatch, reported_size,
+):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import searcharis.sitemap_ci as sitemap_ci
+
+    first = _sitemap(tmp_path, "https://example.test/one", filename="first.xml")
+    second = _sitemap(tmp_path, "https://example.test/two", filename="second.xml")
+    actual_bytes = first.stat().st_size + second.stat().st_size
+    # A file can grow or shrink between a size probe and opening it.
+    budget = actual_bytes if reported_size > actual_bytes else actual_bytes - 1
+    monkeypatch.setattr(sitemap_ci, "_MAX_TOTAL_SITEMAP_BYTES", budget)
+    real_stat = Path.stat
+
+    def stale_stat(path, *args, **kwargs):
+        if path in (first, second):
+            return SimpleNamespace(st_size=reported_size)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stale_stat)
+    manifest = _manifest({"url": "https://example.test/one", "indexable": True})
+    if reported_size < actual_bytes:
+        with pytest.raises(ValueError, match="Combined.*bytes"):
+            verify_sitemap_manifest(manifest, [first, second])
+    else:
+        assert verify_sitemap_manifest(manifest, [first, second])["status"] == "pass"
+
+
 def test_no_local_sitemap_files_is_input_error(tmp_path):
     manifest = _manifest({"url": "https://example.test/", "indexable": True})
     with pytest.raises(ValueError, match="at most 16"):
