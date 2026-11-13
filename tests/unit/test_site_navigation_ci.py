@@ -82,6 +82,86 @@ def test_navigation_resolves_first_document_base_and_preserves_query(tmp_path):
     ]
 
 
+def test_reviewed_navigation_checks_active_image_map_hotspots(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<img alt="Map" usemap="#navigation">'
+        '<map name="navigation"><area href="/unreviewed/" alt="Missing"></map>',
+    )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/unreviewed/'},
+    ]
+
+
+def test_reviewed_fragments_checks_image_map_hotspots(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<map name="navigation"><area href="/about/#missing" alt="Missing section"></map>',
+    )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    report = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#missing'},
+    ]
+
+
+def test_image_map_link_collection_excludes_outside_and_inert_areas(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<area href="/outside/" alt="No containing map">'
+        '<template><map><area href="/inert/" alt="Inert"></map></template>'
+        '<map name="nav"><area alt="Dead spot">'
+        '<area href="/about/" alt="Reviewed"></map>'
+        '<area href="/after-map/" alt="No containing map">',
+    )
+    report = verify_manifest(
+        manifest, build, check_reviewed_navigation=True, check_reviewed_fragments=True,
+    )
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_nonvoid_self_closing_map_start_keeps_area_hotspot(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<map name="navigation"/><area href="/unreviewed/" alt="Missing">',
+    )
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'][0]['target'] == (
+        'https://example.test/unreviewed/'
+    )
+
+
+def test_image_map_fragment_failures_reach_both_offline_clis(tmp_path, capsys):
+    build, manifest = _site(
+        tmp_path,
+        '<img alt="Navigation" usemap="#navigation">'
+        '<map name="navigation"><area href="/about/#missing" alt="Missing"></map>',
+    )
+    manifest_file = tmp_path / 'manifest.json'
+    manifest_file.write_text(json.dumps(manifest), encoding='utf-8')
+    sitemap = tmp_path / 'sitemap.xml'
+    sitemap.write_text(
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<url><loc>https://example.test/en/</loc></url>'
+        '<url><loc>https://example.test/about/</loc></url></urlset>',
+        encoding='utf-8',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network attempted')):
+        assert site_main([str(manifest_file), str(build), '--check-reviewed-fragments', '--json']) == 1
+        site_report = json.loads(capsys.readouterr().out)
+        assert site_report['reviewed_fragments']['missing_targets']
+        assert release_main([str(manifest_file), str(build), str(sitemap),
+                             '--check-reviewed-fragments', '--json']) == 1
+        release_report = json.loads(capsys.readouterr().out)
+    assert release_report['site']['reviewed_fragments']['missing_targets']
+    assert release_report['sitemap']['status'] == 'pass'
+
+
 def test_site_cli_navigation_option_fails_offline_without_network(tmp_path, capsys):
     build, manifest = _site(tmp_path, '<a href="/stale/">Stale</a>')
     manifest_file = tmp_path / 'manifest.json'

@@ -128,7 +128,9 @@ For reviewed in-page and cross-page anchor navigation, opt in to
 `site_cli --check-reviewed-fragments` (also available in `release_cli`). It
 checks fragment targets in the supplied built HTML and rejects missing or
 ambiguous targets such as duplicate active IDs or named anchors. It does not
-fetch links, inspect unreviewed routes or change the default SEO gate.
+fetch links, inspect unreviewed routes or change the default SEO gate. The
+reviewed navigation and fragment gates also inspect image-map `<area href>`
+hotspots inside active `<map>` elements.
 
 For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
 explicit local sitemap URL sets against reviewed `indexable: true/false` page
