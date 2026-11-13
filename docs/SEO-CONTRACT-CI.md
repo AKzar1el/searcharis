@@ -1142,6 +1142,25 @@ retaining that nonzero release-gate result. This is a report conversion,
 See [GitLab JUnit report documentation](https://docs.gitlab.com/ci/yaml/artifacts_reports/#artifactsreportsjunit)
 and [Jenkins JUnit publisher](https://www.jenkins.io/doc/pipeline/steps/junit/).
 
+For a human reviewer of local static-build regressions, write a bounded Markdown
+summary directly as a new UTF-8 artifact (no shell redirection):
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --fail-on-new-unlisted --markdown-file seo-regressions.md
+```
+
+This opt-in report separates newly blocking page failures and removed pages
+from inherited baseline debt; it labels newly unlisted HTML or unverified
+cross-page targets as blocking only when the corresponding policy flag is set.
+It shows at most 20 escaped, abbreviated new observations (with a remainder
+count), summary counts and fixed reviewer next steps. It never fetches URLs,
+modifies either build, overwrites an existing file, or changes comparison exit
+codes 0/1/2. `--markdown-file` is mutually exclusive with JSON, SARIF and JUnit
+output modes; choose a fresh path outside both build snapshots and publish it
+even on regression exit 1. It is not evidence of hosted CI ingestion, deployed
+routing, search rankings or customer adoption.
+
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving their complete `--json` outputs:

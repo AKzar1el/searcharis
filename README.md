@@ -175,6 +175,10 @@ the checker exits 1; see the [JUnit guide](docs/SEO-CONTRACT-CI.md#compare-local
 Use `--junit-file seo-regressions.xml` to create an XML artifact directly
 without shell redirection (especially useful on Windows PowerShell 5.1).
 The file must not already exist or be inside either build snapshot.
+For a human CI reviewer, use `--markdown-file seo-regressions.md` to write a
+bounded UTF-8 summary of new findings, optional coverage gates, inherited
+baseline debt and resolved-issue counts. It is mutually exclusive with the
+other comparison report modes, never overwrites and does not fetch URLs.
 
 For a single page, use `contract_cli`; for a ready-made multi-page contract,
 use `site_cli` directly:

@@ -21,6 +21,12 @@ that file without overwriting an existing report or modifying either build
 snapshot, and still exits 1. Configure CI to upload the XML even on exit 1;
 use a fresh output path each run.
 
+To give a reviewer a short Markdown artifact instead, substitute
+`--markdown-file seo-regressions.md` for `--sarif` above. This produces a new
+UTF-8 file summarizing the pricing-page regression and one inherited baseline
+issue, with fixed reviewer next steps. The expected exit remains **1**; use
+a fresh output filename outside both build snapshots on each run.
+
 The HTML snapshots are intentionally minimal teaching examples, **not** an
 independently compiled or deployed website. Their files are stored as separate
 regular files; do not replace the snapshots with symlinks or hard links.
