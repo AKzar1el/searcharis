@@ -13,6 +13,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_junit import build_release_junit
 from searcharis.sitemap_ci import verify_sitemap_manifest
 
 
@@ -61,6 +62,14 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Write both reports to a new UTF-8 JSON file; never overwrite",
     )
+    output.add_argument(
+        "--junit", action="store_true",
+        help="Print a JUnit XML suite of blocking HTML and sitemap findings",
+    )
+    output.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write JUnit XML to a new file outside the build; never overwrite",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -86,7 +95,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.json or args.json_file:
+    if args.junit or args.junit_file:
+        junit = build_release_junit(site, sitemap)
+        if args.junit_file:
+            try:
+                target = args.junit_file.resolve()
+                if target.is_relative_to(args.build_dir.resolve()):
+                    raise ValueError("JUnit report must be outside the build directory")
+                # Create exclusively, preserving immutable build inputs and old reports.
+                with args.junit_file.open("x", encoding="utf-8", newline="\n") as report:
+                    report.write(junit + "\n")
+            except (OSError, UnicodeError, ValueError) as error:
+                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                return 2
+        else:
+            print(junit)
+    elif args.json or args.json_file:
         serialized = json.dumps(
             {"status": status, "site": site, "sitemap": sitemap},
             indent=2, sort_keys=True,

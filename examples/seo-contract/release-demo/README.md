@@ -17,6 +17,12 @@ For a machine-readable CI artifact, replace `--json` with
 and must be outside the build tree. The command writes UTF-8 directly, does
 not modify the build or sitemap and never uploads anything.
 
+For CI services accepting JUnit test reports, use `--junit-file seo-release.xml`
+instead of `--json`. This writes one passing testcase when both gates pass,
+or one failed testcase per blocking HTML/sitemap finding. The artifact is
+created exclusively outside the build directory and preserves exit codes.
+See [offline release JUnit usage](../../../docs/SEO-RELEASE-JUNIT.md).
+
 To see deliberate failures without editing this snapshot, run
 `uv run pytest tests/integration/test_release_gate_demo.py -q`. Those
 acceptance tests copy the compiled build and introduce a pricing-page
