@@ -146,6 +146,7 @@ def build_release_junit(site: dict, sitemap: dict) -> str:
         ("missing_required", "Required canonical URL missing from sitemap"),
         ("present_excluded", "Reviewed noindex URL present in sitemap"),
         ("present_noncanonical", "Reviewed noncanonical URL present in sitemap"),
+        ("unreviewed_urls", "Unreviewed URL present in sitemap"),
     ):
         for url in sitemap.get(field, []):
             failures.append((

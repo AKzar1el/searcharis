@@ -28,6 +28,7 @@ uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dis
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml.gz dist/sitemap-2.xml --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --require-indexability-coverage --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --reject-noncanonical-urls --json
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --reject-unreviewed-urls --json
 ```
 
 Local files with a `.gz` suffix are decompressed as gzip before XML validation;
@@ -58,6 +59,7 @@ uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml 
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-noncanonical-urls --json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-unreviewed-urls --junit
 ```
 
 `release_cli` reads the manifest once and invokes the same local verification
@@ -94,6 +96,23 @@ Google recommends submitting preferred canonical URLs rather than duplicate
 variants ([sitemap guidance](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)).
 This local flag checks reviewed intent only: it does not establish the actual
 canonical chosen by Google or prove that these URLs are publicly served.
+
+For a sitemap whose URLs are **fully represented in a developer-reviewed**
+manifest, add `--reject-unreviewed-urls` to fail on extra local sitemap
+locations not named by a manifest page `url` or its explicitly declared
+`canonical`. It catches stale or accidentally published sitemap entries that
+the ordinary intent checker deliberately ignores. The opt-in JSON report adds
+`unreviewed_urls`, sorted deterministically, and returns exit 1 for extras;
+the combined release gate also includes these findings in its JUnit XML output.
+Equivalent normalized URL identities are treated as the same resource, and
+plain/gzip split sitemaps work alike. Without this flag, partial manifests
+continue allowing unrelated sitemap entries with exactly the old report shape.
+**Do not enable it for a partial manifest or intentionally incomplete local
+sitemap set**: it compares only supplied local files and reviewed JSON, not a
+live site's inventory. This flag is independent of
+`--require-indexability-coverage` (every manifest page has an assertion) and
+`--reject-noncanonical-urls` (reviewed aliases must not appear in XML).
+No network requests or sitemap-index resolution occur.
 
 Use `--json-file PATH` instead of `--json` to save the same complete combined
 report directly as UTF-8 for CI consumers (including Windows PowerShell 5.1,

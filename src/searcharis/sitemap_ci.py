@@ -1,7 +1,7 @@
 """Check explicit SEO sitemap intent using only a local XML file and reviewed manifest.
 
 No URL from either input is requested. Unasserted pages and unrelated sitemap
-entries are deliberately not treated as errors: the manifest is not a crawl map.
+entries are nonblocking by default: the manifest is not a crawl map.
 """
 
 from __future__ import annotations
@@ -133,6 +133,7 @@ def verify_sitemap_manifest(
     *,
     require_indexability_coverage: bool = False,
     reject_noncanonical_urls: bool = False,
+    reject_unreviewed_urls: bool = False,
 ) -> dict:
     """Assert only reviewed indexable/noindex intentions against local XML.
 
@@ -153,6 +154,7 @@ def verify_sitemap_manifest(
     noncanonical: dict[tuple, str] = {}
     seen_pages: set[str] = set()
     seen_urls: set[tuple] = set()
+    reviewed_urls: set[tuple] = set()
     unasserted = 0
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
@@ -173,11 +175,16 @@ def verify_sitemap_manifest(
         if page_identity in seen_urls:
             raise ValueError(f"Duplicate contract URL identity: {page_url}")
         seen_urls.add(page_identity)
+        reviewed_urls.add(page_identity)
         if "canonical" in contract and (
             not isinstance(contract["canonical"], str)
             or not _is_canonical_url(contract["canonical"])
         ):
             raise ValueError(f"Invalid canonical URL for page: {path}")
+        if "canonical" in contract:
+            # A declared canonical is reviewed even if it is not a separate
+            # manifest page; other URLs remain outside this opt-in inventory.
+            reviewed_urls.add(_page_url_identity(contract["canonical"]))
 
         indexable = contract.get("indexable")
         if "indexable" in contract and type(indexable) is not bool:
@@ -210,8 +217,12 @@ def verify_sitemap_manifest(
     missing = sorted(url for identity, url in required.items() if identity not in sitemap)
     present = sorted(url for identity, url in excluded.items() if identity in sitemap)
     aliases = sorted(url for identity, url in noncanonical.items() if identity in sitemap)
+    unreviewed = (
+        sorted(url for identity, url in sitemap.items() if identity not in reviewed_urls)
+        if reject_unreviewed_urls else []
+    )
     report = {
-        "status": "fail" if missing or present or aliases else "pass",
+        "status": "fail" if missing or present or aliases or unreviewed else "pass",
         "summary": {
             "required": len(required), "excluded": len(excluded),
             "unasserted_pages": unasserted, "sitemap_urls": len(sitemap),
@@ -222,4 +233,6 @@ def verify_sitemap_manifest(
     # Preserve the default JSON report schema for existing consumers.
     if reject_noncanonical_urls:
         report["present_noncanonical"] = aliases
+    if reject_unreviewed_urls:
+        report["unreviewed_urls"] = unreviewed
     return report
