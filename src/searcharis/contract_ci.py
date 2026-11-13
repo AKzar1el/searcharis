@@ -46,6 +46,7 @@ class _SEOParser(HTMLParser):
         self.collect_fragment_ids = collect_fragment_ids
         self.anchors: list[str] = []
         self.fragment_ids: set[str] = set()
+        self.duplicate_fragment_ids: set[str] = set()
         self.has_html = False
         self.html_tag_seen = False
         self.html_lang: str | None = None
@@ -148,10 +149,17 @@ class _SEOParser(HTMLParser):
         if self.collect_fragment_ids:
             # Only active DOM elements define fragment targets; inert templates
             # and raw-text contexts were excluded before attribute collection.
+            targets: set[str] = set()
             if values.get("id"):
-                self.fragment_ids.add(values["id"])
+                targets.add(values["id"])
             if tag == "a" and values.get("name"):
-                self.fragment_ids.add(values["name"])
+                targets.add(values["name"])
+            # The same element's matching id/name is one target, while two
+            # separate elements with the same target make navigation ambiguous.
+            for target in targets:
+                if target in self.fragment_ids:
+                    self.duplicate_fragment_ids.add(target)
+                self.fragment_ids.add(target)
         if self.collect_anchors and tag == "a" and "href" in values:
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
@@ -849,4 +857,5 @@ def verify_contract(
         result["observed_anchors"] = {"base_url": base_url, "hrefs": page.anchors}
         if include_fragment_ids:
             result["observed_anchors"]["ids"] = sorted(page.fragment_ids)
+            result["observed_anchors"]["duplicate_ids"] = sorted(page.duplicate_fragment_ids)
     return result

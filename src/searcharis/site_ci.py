@@ -221,8 +221,15 @@ def verify_manifest(
             _page_url_identity(report["checked_url"]): set(observed_anchors[report["checked_url"]]["ids"])
             for report in reports
         }
+        duplicate_ids = {
+            _page_url_identity(report["checked_url"]): set(
+                observed_anchors[report["checked_url"]]["duplicate_ids"]
+            )
+            for report in reports
+        }
         checked_fragments = 0
         missing: list[dict[str, str]] = []
+        ambiguous: list[dict[str, str]] = []
         unverified: list[dict[str, str]] = []
         for report in reports:
             source_url = report["checked_url"]
@@ -262,9 +269,17 @@ def verify_manifest(
                 # HTML fragment navigation tries the raw string first, then
                 # its UTF-8 percent-decoded form. "top" is a valid special
                 # document target even if no element carries that ID.
-                if (raw_fragment not in reviewed_ids[identity]
-                        and decoded_fragment not in reviewed_ids[identity]
-                        and decoded_fragment.lower() != "top"):
+                matched_id = (raw_fragment if raw_fragment in reviewed_ids[identity]
+                              else decoded_fragment)
+                if matched_id in duplicate_ids[identity]:
+                    report["issues"].append({
+                        "code": "navigation_fragment_ambiguous",
+                        "expected": "a unique fragment target in the reviewed built HTML",
+                        "actual": target,
+                    })
+                    ambiguous.append(detail)
+                elif (matched_id not in reviewed_ids[identity]
+                      and decoded_fragment.lower() != "top"):
                     report["issues"].append({
                         "code": "navigation_fragment_missing",
                         "expected": "a fragment ID in the reviewed built HTML",
@@ -276,6 +291,7 @@ def verify_manifest(
         fragment_summary = {
             "checked_fragments": checked_fragments,
             "missing_targets": sorted(missing, key=lambda item: (item["path"], item["target"])),
+            "ambiguous_targets": sorted(ambiguous, key=lambda item: (item["path"], item["target"])),
             "unverified_targets": sorted(unverified, key=lambda item: (item["path"], item["target"])),
         }
 
