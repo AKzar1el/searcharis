@@ -113,3 +113,22 @@ def test_compiled_vite_demo_emits_json_and_junit_in_one_pass(
     assert report["sitemap"]["summary"]["required"] == 2
     assert report["status"] == "pass"
     assert suite.attrib["tests"] == "1" and suite.attrib["failures"] == "0"
+
+
+def test_compiled_vite_demo_emits_markdown_with_other_artifacts_offline(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    paths = [tmp_path / name for name in (
+        "seo-release.json", "seo-release.xml", "seo-release.md",
+    )]
+    assert _check(BUILD, DEMO / "sitemap.xml",
+                  "--json-file", str(paths[0]),
+                  "--junit-file", str(paths[1]),
+                  "--markdown-file", str(paths[2])) == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(paths[0].read_text(encoding="utf-8"))["status"] == "pass"
+    assert ET.fromstring(paths[1].read_bytes()).attrib["failures"] == "0"
+    summary = paths[2].read_text(encoding="utf-8")
+    assert "PASS" in summary and "2/2" in summary
+    assert "local artifacts" in summary

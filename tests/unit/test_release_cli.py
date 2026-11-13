@@ -524,3 +524,142 @@ def test_release_junit_xml_names_and_diagnostics_are_safe_and_deterministic():
     suite = ET.fromstring(first)
     assert suite.attrib["failures"] == "2"
     assert all(len(case.attrib["name"]) <= 300 for case in suite.findall("testcase"))
+
+
+def test_release_markdown_file_renders_local_pass_without_stdout(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    report = tmp_path / "seo-release.md"
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--markdown-file", str(report)])
+    output = capsys.readouterr()
+    assert code == 0 and output.out == output.err == ""
+    content = report.read_bytes()
+    assert b"\x00" not in content
+    text = content.decode("utf-8")
+    assert "# Searcharis SEO release" in text
+    assert "PASS" in text and "2/2" in text
+    assert "local" in text.lower()
+
+
+def test_release_markdown_file_reports_both_blocking_subsystems(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/draft"])
+    report = tmp_path / "seo-release.md"
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--markdown-file", str(report)])
+    assert code == 1 and capsys.readouterr().out == ""
+    text = report.read_text(encoding="utf-8")
+    assert "FAIL" in text
+    assert "index.html" in text and "title_presence" in text
+    assert "missing" in text.lower() and "https://example.test/" in text
+    assert "noindex" in text.lower() and "https://example.test/draft" in text
+
+
+@pytest.mark.parametrize("destination", ["existing.md", "dist/report.md"])
+def test_release_markdown_is_create_only_and_outside_build(tmp_path, capsys, destination):
+    manifest, build, sitemap = _fixture(tmp_path)
+    path = tmp_path / destination
+    if destination == "existing.md":
+        path.write_text("prior report", encoding="utf-8")
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--markdown-file", str(path)])
+    assert code == 2 and "Invalid input" in capsys.readouterr().err
+    if destination == "existing.md":
+        assert path.read_text(encoding="utf-8") == "prior report"
+    else:
+        assert not path.exists()
+
+
+@pytest.mark.parametrize("blocked", ["existing_markdown", "same_as_json", "build_markdown"])
+def test_three_release_artifacts_preflight_all_targets(tmp_path, capsys, blocked):
+    manifest, build, sitemap = _fixture(tmp_path)
+    json_path = tmp_path / "report.json"
+    xml_path = tmp_path / "report.xml"
+    markdown_path = tmp_path / "report.md"
+    if blocked == "existing_markdown":
+        markdown_path.write_bytes(b"prior markdown")
+    elif blocked == "same_as_json":
+        markdown_path = json_path
+    else:
+        markdown_path = build / "report.md"
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(json_path), "--junit-file", str(xml_path),
+                 "--markdown-file", str(markdown_path)])
+    assert code == 2 and "Invalid input" in capsys.readouterr().err
+    assert not json_path.exists() and not xml_path.exists()
+    if blocked == "existing_markdown":
+        assert markdown_path.read_bytes() == b"prior markdown"
+    else:
+        assert not markdown_path.exists()
+
+
+def test_three_release_artifacts_share_one_pass_and_preserve_exit(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    files = [tmp_path / name for name in ("report.json", "report.xml", "report.md")]
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(files[0]), "--junit-file", str(files[1]),
+                 "--markdown-file", str(files[2])])
+    assert code == 0 and capsys.readouterr().out == ""
+    assert json.loads(files[0].read_text(encoding="utf-8"))["status"] == "pass"
+    assert ET.fromstring(files[1].read_bytes()).attrib["failures"] == "0"
+    assert "PASS" in files[2].read_text(encoding="utf-8")
+
+
+def test_markdown_input_error_does_not_create_report(tmp_path, capsys):
+    manifest, build, _ = _fixture(tmp_path)
+    target = tmp_path / "summary.md"
+    code = main([str(manifest), str(build), str(tmp_path / "missing.xml"),
+                 "--markdown-file", str(target)])
+    assert code == 2 and "Invalid input" in capsys.readouterr().err
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("mode", ["--json", "--junit"])
+def test_markdown_file_rejects_stdout_modes(tmp_path, capsys, mode):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / "summary.md"
+    with pytest.raises(SystemExit) as error:
+        main([str(manifest), str(build), str(sitemap), mode,
+              "--markdown-file", str(target)])
+    assert error.value.code == 2
+    assert "not allowed" in capsys.readouterr().err
+    assert not target.exists()
+
+
+def test_release_markdown_does_not_render_untrusted_markup_or_control_lines():
+    from searcharis.release_markdown import build_release_markdown
+
+    hostile = "<script>|`\nnew issue\x01\ud800" + "x" * 1400
+    site = {"status": "fail", "summary": {"checked": 1, "passed": 0, "failed": 1},
+            "pages": [{"path": hostile, "issues": [{"code": hostile,
+                         "expected": hostile, "actual": hostile}]}],
+            "coverage": {"require_full_coverage": False, "unlisted": []}}
+    sitemap = {"status": "fail", "summary": {"required": 1, "excluded": 0,
+               "sitemap_urls": 1}, "missing_required": [hostile],
+               "present_excluded": [], "present_noncanonical": [],
+               "unreviewed_urls": []}
+    report = build_release_markdown(site, sitemap)
+    assert report == build_release_markdown(site, sitemap)
+    assert "<script>" not in report and "&lt;script&gt;" in report
+    assert "\x01" not in report and "\ud800" not in report
+    assert "\nnew issue" not in report
+    assert len(report) < 6000
+
+
+def test_release_markdown_bounded_diagnostics_are_reproducible():
+    from searcharis.release_markdown import build_release_markdown
+
+    site = {"status": "fail", "summary": {"checked": 1, "passed": 0, "failed": 1},
+            "pages": [{"path": "index.html", "issues": [
+                {"code": f"issue-{i}"} for i in range(100)
+            ]}], "coverage": {"require_full_coverage": False, "unlisted": []}}
+    sitemap = {"status": "fail", "summary": {"required": 0, "excluded": 0,
+               "sitemap_urls": 100}, "missing_required": [
+                   f"https://example.test/{i}" for i in range(100)],
+               "present_excluded": []}
+    output = build_release_markdown(site, sitemap)
+    assert "80 more HTML findings" in output
+    assert "80 more sitemap findings" in output
+    assert "issue-20" not in output
+    assert len(output) < 10000

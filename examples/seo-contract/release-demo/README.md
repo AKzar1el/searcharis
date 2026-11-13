@@ -29,6 +29,20 @@ The JUnit suite has one passing testcase when both gates pass or one failed
 testcase per blocking HTML/sitemap finding.
 See [offline release JUnit usage](../../../docs/SEO-RELEASE-JUNIT.md).
 
+To give reviewers a compact human-readable report, add
+`--markdown-file seo-release.md` alongside either or both artifact flags.
+The Markdown summary includes HTML and sitemap status, bounded actionable
+blocking findings, and a reminder that it checks **local artifacts**, not
+public indexing. It escapes untrusted paths, URLs and issue text so build
+content cannot inject Markdown/HTML into the summary. As with JSON/JUnit,
+the Markdown path must be new and outside the build; **all three paths**
+must differ. No Markdown report is written for input errors (exit 2).
+For GitHub Actions, a separate authorized workflow step can append this
+artifact to `$GITHUB_STEP_SUMMARY` after running the verifier. Do not point
+`--markdown-file` directly at an existing step-summary file: it is create-only.
+Always preserve the release check's exit status; producing a readable report
+does not itself allow a failed gate to pass or publish a deployment.
+
 To see deliberate failures without editing this snapshot, run
 `uv run pytest tests/integration/test_release_gate_demo.py -q`. Those
 acceptance tests copy the compiled build and introduce a pricing-page
