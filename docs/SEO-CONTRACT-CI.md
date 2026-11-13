@@ -802,6 +802,36 @@ template/raw-text HTML are ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
 
+## Opt-in critical-page inbound link assertions
+
+For important landing pages, the combined offline HTML+sitemap release gate can
+require at least one navigable link from a **different reviewed page on the same
+origin**. Select exactly which compiled manifest paths are critical:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-inbound-link services/index.html \
+  --require-inbound-link pricing/index.html --json
+```
+
+Each `--require-inbound-link` value is an exact relative **manifest artifact
+path**, not a live URL. Unknown, unsafe, wrong-case or repeated paths are input
+errors (exit **2**). A selected page with no qualifying inbound link gets a
+`reviewed_inbound_link_missing` finding (exit **1**); the structured
+`reviewed_inbound` record includes required, linked and missing paths.
+The check uses active built `<a href>` and image-map `<area href>` links,
+honors the first document `<base href>`, URL identity normalization, paths
+and queries, and ignores self-links, external origins and inert markup.
+
+This is intentionally **not** a whole-site orphan-page detector: links from
+unreviewed HTML, live CMS/JavaScript navigation and deployed redirects cannot
+be seen. Only explicitly selected pages are constrained; a sitemap listing
+does not count as an HTML inbound link. The flag is off by default and never
+fetches URLs. Google recommends linking to important pages from other
+findable pages; see [Google Search Central's link guidance](https://developers.google.com/search/docs/crawling-indexing/links-crawlable).
+Passing this local check cannot prove crawling, indexing, search rankings or
+customer adoption.
+
 ## Opt-in reviewed fragment destinations
 
 Static navigation can point at a valid reviewed page but still contain a

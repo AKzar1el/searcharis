@@ -73,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-unique-titles", action="store_true",
         help="Fail on duplicate normalized HTML titles among reviewed indexable pages on the same origin",
     )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -109,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             check_reviewed_navigation=args.check_reviewed_navigation,
             check_reviewed_fragments=args.check_reviewed_fragments,
             check_unique_titles=args.check_unique_titles,
+            required_inbound_paths=tuple(args.require_inbound_link),
         )
         sitemap = verify_sitemap_manifest(
             reviewed_manifest, args.sitemaps,

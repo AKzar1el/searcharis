@@ -131,6 +131,11 @@ ambiguous targets such as duplicate active IDs or named anchors. It does not
 fetch links, inspect unreviewed routes or change the default SEO gate. The
 reviewed navigation and fragment gates also inspect image-map `<area href>`
 hotspots inside active `<map>` elements.
+For critical landing pages, the combined `release_cli` also supports
+repeatable `--require-inbound-link services/index.html`: it fails when no
+other reviewed same-origin built page links to that explicitly selected
+manifest artifact path. This does not establish whether a deployed page is
+reachable from unreviewed or JavaScript-created navigation.
 
 For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
 explicit local sitemap URL sets against reviewed `indexable: true/false` page
