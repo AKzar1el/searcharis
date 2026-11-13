@@ -1,0 +1,134 @@
+"""Keep the checked-in compiled Vite + sitemap release example runnable."""
+
+import json
+import shutil
+import socket
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+from searcharis.release_cli import main as release_gate
+
+ROOT = Path(__file__).resolve().parents[2]
+DEMO = ROOT / "examples" / "seo-contract" / "release-demo"
+BUILD = ROOT / "examples" / "seo-contract" / "generator-fixtures" / "vite" / "artifacts"
+STRICT = ("--require-full-coverage", "--require-indexability-coverage")
+
+
+def _offline(monkeypatch):
+    def deny(*_args, **_kwargs):
+        raise AssertionError("Offline release demo attempted to use the network")
+
+    monkeypatch.setattr(socket.socket, "connect", deny)
+    monkeypatch.setattr(socket, "create_connection", deny)
+
+
+def _check(build, sitemap, *options):
+    return release_gate([
+        str(DEMO / "manifest.json"), str(build), str(sitemap),
+        *STRICT, "--check-canonical-consistency", *options,
+    ])
+
+
+def test_compiled_vite_release_demo_passes_both_strict_gates(capsys, monkeypatch):
+    _offline(monkeypatch)
+    assert _check(BUILD, DEMO / "sitemap.xml", "--json") == 0
+    output = capsys.readouterr()
+    assert output.err == ""
+    report = json.loads(output.out)
+    assert report["status"] == "pass"
+    assert report["site"]["summary"] == {"checked": 2, "passed": 2, "failed": 0}
+    assert report["site"]["coverage"]["unlisted"] == []
+    assert report["sitemap"]["summary"] == {
+        "required": 2, "excluded": 0, "unasserted_pages": 0, "sitemap_urls": 2,
+    }
+
+
+def test_release_demo_blocks_built_html_noindex_regression(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    candidate = tmp_path / "dist"
+    shutil.copytree(BUILD, candidate)
+    page = candidate / "pricing" / "index.html"
+    html = page.read_text(encoding="utf-8")
+    assert 'content="index,follow"' in html
+    page.write_text(
+        html.replace('content="index,follow"', 'content="noindex"'),
+        encoding="utf-8",
+    )
+    assert _check(candidate, DEMO / "sitemap.xml", "--json") == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["site"]["status"] == "fail"
+    assert report["sitemap"]["status"] == "pass"
+    assert report["site"]["summary"]["failed"] == 1
+
+
+def test_release_demo_blocks_missing_sitemap_url(tmp_path, capsys, monkeypatch):
+    _offline(monkeypatch)
+    shard = tmp_path / "sitemap.xml"
+    xml = (DEMO / "sitemap.xml").read_text(encoding="utf-8")
+    assert "<loc>https://fixtures.invalid/pricing/</loc>" in xml
+    shard.write_text(
+        xml.replace(
+            "<url><loc>https://fixtures.invalid/pricing/</loc></url>", ""
+        ),
+        encoding="utf-8",
+    )
+    assert _check(BUILD, shard, "--json") == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["site"]["status"] == "pass"
+    assert report["sitemap"]["status"] == "fail"
+    assert report["sitemap"]["missing_required"] == [
+        "https://fixtures.invalid/pricing/"
+    ]
+
+
+def test_release_demo_portable_json_file_is_create_only(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    target = tmp_path / "seo-release.json"
+    assert _check(BUILD, DEMO / "sitemap.xml", "--json-file", str(target)) == 0
+    assert capsys.readouterr().out == ""
+    payload = target.read_bytes()
+    assert b"\x00" not in payload
+    assert json.loads(payload.decode("utf-8"))["status"] == "pass"
+    assert _check(BUILD, DEMO / "sitemap.xml", "--json-file", str(target)) == 2
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
+
+
+def test_compiled_vite_demo_emits_json_and_junit_in_one_pass(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    json_path = tmp_path / "seo-release.json"
+    junit_path = tmp_path / "seo-release.xml"
+    assert _check(BUILD, DEMO / "sitemap.xml", "--json-file", str(json_path),
+                  "--junit-file", str(junit_path)) == 0
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    suite = ET.fromstring(junit_path.read_bytes())
+    assert report["site"]["summary"]["passed"] == 2
+    assert report["sitemap"]["summary"]["required"] == 2
+    assert report["status"] == "pass"
+    assert suite.attrib["tests"] == "1" and suite.attrib["failures"] == "0"
+
+
+def test_compiled_vite_demo_emits_markdown_with_other_artifacts_offline(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    paths = [tmp_path / name for name in (
+        "seo-release.json", "seo-release.xml", "seo-release.md",
+    )]
+    assert _check(BUILD, DEMO / "sitemap.xml",
+                  "--json-file", str(paths[0]),
+                  "--junit-file", str(paths[1]),
+                  "--markdown-file", str(paths[2])) == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(paths[0].read_text(encoding="utf-8"))["status"] == "pass"
+    assert ET.fromstring(paths[1].read_bytes()).attrib["failures"] == "0"
+    summary = paths[2].read_text(encoding="utf-8")
+    assert "PASS" in summary and "2/2" in summary
+    assert "local artifacts" in summary

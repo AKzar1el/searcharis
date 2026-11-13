@@ -124,6 +124,17 @@ indexability, description, route-map and per-page policies only after reviewing
 actual hosting routes. Built HTML checks cannot prove HTTP response status,
 headers, redirects, JavaScript-rendered metadata or Google indexing.
 
+For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
+explicit local sitemap URL sets against reviewed `indexable: true/false` page
+contracts. It never fetches URLs, resolves sitemap indexes, or guesses which
+pages should be indexed.
+Try the [offline HTML + sitemap release-gate demo](examples/seo-contract/release-demo/README.md)
+to check both policies together against a compiled two-page Vite snapshot
+with positive and negative acceptance tests; no cloud or site deployment is
+required.
+See the [offline sitemap CI guide](docs/OFFLINE-SITEMAP-CI.md) for a runnable
+pass/fail fixture and limitations.
+
 For regression-only CI on a legacy site, compare a trusted baseline build and
 the candidate directly with `python -m searcharis.build_compare`; it tolerates
 unchanged known defects without writing intermediate JSON reports. See the
@@ -133,6 +144,11 @@ to see one new pricing-page title regression reported while an unchanged
 home-page description defect remains permitted. This example intentionally
 returns exit code 1; real gates must use independently produced, trusted
 build snapshots and a reviewed manifest.
+Use `--json-file seo-regressions.json` to save complete baseline/candidate
+comparison findings directly as UTF-8 for local CI artifact consumers. The
+file must be new and outside both build snapshots; the checker never uploads
+it. Unlike SARIF and JUnit, this JSON includes pre-existing and resolved debt
+as well as newly blocking regressions, while retaining exit codes 0/1/2.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.

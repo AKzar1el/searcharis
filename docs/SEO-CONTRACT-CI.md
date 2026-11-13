@@ -124,6 +124,10 @@ report invalid built links as findings rather than accepting ambiguous hosts.
 
 ## Limits and interpretation
 
+* Local built HTML, reviewed JSON manifests and route maps have a 4 MB per-file
+  input limit enforced against bytes actually read, not potentially stale file
+  metadata. An oversized file is an input error (exit 2); the checker does not
+  follow or fetch the page's contract URL.
 * Validates the supplied HTML **only**; not HTTP status, X-Robots-Tag
   headers, robots.txt, redirects, JavaScript-rendered output, or actual
   search indexing.
@@ -765,6 +769,68 @@ Exit codes: **0** all assertions passed (and coverage if enforced),
 errors with exit 2. This mode checks each declared page independently by
 default. Cross-page canonical relationships and reciprocal hreflang links
 require explicit flags below. It does not change deployment or run a crawl.
+
+## Opt-in reviewed internal navigation gate
+
+For a site with a **complete, developer-reviewed set of public routes**, check
+that built HTML navigation does not accidentally point to a stale or missing
+same-origin URL:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --require-full-coverage --check-reviewed-navigation --json
+```
+
+`--check-reviewed-navigation` is also accepted by the combined
+`searcharis.release_cli` offline HTML+sitemap gate. It inspects active HTML
+`<a href>` elements, resolves relative links using the first valid head
+`<base href>` (otherwise the reviewed page URL), ignores URL fragments and
+deduplicates equivalent URL spellings. Same-origin means the same scheme,
+hostname and effective port; URL paths and nonempty queries remain significant.
+An internal link whose destination is not listed in the manifest fails with
+`navigation_target_unreviewed` and exit **1**, with source path and target
+available in JSON. The `reviewed_navigation` record reports distinct local
+links inspected and unreviewed targets. Default behavior remains unchanged.
+
+**This is deliberately strict, not a general link crawler.** Partial manifests,
+virtual routes, deliberate redirects, URL query variants or hosting rewrite
+rules may require more reviewed route entries or leaving the flag disabled.
+External domains, non-HTTP protocols, and malformed/unresolvable URLs are not
+validated by this check. Inert template/raw-text HTML is ignored. The checker
+never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
+navigation, redirects, public deployment routes or actual search indexing.
+
+## Opt-in reviewed fragment destinations
+
+Static navigation can point at a valid reviewed page but still contain a
+broken in-page jump such as `/about/#missing-section`. To detect this
+without crawling or running a browser, enable:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --check-reviewed-fragments --json
+```
+
+The same flag works with `searcharis.release_cli` and may be combined with
+`--check-reviewed-navigation`. It checks each distinct nonempty fragment in
+active HTML `<a href>` links **only when its same-origin URL maps to another
+reviewed built HTML page (or the current page)**. The literal fragment is
+checked first, then its percent-decoded form, against case-sensitive active
+HTML `id` or legacy `<a name>` attributes. The special `#top` target is
+accepted even without an ID, as required by the HTML navigation standard.
+It honors the first head `<base href>`, deduplicates repeated links, ignores
+empty `#` jumps and inert template/raw-text markup, and never fetches URLs.
+Browser text fragment directives such as `#:~:text=phrase` are skipped,
+because checking text matching would require browser behavior.
+Missing IDs create `navigation_fragment_missing` findings with exit **1**.
+The JSON `reviewed_fragments` record reports checked, missing and
+outside-manifest fragment targets. The flag is disabled by default.
+
+Unreviewed routes are reported as **unverified**, not failed by this option;
+enable the separate reviewed-navigation gate when the manifest is complete.
+This does not evaluate JavaScript-created IDs, runtime router behavior,
+scrolling, redirects, HTTP responses or deployed content. Such sites may need
+to leave this opt-in policy disabled or provide appropriate reviewed artifacts.
 
 ## Reciprocal hreflang between local build artifacts
 

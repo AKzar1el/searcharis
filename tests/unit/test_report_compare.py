@@ -319,6 +319,46 @@ def test_comparison_still_rejects_exact_duplicate_coverage_paths(unlisted):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/pricing",
+    "https://example.test:443/pricing",
+    "https://example.test/a/../pricing",
+    "https://example.test/%70ricing",
+    "https://example.test/pricing#section",
+])
+def test_archived_reports_reject_equivalent_page_url_identities(alias):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/pricing"
+    report["pages"][1]["checked_url"] = alias
+    with pytest.raises(ValueError, match="duplicate page path or URL"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("different", [
+    "https://example.test/Pricing",
+    "https://example.test/pricing?mode=other",
+    "https://example.test:444/pricing",
+    "https://example.test/pric%2Fing",
+    "http://example.test/pricing",
+])
+def test_archived_reports_preserve_distinct_page_url_identities(different):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/pricing"
+    report["pages"][1]["checked_url"] = different
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+def test_cli_rejects_archived_aliases_in_machine_readable_comparison(tmp_path, capsys):
+    report = _report([("one.html", []), ("two.html", [])])
+    report["pages"][0]["checked_url"] = "https://example.test/"
+    report["pages"][1]["checked_url"] = "https://EXAMPLE.test:443"
+    baseline, candidate = tmp_path / "base.json", tmp_path / "candidate.json"
+    baseline.write_text(json.dumps(report), encoding="utf-8")
+    candidate.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(baseline), str(candidate), "--json"]) == 2
+    assert "duplicate page path or URL" in json.loads(capsys.readouterr().out)["error"]
+
+
 def test_different_check_options_are_not_comparable():
     baseline = _report([("en/index.html", [])])
     changed = _report([("en/index.html", [])], checks=("hreflang_reciprocity",))
@@ -437,6 +477,60 @@ def test_comparison_rejects_falsely_unverified_manifest_target(check):
     report[check]["unverified_targets"] = [target]
     with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
         compare_reports(report, report)
+
+
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/de/index.html",
+    "https://example.test:443/de/index.html",
+    "https://example.test/de/%69ndex.html",
+    "https://example.test/en/../de/index.html",
+    "https://example.test/de/index.html#fragment",
+])
+def test_comparison_rejects_canonical_target_alias_falsely_marked_unverified(alias):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("canonical_consistency",),
+    )
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": alias,
+    }]
+    with pytest.raises(ValueError, match="invalid canonical_consistency unverified targets"):
+        compare_reports(report, report)
+
+
+def test_archived_hreflang_target_alias_retains_exact_url_matching():
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("hreflang_reciprocity",),
+    )
+    report["hreflang_reciprocity"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    }]
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+@pytest.mark.parametrize("json_output", [True, False])
+def test_cli_rejects_archived_canonical_alias_as_input_error(tmp_path, capsys, json_output):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])],
+        checks=("canonical_consistency",),
+    )
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+
+    args = [str(before), str(after)] + (["--json"] if json_output else [])
+    assert main(args) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert json.loads(output.out)["status"] == "error"
+        assert "canonical_consistency" in json.loads(output.out)["error"]
+    else:
+        assert "canonical_consistency" in output.err
+        assert not output.out
 
 
 @pytest.mark.parametrize("json_output", [True, False])

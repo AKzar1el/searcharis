@@ -112,3 +112,66 @@ def build_comparison_junit(
         suite, encoding="us-ascii", xml_declaration=True,
         short_empty_elements=True,
     ).decode("ascii")
+
+
+def build_release_junit(site: dict, sitemap: dict) -> str:
+    """Serialize blocking HTML and sitemap findings in one offline JUnit suite."""
+    failures: list[tuple[str, str, str]] = []
+    for page in site["pages"]:
+        for issue in page["issues"]:
+            code = issue["code"]
+            detail = (
+                f"Built page: {_bounded(page['path'])}; "
+                f"URL: {_bounded(page['checked_url'])}; "
+                f"expected: {_bounded(issue.get('expected'))}; "
+                f"observed: {_bounded(issue.get('actual'))}"
+            )
+            if "target" in issue:
+                detail += f"; linked target: {_bounded(issue['target'])}"
+            failures.append((
+                f"html :: {page['path']} :: {code}",
+                f"HTML contract mismatch: {code}",
+                detail,
+            ))
+
+    if site["coverage"]["require_full_coverage"]:
+        for path in site["coverage"]["unlisted"]:
+            failures.append((
+                f"html :: {path} :: unlisted_html",
+                "Unlisted HTML artifact",
+                f"Built HTML missing from reviewed manifest: {_bounded(path)}",
+            ))
+
+    for field, title in (
+        ("missing_required", "Required canonical URL missing from sitemap"),
+        ("present_excluded", "Reviewed noindex URL present in sitemap"),
+        ("present_noncanonical", "Reviewed noncanonical URL present in sitemap"),
+        ("unreviewed_urls", "Unreviewed URL present in sitemap"),
+    ):
+        for url in sitemap.get(field, []):
+            failures.append((
+                f"sitemap :: {field} :: {url}", title,
+                f"Sitemap finding: {field}; URL: {_bounded(url)}",
+            ))
+
+    count = len(failures)
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO HTML and sitemap release gate",
+        tests=str(count or 1), failures=str(count), errors="0", skipped="0",
+    )
+    if not count:
+        ET.SubElement(suite, "testcase", classname="searcharis.release",
+                      name="html-and-sitemap-passed")
+    else:
+        for index, (name, message, details) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.release",
+                name=_bounded(f"[{index}] {name}", limit=300),
+            )
+            failure = ET.SubElement(case, "failure", message=_bounded(message))
+            failure.text = _bounded(details, limit=1100)
+
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")

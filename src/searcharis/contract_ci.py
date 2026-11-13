@@ -38,8 +38,14 @@ _MAX_JSONLD_NESTING = 256
 
 
 class _SEOParser(HTMLParser):
-    def __init__(self) -> None:
+    def __init__(
+        self, *, collect_anchors: bool = False, collect_fragment_ids: bool = False,
+    ) -> None:
         super().__init__(convert_charrefs=True)
+        self.collect_anchors = collect_anchors
+        self.collect_fragment_ids = collect_fragment_ids
+        self.anchors: list[str] = []
+        self.fragment_ids: set[str] = set()
         self.has_html = False
         self.html_tag_seen = False
         self.html_lang: str | None = None
@@ -139,6 +145,17 @@ class _SEOParser(HTMLParser):
         values: dict[str, str | None] = {}
         for name, value in attrs:
             values.setdefault(name, value)
+        if self.collect_fragment_ids:
+            # Only active DOM elements define fragment targets; inert templates
+            # and raw-text contexts were excluded before attribute collection.
+            if values.get("id"):
+                self.fragment_ids.add(values["id"])
+            if tag == "a" and values.get("name"):
+                self.fragment_ids.add(values["name"])
+        if self.collect_anchors and tag == "a" and "href" in values:
+            if len(self.anchors) >= 20_000:
+                raise ValueError("Built HTML exceeds 20000 navigational links")
+            self.anchors.append((values["href"] or "").strip())
         if tag == "html":
             if not self.html_tag_seen and not self.has_head and not self.body_seen:
                 # Only the root start tag may supply the declared document language.
@@ -578,10 +595,14 @@ def verify_contract(
     *,
     include_hreflang: bool = False,
     include_canonical: bool = False,
+    include_anchors: bool = False,
+    include_fragment_ids: bool = False,
 ) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
-    page = _SEOParser()
+    page = _SEOParser(
+        collect_anchors=include_anchors, collect_fragment_ids=include_fragment_ids,
+    )
     page.feed(html)
     page.close()
     url = spec["url"]
@@ -823,4 +844,9 @@ def verify_contract(
         result["observed_canonical"] = [
             _resolve_canonical_href(base_url, href) for href in page.canonicals
         ]
+    if include_anchors:
+        # Only the offline site checker interprets these relative destinations.
+        result["observed_anchors"] = {"base_url": base_url, "hrefs": page.anchors}
+        if include_fragment_ids:
+            result["observed_anchors"]["ids"] = sorted(page.fragment_ids)
     return result

@@ -558,3 +558,73 @@ def test_sarif_file_works_with_reviewed_source_mapping(tmp_path, capsys, monkeyp
     assert finding["locations"][0]["physicalLocation"]["artifactLocation"] == {
         "uri": "src/page.astro"
     }
+
+
+def test_json_file_writes_utf8_comparison_matching_stdout(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="Old", candidate_title=""
+    )
+    assert _run(manifest, baseline, candidate, "--json") == 1
+    expected = json.loads(capsys.readouterr().out)
+
+    report = tmp_path / "seo-regressions.json"
+    assert _run(manifest, baseline, candidate, "--json-file", str(report)) == 1
+    out = capsys.readouterr()
+    assert out.out == out.err == ""
+    raw = report.read_bytes()
+    assert b"\x00" not in raw  # PowerShell 5.1 redirects stdout as UTF-16LE.
+    assert json.loads(raw.decode("utf-8")) == expected
+    assert expected["summary"]["new_issues"] == 1
+
+
+def test_json_file_preserves_pass_for_unchanged_baseline_debt(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(
+        tmp_path, baseline_title="", candidate_title=""
+    )
+    report = tmp_path / "no-regressions.json"
+    assert _run(manifest, baseline, candidate, "--json-file", str(report)) == 0
+    assert capsys.readouterr().out == ""
+    result = json.loads(report.read_text(encoding="utf-8"))
+    assert result["status"] == "pass"
+    assert result["summary"]["existing_issues"] == 1
+
+
+def test_json_file_refuses_to_overwrite_existing_artifact(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "old.json"
+    report.write_bytes(b"do not overwrite this artifact")
+    assert _run(manifest, baseline, candidate, "--json-file", str(report)) == 2
+    assert report.read_bytes() == b"do not overwrite this artifact"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("build", ["baseline", "candidate"])
+def test_json_file_refuses_both_immutable_build_roots(tmp_path, capsys, build):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = (baseline if build == "baseline" else candidate) / "seo.json"
+    assert _run(manifest, baseline, candidate, "--json-file", str(report)) == 2
+    assert not report.exists()
+    assert "build directories" in capsys.readouterr().err
+
+
+def test_json_file_invalid_inputs_leave_no_output(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    report = tmp_path / "invalid.json"
+    assert _run(
+        manifest, baseline, candidate / "missing", "--json-file", str(report)
+    ) == 2
+    assert not report.exists()
+    out = capsys.readouterr()
+    assert out.out == ""
+    assert "Invalid input" in out.err
+
+
+@pytest.mark.parametrize("other", ["--json", "--sarif", "--junit", "--sarif-file", "--junit-file"])
+def test_json_file_is_mutually_exclusive_with_other_formats(tmp_path, other):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    args = ("--json-file", str(tmp_path / "report.json"), other)
+    if other.endswith("-file"):
+        args += (str(tmp_path / "other.xml"),)
+    with pytest.raises(SystemExit) as error:
+        _run(manifest, baseline, candidate, *args)
+    assert error.value.code == 2

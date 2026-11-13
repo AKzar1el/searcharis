@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.site_ci import _page_url_identity
 
 _MAX_REPORT_BYTES = 16_000_000
 _MAX_HUMAN_DETAILS = 20
@@ -41,6 +42,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
 
     paths: set[str] = set()
     urls: set[str] = set()
+    url_identities: set[tuple[str, str, int | None, str, str]] = set()
     fingerprints: set[bool] = set()
     failed = 0
     for page in pages:
@@ -49,10 +51,15 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         path, url, issues = page.get("path"), page.get("checked_url"), page.get("issues")
         if not isinstance(path, str) or not path or not isinstance(url, str) or not url:
             raise ValueError(f"{name}: invalid page path or URL")
-        if path in paths or url in urls:
+        # Historical reports may predate the manifest's URL alias checks.
+        # Treat equivalent HTTP(S) resource spellings as one page even when
+        # their original checked_url strings differ.
+        identity = _page_url_identity(url)
+        if path in paths or identity in url_identities:
             raise ValueError(f"{name}: duplicate page path or URL")
         paths.add(path)
         urls.add(url)
+        url_identities.add(identity)
         has_fingerprint = "contract_sha256" in page
         fingerprints.add(has_fingerprint)
         if has_fingerprint:
@@ -141,6 +148,8 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             or item["path"] not in listed_paths
             or not isinstance(item.get("target"), str)
             or item["target"] in urls
+            or (check == "canonical_consistency"
+                and _page_url_identity(item["target"]) in url_identities)
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]
         ):

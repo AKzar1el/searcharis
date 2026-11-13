@@ -10,9 +10,9 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
-from searcharis.contract_ci import _is_canonical_url, verify_contract
+from searcharis.contract_ci import _is_canonical_url, _is_http_url, verify_contract
 
 _MAX_INPUT_BYTES = 4_000_000
 _MAX_PAGES = 10_000
@@ -22,9 +22,14 @@ _ENCODED_OCTET = re.compile(r"%[0-9a-fA-F]{2}")
 
 
 def _read_limited(path: Path) -> str:
-    if path.stat().st_size > _MAX_INPUT_BYTES:
+    # Metadata can become stale while a CI producer is writing the artifact.
+    # Bound the actual read, not a preceding stat, to avoid false passes/rejects.
+    with path.open("rb") as stream:
+        data = stream.read(_MAX_INPUT_BYTES + 1)
+    if len(data) > _MAX_INPUT_BYTES:
         raise ValueError(f"File exceeds {_MAX_INPUT_BYTES} bytes: {path}")
-    return path.read_text(encoding="utf-8")
+    # Preserve read_text's universal newline normalization on Windows.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _manifest_path(value: object) -> str:
@@ -110,6 +115,8 @@ def verify_manifest(
     check_hreflang_reciprocity: bool = False,
     check_hreflang_clusters: bool = False,
     check_canonical_consistency: bool = False,
+    check_reviewed_navigation: bool = False,
+    check_reviewed_fragments: bool = False,
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -128,6 +135,7 @@ def verify_manifest(
     urls: set[tuple[str, str, int | None, str, str]] = set()
     observed_links: dict[str, dict[str, list[str]]] = {}
     observed_canonicals: dict[str, list[str]] = {}
+    observed_anchors: dict[str, dict] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -143,6 +151,8 @@ def verify_manifest(
             _read_limited(html_path),
             include_hreflang=check_hreflang_reciprocity or check_hreflang_clusters,
             include_canonical=check_canonical_consistency,
+            include_anchors=check_reviewed_navigation or check_reviewed_fragments,
+            include_fragment_ids=check_reviewed_fragments,
         )
         url_identity = _page_url_identity(report["checked_url"])
         if url_identity in urls:
@@ -152,6 +162,8 @@ def verify_manifest(
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
+        if check_reviewed_navigation or check_reviewed_fragments:
+            observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
         # Bind this route's findings to the assertions that produced them.
         # Key ordering and JSON whitespace do not change the fingerprint.
         contract_json = json.dumps(
@@ -163,6 +175,109 @@ def verify_manifest(
             "contract_sha256": hashlib.sha256(contract_json.encode("utf-8")).hexdigest(),
             **report,
         })
+
+    navigation_summary = None
+    if check_reviewed_navigation:
+        reviewed = {_page_url_identity(page["checked_url"]) for page in reports}
+        checked_links = 0
+        unreviewed: list[dict[str, str]] = []
+        for report in reports:
+            source_url = report["checked_url"]
+            source_origin = _page_url_identity(source_url)[:3]
+            anchors = observed_anchors[source_url]
+            # Deduplicate same-resource links, regardless of fragments or
+            # harmless URL spelling differences. Never fetch any destination.
+            local: dict[tuple[str, str, int | None, str, str], str] = {}
+            for href in anchors["hrefs"]:
+                try:
+                    resolved = urljoin(anchors["base_url"], href)
+                except ValueError:
+                    continue
+                if not _is_http_url(resolved):
+                    continue  # External protocols and malformed URLs are outside this check.
+                target = urlsplit(resolved)._replace(fragment="").geturl()
+                identity = _page_url_identity(target)
+                if identity[:3] == source_origin:
+                    local[identity] = min(target, local.get(identity, target))
+            for identity, target in sorted(local.items(), key=lambda item: item[1]):
+                checked_links += 1
+                if identity not in reviewed:
+                    report["issues"].append({
+                        "code": "navigation_target_unreviewed",
+                        "expected": "a URL listed in the reviewed manifest",
+                        "actual": target,
+                    })
+                    unreviewed.append({"path": report["path"], "target": target})
+            if report["issues"]:
+                report["status"] = "fail"
+        navigation_summary = {
+            "checked_links": checked_links,
+            "unreviewed_targets": sorted(unreviewed, key=lambda item: (item["path"], item["target"])),
+        }
+
+    fragment_summary = None
+    if check_reviewed_fragments:
+        reviewed_ids = {
+            _page_url_identity(report["checked_url"]): set(observed_anchors[report["checked_url"]]["ids"])
+            for report in reports
+        }
+        checked_fragments = 0
+        missing: list[dict[str, str]] = []
+        unverified: list[dict[str, str]] = []
+        for report in reports:
+            source_url = report["checked_url"]
+            source_origin = _page_url_identity(source_url)[:3]
+            anchors = observed_anchors[source_url]
+            # A fragment is verified only when its destination has a reviewed
+            # local HTML artifact. Links to unknown routes are not guessed.
+            local: dict[tuple[tuple[str, str, int | None, str, str], str], str] = {}
+            for href in anchors["hrefs"]:
+                if "#" not in href:
+                    continue
+                try:
+                    resolved = urljoin(anchors["base_url"], href)
+                except ValueError:
+                    continue
+                if not _is_http_url(resolved):
+                    continue
+                parts = urlsplit(resolved)
+                if not parts.fragment:
+                    continue  # Empty fragments scroll to the top, not an element ID.
+                if ":~:" in parts.fragment:
+                    # Browser text directives are not DOM IDs and cannot be
+                    # verified without loading/rendering the page.
+                    continue
+                identity = _page_url_identity(parts._replace(fragment="").geturl())
+                if identity[:3] != source_origin:
+                    continue
+                key = (identity, parts.fragment)
+                local[key] = min(resolved, local.get(key, resolved))
+            for (identity, raw_fragment), target in sorted(local.items(), key=lambda item: item[1]):
+                detail = {"path": report["path"], "target": target}
+                if identity not in reviewed_ids:
+                    unverified.append(detail)
+                    continue
+                checked_fragments += 1
+                decoded_fragment = unquote(raw_fragment)
+                # HTML fragment navigation tries the raw string first, then
+                # its UTF-8 percent-decoded form. "top" is a valid special
+                # document target even if no element carries that ID.
+                if (raw_fragment not in reviewed_ids[identity]
+                        and decoded_fragment not in reviewed_ids[identity]
+                        and decoded_fragment.lower() != "top"):
+                    report["issues"].append({
+                        "code": "navigation_fragment_missing",
+                        "expected": "a fragment ID in the reviewed built HTML",
+                        "actual": target,
+                    })
+                    missing.append(detail)
+            if report["issues"]:
+                report["status"] = "fail"
+        fragment_summary = {
+            "checked_fragments": checked_fragments,
+            "missing_targets": sorted(missing, key=lambda item: (item["path"], item["target"])),
+            "unverified_targets": sorted(unverified, key=lambda item: (item["path"], item["target"])),
+        }
 
     hreflang_summary = None
     if check_hreflang_reciprocity:
@@ -384,6 +499,10 @@ def verify_manifest(
         result["hreflang_clusters"] = cluster_summary
     if canonical_summary is not None:
         result["canonical_consistency"] = canonical_summary
+    if navigation_summary is not None:
+        result["reviewed_navigation"] = navigation_summary
+    if fragment_summary is not None:
+        result["reviewed_fragments"] = fragment_summary
     return result
 
 
