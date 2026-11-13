@@ -132,6 +132,46 @@ def test_pass_only_for_explicit_required_and_excluded_urls(tmp_path):
     assert report["present_excluded"] == []
 
 
+def test_opt_in_full_indexability_policy_rejects_unasserted_reviewed_page(tmp_path):
+    manifest = _manifest(
+        {"url": "https://example.test/", "indexable": True},
+        {"url": "https://example.test/draft"},
+    )
+    sitemap = _sitemap(tmp_path, "https://example.test/")
+    assert verify_sitemap_manifest(manifest, sitemap)["status"] == "pass"
+    with pytest.raises(ValueError, match="explicit indexability"):
+        verify_sitemap_manifest(
+            manifest, sitemap, require_indexability_coverage=True,
+        )
+
+
+def test_opt_in_full_indexability_policy_accepts_true_and_false(tmp_path):
+    manifest = _manifest(
+        {"url": "https://example.test/", "indexable": True},
+        {"url": "https://example.test/draft", "indexable": False},
+    )
+    report = verify_sitemap_manifest(
+        manifest, _sitemap(tmp_path, "https://example.test/"),
+        require_indexability_coverage=True,
+    )
+    assert report["status"] == "pass"
+    assert report["summary"]["unasserted_pages"] == 0
+
+
+def test_strict_sitemap_cli_reports_missing_policy_as_input_error(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest(
+        {"url": "https://example.test/", "indexable": True},
+        {"url": "https://example.test/draft"},
+    )), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/")
+    code = main([
+        str(manifest), str(sitemap), "--require-indexability-coverage", "--json",
+    ])
+    assert code == 2
+    assert "explicit indexability" in json.loads(capsys.readouterr().out)["error"]
+
+
 def test_missing_explicit_indexable_page_fails(tmp_path):
     manifest = _manifest({"url": "https://example.test/about", "indexable": True})
     report = verify_sitemap_manifest(manifest, _sitemap(tmp_path, "https://example.test/"))

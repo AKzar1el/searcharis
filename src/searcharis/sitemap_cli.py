@@ -26,11 +26,18 @@ def main(argv: list[str] | None = None) -> int:
         "sitemaps", nargs="+", type=Path,
         help="One or more explicit local sitemap XML URL sets (not indexes)",
     )
+    parser.add_argument(
+        "--require-indexability-coverage", action="store_true",
+        help="Require explicit indexable true/false for every reviewed manifest page",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured JSON outcome")
     args = parser.parse_args(argv)
 
     try:
-        report = verify_sitemap_manifest(read_manifest(args.manifest), args.sitemaps)
+        report = verify_sitemap_manifest(
+            read_manifest(args.manifest), args.sitemaps,
+            require_indexability_coverage=args.require_indexability_coverage,
+        )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
