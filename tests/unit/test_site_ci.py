@@ -3,9 +3,13 @@
 import json
 import os
 import socket
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from searcharis import site_ci
 from searcharis.site_ci import verify_manifest
 from searcharis.site_cli import main
 
@@ -705,6 +709,44 @@ def test_oversized_file_is_input_error(tmp_path):
     (tmp_path / "en" / "index.html").write_bytes(b"a" * 4_000_001)
     with pytest.raises(ValueError, match="exceeds"):
         verify_manifest(manifest, tmp_path)
+
+
+def test_bounded_reader_rejects_actual_bytes_after_stale_small_stat(tmp_path, monkeypatch):
+    path = tmp_path / "grown.html"
+    path.write_bytes(b"x" * 65)
+    monkeypatch.setattr(site_ci, "_MAX_INPUT_BYTES", 64)
+    with (
+        patch.object(Path, "stat", return_value=SimpleNamespace(st_size=1)),
+        pytest.raises(ValueError, match="File exceeds 64 bytes"),
+    ):
+        site_ci._read_limited(path)
+
+
+def test_bounded_reader_does_not_reject_stale_large_stat(tmp_path, monkeypatch):
+    path = tmp_path / "small.html"
+    path.write_text("hello", encoding="utf-8")
+    monkeypatch.setattr(site_ci, "_MAX_INPUT_BYTES", 64)
+    with patch.object(Path, "stat", return_value=SimpleNamespace(st_size=65000)):
+        assert site_ci._read_limited(path) == "hello"
+
+
+def test_bounded_reader_counts_utf8_bytes_not_characters(tmp_path, monkeypatch):
+    path = tmp_path / "unicode.html"
+    path.write_bytes(b"\xc3\xa9\xc3\xa9")
+    monkeypatch.setattr(site_ci, "_MAX_INPUT_BYTES", 3)
+    with (
+        patch.object(Path, "stat", return_value=SimpleNamespace(st_size=3)),
+        pytest.raises(ValueError, match="File exceeds 3 bytes"),
+    ):
+        site_ci._read_limited(path)
+    monkeypatch.setattr(site_ci, "_MAX_INPUT_BYTES", 4)
+    assert site_ci._read_limited(path) == "\u00e9\u00e9"
+
+
+def test_bounded_reader_preserves_universal_newlines(tmp_path):
+    path = tmp_path / "line-endings.html"
+    path.write_bytes(b"first\r\nsecond\rthird\n")
+    assert site_ci._read_limited(path) == "first\nsecond\nthird\n"
 
 
 def test_cli_exits_and_machine_readable_errors(tmp_path, capsys):

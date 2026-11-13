@@ -22,9 +22,14 @@ _ENCODED_OCTET = re.compile(r"%[0-9a-fA-F]{2}")
 
 
 def _read_limited(path: Path) -> str:
-    if path.stat().st_size > _MAX_INPUT_BYTES:
+    # Metadata can become stale while a CI producer is writing the artifact.
+    # Bound the actual read, not a preceding stat, to avoid false passes/rejects.
+    with path.open("rb") as stream:
+        data = stream.read(_MAX_INPUT_BYTES + 1)
+    if len(data) > _MAX_INPUT_BYTES:
         raise ValueError(f"File exceeds {_MAX_INPUT_BYTES} bytes: {path}")
-    return path.read_text(encoding="utf-8")
+    # Preserve read_text's universal newline normalization on Windows.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _manifest_path(value: object) -> str:
