@@ -48,6 +48,7 @@ indexability checks, run one opt-in command with the same reviewed manifest:
 ```sh
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
 ```
 
 `release_cli` reads the manifest once and invokes the same local verification
@@ -60,6 +61,16 @@ flags `--require-full-coverage`, `--check-hreflang-reciprocity`,
 existing meanings. The sitemap gate always requires at least one explicitly
 reviewed `indexable` assertion, so teams with no such policy should use
 `site_cli` alone until the manifest is reviewed.
+
+Use `--json-file PATH` instead of `--json` to save the same complete combined
+report directly as UTF-8 for CI consumers (including Windows PowerShell 5.1,
+which can redirect stdout using UTF-16LE). The parent directory must already
+exist; the target must be new and outside the static build directory, including
+its resolved aliases. The report is create-only and never replaces an existing
+file. Passing and mismatched reports are written with exit 0 and 1 respectively;
+on invalid input or output-path errors, exit 2 is reported on stderr and no
+successful release artifact is claimed. Neither the built site nor any sitemap
+is modified. Do not automatically upload reports or change protected CI workflows.
 
 This only checks files already present on disk; it does **not** build the site,
 discover sitemap shards, resolve XML sitemap indexes, fetch URLs, change

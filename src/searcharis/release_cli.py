@@ -47,7 +47,12 @@ def main(argv: list[str] | None = None) -> int:
         "--check-canonical-consistency", action="store_true",
         help="Check internal canonical targets and self-links among reviewed pages",
     )
-    parser.add_argument("--json", action="store_true", help="Print both reports as JSON")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print both reports as JSON")
+    output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write both reports to a new UTF-8 JSON file; never overwrite",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -69,9 +74,25 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.json:
-        print(json.dumps({"status": status, "site": site, "sitemap": sitemap},
-                         indent=2, sort_keys=True))
+    if args.json or args.json_file:
+        serialized = json.dumps(
+            {"status": status, "site": site, "sitemap": sitemap},
+            indent=2, sort_keys=True,
+        )
+        if args.json_file:
+            try:
+                target = args.json_file.resolve()
+                if target.is_relative_to(args.build_dir.resolve()):
+                    raise ValueError("JSON report must be outside the build directory")
+                # Exclusive creation preserves earlier CI artifacts; direct UTF-8
+                # avoids Windows PowerShell's UTF-16LE stdout redirection.
+                with args.json_file.open("x", encoding="utf-8", newline="\n") as report:
+                    report.write(serialized + "\n")
+            except (OSError, UnicodeError, ValueError) as error:
+                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                return 2
+        else:
+            print(serialized)
     else:
         pages = site["summary"]
         xml = sitemap["summary"]

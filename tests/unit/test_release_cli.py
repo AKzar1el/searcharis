@@ -194,3 +194,76 @@ def test_python_module_entrypoint_is_ci_consumable(tmp_path):
     )
     assert result.returncode == 0 and result.stderr == ""
     assert json.loads(result.stdout)["status"] == "pass"
+
+
+@pytest.mark.parametrize("regression", [False, True])
+def test_json_file_writes_complete_utf8_report_without_stdout(
+    tmp_path, capsys, regression,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    if regression:
+        _sitemap(sitemap, ["https://example.test/draft"])
+    expected_code, expected_report, _ = _call(capsys, manifest, build, [sitemap])
+    target = tmp_path / "release-result.json"
+
+    code = main([str(manifest), str(build), str(sitemap), "--json-file", str(target)])
+    output = capsys.readouterr()
+
+    assert code == expected_code
+    assert output.out == output.err == ""
+    raw = target.read_bytes()
+    assert raw.startswith(b"{\n") and b"\x00" not in raw
+    assert json.loads(raw.decode("utf-8")) == expected_report
+
+
+@pytest.mark.parametrize("target_name", ["existing.json", "dist/report.json"])
+def test_json_file_never_overwrites_or_writes_into_build(
+    tmp_path, capsys, target_name,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / target_name
+    if target_name == "existing.json":
+        target.write_bytes(b"prior evidence")
+    code = main([str(manifest), str(build), str(sitemap), "--json-file", str(target)])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == ""
+    assert "Invalid input" in output.err
+    if target_name == "existing.json":
+        assert target.read_bytes() == b"prior evidence"
+    else:
+        assert not target.exists()
+
+
+def test_json_file_input_failure_is_not_a_false_pass(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / "report.json"
+    code = main([
+        str(manifest), str(build), str(tmp_path / "missing.xml"),
+        "--json-file", str(target),
+    ])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == ""
+    assert "Invalid input" in output.err
+    assert not target.exists()
+
+
+def test_json_file_and_stdout_json_are_exclusive(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        main([str(manifest), str(build), str(sitemap), "--json", "--json-file",
+              str(tmp_path / "report.json")])
+    assert error.value.code == 2
+    assert "not allowed" in capsys.readouterr().err
+
+
+def test_python_module_can_create_release_json_artifact(tmp_path):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / "ci-release.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "searcharis.release_cli", str(manifest),
+         str(build), str(sitemap), "--json-file", str(target)],
+        capture_output=True, text=True, check=False, timeout=15,
+    )
+    assert result.returncode == 0
+    assert result.stdout == result.stderr == ""
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
