@@ -269,6 +269,83 @@ def test_unknown_sitemap_pages_not_reported_as_failures(tmp_path):
     assert report["summary"]["sitemap_urls"] == 2
 
 
+def test_opt_in_rejects_sitemap_url_without_reviewed_page_or_canonical(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    sitemap = _sitemap(tmp_path, "https://example.test/", "https://example.test/stale")
+    report = verify_sitemap_manifest(
+        manifest, sitemap, reject_unreviewed_urls=True,
+    )
+    assert report["status"] == "fail"
+    assert report["unreviewed_urls"] == ["https://example.test/stale"]
+    assert report["missing_required"] == []
+    assert report["summary"]["sitemap_urls"] == 2
+
+
+def test_opt_in_uses_normalized_reviewed_url_identity(tmp_path):
+    manifest = _manifest({"url": "https://EXAMPLE.test:443/%7Euser", "indexable": True})
+    report = verify_sitemap_manifest(
+        manifest, _sitemap(tmp_path, "https://example.test/~user"),
+        reject_unreviewed_urls=True,
+    )
+    assert report["status"] == "pass"
+    assert report["unreviewed_urls"] == []
+
+
+def test_opt_in_accepts_explicit_reviewed_canonical_and_page_alias(tmp_path):
+    manifest = _manifest({
+        "url": "https://example.test/alias",
+        "canonical": "https://example.test/preferred",
+        "indexable": True,
+    })
+    sitemap = _sitemap(tmp_path, "https://example.test/preferred", "https://example.test/alias")
+    report = verify_sitemap_manifest(manifest, sitemap, reject_unreviewed_urls=True)
+    assert report["status"] == "pass"
+    assert report["unreviewed_urls"] == []
+    alias_report = verify_sitemap_manifest(
+        manifest, sitemap, reject_unreviewed_urls=True, reject_noncanonical_urls=True,
+    )
+    assert alias_report["present_noncanonical"] == ["https://example.test/alias"]
+    assert alias_report["unreviewed_urls"] == []
+
+
+def test_opt_in_known_unasserted_page_not_mistaken_for_unreviewed(tmp_path):
+    manifest = _manifest(
+        {"url": "https://example.test/", "indexable": True},
+        {"url": "https://example.test/policy-pending"},
+    )
+    report = verify_sitemap_manifest(
+        manifest, _sitemap(tmp_path, "https://example.test/", "https://example.test/policy-pending"),
+        reject_unreviewed_urls=True,
+    )
+    assert report["status"] == "pass"
+    assert report["summary"]["unasserted_pages"] == 1
+
+
+def test_opt_in_detects_unknown_url_in_compressed_second_shard(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": True})
+    plain = _sitemap(tmp_path, "https://example.test/", filename="a.xml")
+    gz = _gzip_sitemap(_sitemap(tmp_path, "https://example.test/stale", filename="b.xml"))
+    report = verify_sitemap_manifest(
+        manifest, [plain, gz], reject_unreviewed_urls=True,
+    )
+    assert report["status"] == "fail"
+    assert report["unreviewed_urls"] == ["https://example.test/stale"]
+
+
+def test_sitemap_cli_reject_unreviewed_urls_json_and_text(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/", "https://example.test/stale")
+    assert main([str(manifest), str(sitemap), "--reject-unreviewed-urls", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["unreviewed_urls"] == [
+        "https://example.test/stale",
+    ]
+    assert main([str(manifest), str(sitemap), "--reject-unreviewed-urls"]) == 1
+    assert "Unreviewed sitemap URL" in capsys.readouterr().out
+
+
 def test_no_explicit_indexability_policy_is_not_a_false_pass(tmp_path):
     with pytest.raises(ValueError, match="explicit indexable"):
         verify_sitemap_manifest(

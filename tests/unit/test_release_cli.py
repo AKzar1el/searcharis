@@ -177,6 +177,32 @@ def test_release_gate_optional_noncanonical_alias_guard(tmp_path, capsys):
     assert report["sitemap"]["present_noncanonical"] == ["https://example.test/alias"]
 
 
+def test_release_gate_opt_in_rejects_unreviewed_sitemap_url(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    _sitemap(sitemap, ["https://example.test/", "https://example.test/stale"])
+    assert _call(capsys, manifest, build, [sitemap])[0] == 0
+    code, report, err = _call(
+        capsys, manifest, build, [sitemap], "--reject-unreviewed-urls",
+    )
+    assert code == 1 and err == ""
+    assert report["site"]["status"] == "pass"
+    assert report["sitemap"]["unreviewed_urls"] == ["https://example.test/stale"]
+
+
+def test_release_junit_includes_unreviewed_sitemap_url_failure(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    _sitemap(sitemap, ["https://example.test/", "https://example.test/stale"])
+    code = main([
+        str(manifest), str(build), str(sitemap), "--reject-unreviewed-urls", "--junit",
+    ])
+    output = capsys.readouterr()
+    assert code == 1 and output.err == ""
+    xml = ET.fromstring(output.out)
+    failures = xml.findall(".//failure")
+    assert len(failures) == 1
+    assert "unreviewed_urls" in xml.find("testcase").attrib["name"]
+
+
 def test_combined_gate_accepts_local_gzip_sitemap(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
     compressed = tmp_path / "sitemap.xml.gz"
