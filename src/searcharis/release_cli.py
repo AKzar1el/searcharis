@@ -134,6 +134,12 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"{label} report must be outside the build directory")
                 if path.exists() or path.is_symlink():
                     raise FileExistsError(f"{label} report already exists: {path}")
+                # A missing or non-directory parent would fail only after
+                # earlier reports had already been created. Reject it up front.
+                if not path.parent.is_dir():
+                    raise ValueError(
+                        f"{label} report parent must be an existing directory: {path.parent}"
+                    )
             for path, _, payload in reports:
                 # Exclusive creation still protects against a post-preflight race.
                 with path.open("x", encoding="utf-8", newline="\n") as output:
