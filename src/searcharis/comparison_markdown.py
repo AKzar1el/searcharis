@@ -43,25 +43,41 @@ def build_comparison_markdown(
         "## New findings",
         "",
     ]
-    findings = []
+    issue_lines = []
     for item in result["new_issues"][:_MAX_FINDINGS]:
         issue = item["issue"]
-        findings.append(
+        issue_lines.append(
             f"- Page {_code(item['path'])}: issue {_code(issue['code'])}; "
             f"expected {_code(issue['expected'])}; observed {_code(issue['actual'])}"
         )
-    for item in result["removed_pages"][:_MAX_FINDINGS - len(findings)]:
-        findings.append(f"- Removed reviewed page: {_code(item['path'])}")
-    for path in result["new_unlisted"][:_MAX_FINDINGS - len(findings)]:
-        policy = "blocking" if gate_new_unlisted else "not gated"
-        findings.append(f"- New unlisted HTML ({policy}): {_code(path)}")
-    for item in result["new_unverified_targets"][:_MAX_FINDINGS - len(findings)]:
-        policy = "blocking" if gate_new_unverified_targets else "not gated"
+    removed_lines = [
+        f"- Removed reviewed page: {_code(item['path'])}"
+        for item in result["removed_pages"][:_MAX_FINDINGS]
+    ]
+    unlisted_policy = "blocking" if gate_new_unlisted else "not gated"
+    unlisted_lines = [
+        f"- New unlisted HTML ({unlisted_policy}): {_code(path)}"
+        for path in result["new_unlisted"][:_MAX_FINDINGS]
+    ]
+    target_policy = "blocking" if gate_new_unverified_targets else "not gated"
+    target_lines = []
+    for item in result["new_unverified_targets"][:_MAX_FINDINGS]:
         language = f"; locale {_code(item['language'])}" if "language" in item else ""
-        findings.append(
-            f"- New unverified target ({policy}): {_code(item['check'])} "
+        target_lines.append(
+            f"- New unverified target ({target_policy}): {_code(item['check'])} "
             f"from {_code(item['path'])}{language} to {_code(item['target'])}"
         )
+
+    groups = (issue_lines, removed_lines, unlisted_lines, target_lines)
+    findings = []
+    remaining = _MAX_FINDINGS
+    for index, group in enumerate(groups):
+        # Reserve one slot for every later non-empty category before filling
+        # this category; a flood of page issues must not hide removed routes.
+        reserved = sum(bool(later) for later in groups[index + 1:])
+        take = min(len(group), max(0, remaining - reserved))
+        findings.extend(group[:take])
+        remaining -= take
     lines.extend(findings or ["No new blocking findings or observations."])
     total_findings = sum(len(result[key]) for key in (
         "new_issues", "removed_pages", "new_unlisted", "new_unverified_targets",
