@@ -5,10 +5,12 @@ import json
 import socket
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
 from searcharis.release_cli import main
+from searcharis.site_junit import build_release_junit
 
 
 def _fixture(tmp_path):
@@ -323,3 +325,115 @@ def test_python_module_can_create_release_json_artifact(tmp_path):
     assert result.returncode == 0
     assert result.stdout == result.stderr == ""
     assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
+
+
+def test_release_junit_stdout_pass_is_parseable(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    code = main([str(manifest), str(build), str(sitemap), "--junit"])
+    result = capsys.readouterr()
+    suite = ET.fromstring(result.out)
+    assert code == 0 and result.err == ""
+    assert suite.attrib["tests"] == "1"
+    assert suite.attrib["failures"] == "0"
+    assert suite.find("testcase/failure") is None
+
+
+def test_release_junit_reports_html_and_sitemap_failures_separately(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/draft"])
+    code = main([str(manifest), str(build), str(sitemap), "--junit"])
+    result = capsys.readouterr()
+    suite = ET.fromstring(result.out)
+    failures = suite.findall("testcase/failure")
+    names = [case.attrib["name"] for case in suite.findall("testcase")]
+    assert code == 1 and result.err == ""
+    assert int(suite.attrib["failures"]) == len(failures) == len(names)
+    assert len(failures) >= 4
+    assert any("html" in name for name in names)
+    assert any("sitemap" in name for name in names)
+    assert any("missing_required" in name for name in names)
+    assert any("present_excluded" in name for name in names)
+
+
+@pytest.mark.parametrize("failing", [False, True])
+def test_release_junit_file_is_parseable_utf8_and_preserves_exit_code(tmp_path, capsys, failing):
+    manifest, build, sitemap = _fixture(tmp_path)
+    if failing:
+        _sitemap(sitemap, ["https://example.test/draft"])
+    target = tmp_path / "release-junit.xml"
+    code = main([str(manifest), str(build), str(sitemap), "--junit-file", str(target)])
+    result = capsys.readouterr()
+    raw = target.read_bytes()
+    suite = ET.fromstring(raw)
+    assert code == (1 if failing else 0)
+    assert result.out == result.err == ""
+    assert raw.startswith(b"<?xml") and b"\x00" not in raw
+    assert int(suite.attrib["failures"]) > 0 if failing else suite.attrib["failures"] == "0"
+
+
+@pytest.mark.parametrize("destination", ["existing.xml", "dist/report.xml"])
+def test_release_junit_file_refuses_existing_or_build_path(tmp_path, capsys, destination):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / destination
+    if destination == "existing.xml":
+        target.write_bytes(b"protected prior result")
+    code = main([str(manifest), str(build), str(sitemap), "--junit-file", str(target)])
+    result = capsys.readouterr()
+    assert code == 2 and result.out == ""
+    assert "Invalid input" in result.err
+    if destination == "existing.xml":
+        assert target.read_bytes() == b"protected prior result"
+    else:
+        assert not target.exists()
+
+
+def test_release_junit_input_error_does_not_emit_false_report(tmp_path, capsys):
+    manifest, build, _ = _fixture(tmp_path)
+    target = tmp_path / "release-junit.xml"
+    code = main([str(manifest), str(build), str(tmp_path / "missing.xml"),
+                 "--junit-file", str(target)])
+    result = capsys.readouterr()
+    assert code == 2 and result.out == ""
+    assert "Invalid input" in result.err
+    assert not target.exists()
+
+
+def test_release_junit_modes_are_mutually_exclusive(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    for incompatible in ("--json", "--json-file", "--junit"):
+        extra = [str(tmp_path / "report.json")] if incompatible == "--json-file" else []
+        with pytest.raises(SystemExit) as error:
+            main([str(manifest), str(build), str(sitemap), incompatible, *extra,
+                  "--junit-file", str(tmp_path / "report.xml")])
+        assert error.value.code == 2
+        assert "not allowed" in capsys.readouterr().err
+
+
+def test_release_junit_strict_coverage_is_blocking_only_when_enabled(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "unlisted.html").write_text("<html/>", encoding="utf-8")
+    assert main([str(manifest), str(build), str(sitemap), "--junit"]) == 0
+    assert ET.fromstring(capsys.readouterr().out).attrib["failures"] == "0"
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--require-full-coverage", "--junit"])
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert code == 1 and suite.attrib["failures"] == "1"
+    assert "unlisted_html" in suite.find("testcase").attrib["name"]
+
+
+def test_release_junit_xml_names_and_diagnostics_are_safe_and_deterministic():
+    unusual = "a<>&\x01\ud800" + "x" * 900
+    site = {
+        "pages": [{"path": unusual, "checked_url": "https://example.test/",
+                   "issues": [{"code": unusual, "expected": unusual, "actual": unusual}]}],
+        "coverage": {"require_full_coverage": False, "unlisted": []},
+    }
+    sitemap = {"missing_required": ["https://example.test/"],
+               "present_excluded": []}
+    first = build_release_junit(site, sitemap)
+    assert first == build_release_junit(site, sitemap)
+    assert first.isascii() and "\x01" not in first
+    suite = ET.fromstring(first)
+    assert suite.attrib["failures"] == "2"
+    assert all(len(case.attrib["name"]) <= 300 for case in suite.findall("testcase"))
