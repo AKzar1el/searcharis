@@ -46,6 +46,11 @@ set yourself; an omitted shard can cause an intentional missing-URL failure.
 For CI that needs **both** the built HTML contracts and explicit sitemap
 indexability checks, run one opt-in command with the same reviewed manifest:
 
+For a ready-to-run example, see the
+[compiled Vite release-gate demo](../examples/seo-contract/release-demo/README.md).
+It combines two real built HTML artifacts with a reviewed two-URL local
+sitemap, then exercises fail-closed HTML and XML regressions in offline tests.
+
 ```sh
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --require-indexability-coverage --json

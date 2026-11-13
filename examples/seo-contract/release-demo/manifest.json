@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "path": "index.html",
+      "contract": {
+        "url": "https://fixtures.invalid/",
+        "canonical": "https://fixtures.invalid/",
+        "indexable": true,
+        "title_equals": "Field notes | Home",
+        "html_lang": "en"
+      }
+    },
+    {
+      "path": "pricing/index.html",
+      "contract": {
+        "url": "https://fixtures.invalid/pricing/",
+        "canonical": "https://fixtures.invalid/pricing/",
+        "indexable": true,
+        "title_equals": "Field notes | Plans",
+        "html_lang": "en"
+      }
+    }
+  ]
+}
