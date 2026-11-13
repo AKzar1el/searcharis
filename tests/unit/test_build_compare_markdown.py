@@ -116,6 +116,63 @@ def test_markdown_escapes_untrusted_findings_and_bounds_long_reports():
     assert len(report) < 10_000
 
 
+def test_bounded_markdown_preserves_one_actionable_example_from_each_category():
+    from searcharis.comparison_markdown import build_comparison_markdown
+
+    issues = [{
+        "path": f"page-{i}.html",
+        "issue": {"code": "title_presence", "expected": True, "actual": False},
+    } for i in range(40)]
+    result = {
+        "status": "regression",
+        "summary": {
+            "new_issues": 40, "removed_pages": 1, "new_unlisted": 1,
+            "new_unverified_targets": 1, "existing_issues": 0,
+            "resolved_issues": 0,
+        },
+        "new_issues": issues,
+        "removed_pages": [{"path": "removed-critical.html"}],
+        "new_unlisted": ["new-unlisted.html"],
+        "new_unverified_targets": [{
+            "check": "canonical", "path": "index.html",
+            "target": "https://example.invalid/unverified",
+        }],
+    }
+
+    report = build_comparison_markdown(
+        result, gate_new_unlisted=True, gate_new_unverified_targets=True
+    )
+    assert "removed-critical.html" in report
+    assert "new-unlisted.html" in report
+    assert "example.invalid/unverified" in report
+    assert "23 more new observations" in report
+    detail_lines = [line for line in report.splitlines() if line.startswith((
+        "- Page ", "- Removed reviewed page:", "- New unlisted HTML",
+        "- New unverified target",
+    ))]
+    assert len(detail_lines) == 20
+
+
+def test_removed_page_flood_does_not_hide_new_unlisted_observations():
+    from searcharis.comparison_markdown import build_comparison_markdown
+
+    result = {
+        "status": "regression",
+        "summary": {
+            "new_issues": 0, "removed_pages": 30, "new_unlisted": 1,
+            "new_unverified_targets": 0, "existing_issues": 0,
+            "resolved_issues": 0,
+        },
+        "new_issues": [],
+        "removed_pages": [{"path": f"removed-{i}.html"} for i in range(30)],
+        "new_unlisted": ["new-unlisted.html"],
+        "new_unverified_targets": [],
+    }
+    report = build_comparison_markdown(result, gate_new_unlisted=True)
+    assert "new-unlisted.html" in report
+    assert "11 more new observations" in report
+
+
 def test_unlisted_observations_keep_gate_distinction(tmp_path):
     manifest, baseline, candidate = _fixture(
         tmp_path, baseline_title="Old", candidate_title="Old"

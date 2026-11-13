@@ -1154,7 +1154,9 @@ This opt-in report separates newly blocking page failures and removed pages
 from inherited baseline debt; it labels newly unlisted HTML or unverified
 cross-page targets as blocking only when the corresponding policy flag is set.
 It shows at most 20 escaped, abbreviated new observations (with a remainder
-count), summary counts and fixed reviewer next steps. It never fetches URLs,
+count), reserving one example from each nonempty category so a flood of page
+issues cannot hide removed routes or other new observations. Summary counts
+remain complete, with fixed reviewer next steps. It never fetches URLs,
 modifies either build, overwrites an existing file, or changes comparison exit
 codes 0/1/2. `--markdown-file` is mutually exclusive with JSON, SARIF and JUnit
 output modes; choose a fresh path outside both build snapshots and publish it
