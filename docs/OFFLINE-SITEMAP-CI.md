@@ -118,7 +118,11 @@ accepted. Sitemap indexes remain **unsupported**. Each file is limited to
 total **uncompressed** XML bytes and 100,000 total URLs. The manifest may have
 up to 10,000 pages.
 The XML must be UTF-8; DTDs/entities are rejected. Sitemap URLs must be
-absolute, fragment-free, and from one host across all files. Optional XML
+absolute and fragment-free. URLs within one XML urlset must share the same
+scheme, host and effective port (an explicit default HTTP(S) port is equivalent
+to omitting it). Across explicitly supplied files, the checker requires a
+common hostname but cannot establish each file's actual public location or
+hosting protocol without network access. Optional XML
 metadata (`lastmod`, `priority`, localized extension tags) is ignored; the
 check makes no attempt to prove any metadata claims.
 
