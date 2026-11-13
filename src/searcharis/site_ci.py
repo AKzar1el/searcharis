@@ -117,6 +117,7 @@ def verify_manifest(
     check_canonical_consistency: bool = False,
     check_reviewed_navigation: bool = False,
     check_reviewed_fragments: bool = False,
+    check_unique_titles: bool = False,
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -136,6 +137,7 @@ def verify_manifest(
     observed_links: dict[str, dict[str, list[str]]] = {}
     observed_canonicals: dict[str, list[str]] = {}
     observed_anchors: dict[str, dict] = {}
+    observed_titles: dict[str, dict] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -153,6 +155,7 @@ def verify_manifest(
             include_canonical=check_canonical_consistency,
             include_anchors=check_reviewed_navigation or check_reviewed_fragments,
             include_fragment_ids=check_reviewed_fragments,
+            include_title=check_unique_titles,
         )
         url_identity = _page_url_identity(report["checked_url"])
         if url_identity in urls:
@@ -164,6 +167,8 @@ def verify_manifest(
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
         if check_reviewed_navigation or check_reviewed_fragments:
             observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
+        if check_unique_titles:
+            observed_titles[report["checked_url"]] = report.pop("observed_title")
         # Bind this route's findings to the assertions that produced them.
         # Key ordering and JSON whitespace do not change the fingerprint.
         contract_json = json.dumps(
@@ -175,6 +180,34 @@ def verify_manifest(
             "contract_sha256": hashlib.sha256(contract_json.encode("utf-8")).hexdigest(),
             **report,
         })
+
+    if check_unique_titles:
+        # Group by declared site origin and normalized built <title>. Reviewers
+        # may intentionally exempt non-indexable pages in their manifest.
+        groups: dict[tuple[tuple[str, str, int | None], str], list[dict]] = {}
+        for entry, report in zip(pages, reports, strict=True):
+            title = observed_titles[report["checked_url"]]
+            if entry["contract"].get("indexable") is False or not title["sha256"]:
+                continue  # A blank title is governed by title_present, if asserted.
+            origin = _page_url_identity(report["checked_url"])[:3]
+            groups.setdefault((origin, title["sha256"]), []).append(report)
+        for same_title in groups.values():
+            if len(same_title) < 2:
+                continue
+            same_title.sort(key=lambda report: report["path"])
+            for report in same_title:
+                peer = same_title[1] if report is same_title[0] else same_title[0]
+                observed = observed_titles[report["checked_url"]]
+                report["issues"].append({
+                    "code": "title_duplicate",
+                    "expected": "a distinct title among reviewed same-origin indexable pages",
+                    "actual": {
+                        "also_in": peer["path"],
+                        "title_prefix": observed["prefix"],
+                        "title_sha256": observed["sha256"],
+                    },
+                })
+                report["status"] = "fail"
 
     navigation_summary = None
     if check_reviewed_navigation:

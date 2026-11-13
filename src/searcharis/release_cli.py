@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-fragments", action="store_true",
         help="Fail if reviewed same-origin HTML navigation fragments have no target ID",
     )
+    parser.add_argument(
+        "--check-unique-titles", action="store_true",
+        help="Fail on duplicate normalized HTML titles among reviewed indexable pages on the same origin",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -104,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
             check_reviewed_fragments=args.check_reviewed_fragments,
+            check_unique_titles=args.check_unique_titles,
         )
         sitemap = verify_sitemap_manifest(
             reviewed_manifest, args.sitemaps,

@@ -835,6 +835,33 @@ This does not evaluate JavaScript-created IDs, runtime router behavior,
 scrolling, redirects, HTTP responses or deployed content. Such sites may need
 to leave this opt-in policy disabled or provide appropriate reviewed artifacts.
 
+## Opt-in duplicate page-title release gate
+
+When reviewing a complete set of indexable static pages, catch accidental
+copy-pasted HTML titles with the combined offline release checker:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --check-unique-titles --json
+```
+
+This **release-gate-only** option compares the first active head `<title>`
+across reviewed pages on the same scheme, hostname and effective port.
+It decodes HTML entities and collapses whitespace before comparing text
+**case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
+on all affected pages (exit **1**), with one other matching built HTML path,
+a bounded title prefix and a SHA-256 fingerprint in the JSON findings.
+Pages explicitly declared `indexable: false` in the reviewed manifest are
+excluded. Blank titles are outside this comparison; require
+`title_present: true` to reject them independently. The option is off by
+default and does not modify any built files, manifest or sitemap.
+
+The developer must review intentional repeated titles, canonical aliases,
+localized pages and excluded routes before enabling this policy. Same-title
+findings are a release-contract choice, not evidence of a search penalty,
+Google's displayed titles, live indexing or improved rankings. All HTML and
+sitemap inputs remain local; no URL is fetched.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates
