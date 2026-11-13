@@ -124,6 +124,10 @@ report invalid built links as findings rather than accepting ambiguous hosts.
 
 ## Limits and interpretation
 
+* Local built HTML, reviewed JSON manifests and route maps have a 4 MB per-file
+  input limit enforced against bytes actually read, not potentially stale file
+  metadata. An oversized file is an input error (exit 2); the checker does not
+  follow or fetch the page's contract URL.
 * Validates the supplied HTML **only**; not HTTP status, X-Robots-Tag
   headers, robots.txt, redirects, JavaScript-rendered output, or actual
   search indexing.
