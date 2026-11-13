@@ -27,6 +27,7 @@ union:
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml.gz dist/sitemap-2.xml --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --require-indexability-coverage --json
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --reject-noncanonical-urls --json
 ```
 
 Local files with a `.gz` suffix are decompressed as gzip before XML validation;
@@ -56,6 +57,7 @@ uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml 
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --require-indexability-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-noncanonical-urls --json
 ```
 
 `release_cli` reads the manifest once and invokes the same local verification
@@ -78,6 +80,20 @@ counted but not checked for sitemap inclusion. To also require that *all built
 HTML pages* are listed in the manifest, use both
 `--require-indexability-coverage` and `--require-full-coverage` on `release_cli`.
 Neither option infers public routes or deployed indexing state.
+
+Use `--reject-noncanonical-urls` to fail the sitemap check if an explicitly
+indexable page has a **reviewed canonical that identifies a different URL**,
+but the page's own noncanonical URL is also listed in any supplied sitemap.
+The default behavior and JSON shape remain unchanged. When enabled, reports
+include `present_noncanonical` (empty on success) and return exit 1 for
+offending URLs. This check also works across mixed plain/gzip sitemap shards;
+equivalent URL spellings (such as a default port or unreserved percent
+encoding) do not create an alias finding. Pages with no explicit `indexable:
+true` or no reviewed different canonical are not newly restricted.
+Google recommends submitting preferred canonical URLs rather than duplicate
+variants ([sitemap guidance](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)).
+This local flag checks reviewed intent only: it does not establish the actual
+canonical chosen by Google or prove that these URLs are publicly served.
 
 Use `--json-file PATH` instead of `--json` to save the same complete combined
 report directly as UTF-8 for CI consumers (including Windows PowerShell 5.1,

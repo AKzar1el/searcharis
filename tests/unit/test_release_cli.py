@@ -151,6 +151,30 @@ def test_combined_gate_supports_explicit_split_local_sitemaps(tmp_path, capsys):
     assert report["sitemap"]["summary"]["sitemap_urls"] == 1
 
 
+def test_release_gate_optional_noncanonical_alias_guard(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "alias.html").write_text(
+        '<html><head><title>Alias</title>'
+        '<link rel="canonical" href="https://example.test/">'
+        '</head><body><h1>Alias</h1></body></html>',
+        encoding="utf-8",
+    )
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["pages"].append({"path": "alias.html", "contract": {
+        "url": "https://example.test/alias", "title_present": True,
+        "canonical": "https://example.test/", "indexable": True,
+    }})
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/", "https://example.test/alias"])
+    assert _call(capsys, manifest, build, [sitemap])[0] == 0
+    code, report, err = _call(
+        capsys, manifest, build, [sitemap], "--reject-noncanonical-urls",
+    )
+    assert code == 1 and err == ""
+    assert report["site"]["status"] == "pass"
+    assert report["sitemap"]["present_noncanonical"] == ["https://example.test/alias"]
+
+
 def test_combined_gate_accepts_local_gzip_sitemap(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
     compressed = tmp_path / "sitemap.xml.gz"

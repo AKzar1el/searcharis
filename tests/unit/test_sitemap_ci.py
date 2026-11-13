@@ -196,6 +196,64 @@ def test_reviewed_canonical_target_is_required_instead_of_noncanonical_url(tmp_p
     assert report["summary"]["required"] == 1
 
 
+def test_optional_canonical_alias_guard_blocks_listed_noncanonical_page(tmp_path):
+    alias = "https://example.test/duplicate"
+    preferred = "https://example.test/preferred"
+    manifest = _manifest({
+        "url": alias, "canonical": preferred, "indexable": True,
+    })
+    sitemap = _sitemap(tmp_path, preferred, alias)
+    assert verify_sitemap_manifest(manifest, sitemap)["status"] == "pass"
+    report = verify_sitemap_manifest(
+        manifest, sitemap, reject_noncanonical_urls=True,
+    )
+    assert report["status"] == "fail"
+    assert report["present_noncanonical"] == [alias]
+    assert report["missing_required"] == []
+
+
+def test_optional_canonical_alias_guard_accepts_equivalent_url_identity(tmp_path):
+    manifest = _manifest({
+        "url": "https://EXAMPLE.test:443/%7Eme",
+        "canonical": "https://example.test/~me", "indexable": True,
+    })
+    report = verify_sitemap_manifest(
+        manifest, _sitemap(tmp_path, "https://example.test/~me"),
+        reject_noncanonical_urls=True,
+    )
+    assert report["status"] == "pass"
+    assert report["present_noncanonical"] == []
+
+
+def test_optional_canonical_alias_guard_checks_compressed_shard(tmp_path):
+    alias = "https://example.test/duplicate"
+    manifest = _manifest({
+        "url": alias, "canonical": "https://example.test/", "indexable": True,
+    })
+    first = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    second = _gzip_sitemap(_sitemap(tmp_path, alias, filename="second.xml"))
+    report = verify_sitemap_manifest(
+        manifest, [first, second], reject_noncanonical_urls=True,
+    )
+    assert report["status"] == "fail"
+    assert report["present_noncanonical"] == [alias]
+
+
+def test_sitemap_cli_optional_canonical_alias_guard_json_and_text(tmp_path, capsys):
+    alias = "https://example.test/duplicate"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": alias, "canonical": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/", alias)
+    assert main([
+        str(manifest), str(sitemap), "--reject-noncanonical-urls", "--json",
+    ]) == 1
+    assert json.loads(capsys.readouterr().out)["present_noncanonical"] == [alias]
+    assert main([str(manifest), str(sitemap), "--reject-noncanonical-urls"]) == 1
+    assert "Noncanonical" in capsys.readouterr().out
+
+
 def test_alias_sitemap_url_matches_existing_http_identity(tmp_path):
     manifest = _manifest({"url": "https://EXAMPLE.test/%7Eme", "indexable": True})
     report = verify_sitemap_manifest(manifest, _sitemap(tmp_path, "https://example.test:443/~me"))
