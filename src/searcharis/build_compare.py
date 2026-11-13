@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.comparison_markdown import build_comparison_markdown
 from searcharis.report_compare import compare_reports, print_comparison
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_comparison_junit
@@ -85,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     output.add_argument(
         "--junit-file", type=Path, metavar="PATH",
         help="Write JUnit XML directly to a new file; never overwrite existing files",
+    )
+    output.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write a bounded human-readable regression summary to a new UTF-8 file",
     )
     parser.add_argument(
         "--sarif-source-map", type=Path,
@@ -178,6 +183,21 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         else:
             print(junit)
+    elif args.markdown_file:
+        markdown = build_comparison_markdown(
+            result,
+            gate_new_unlisted=args.require_full_coverage or args.fail_on_new_unlisted,
+            gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+        )
+        try:
+            target = args.markdown_file.resolve()
+            if target.is_relative_to(baseline_root) or target.is_relative_to(candidate_root):
+                raise ValueError("Markdown file must be outside both build directories")
+            with args.markdown_file.open("x", encoding="utf-8", newline="\n") as report:
+                report.write(markdown + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
     elif args.json_file:
         try:
             target = args.json_file.resolve()
