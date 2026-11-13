@@ -30,6 +30,10 @@ def main(argv: list[str] | None = None) -> int:
         "--require-indexability-coverage", action="store_true",
         help="Require explicit indexable true/false for every reviewed manifest page",
     )
+    parser.add_argument(
+        "--reject-noncanonical-urls", action="store_true",
+        help="Reject sitemap URLs for reviewed indexable pages with a different canonical",
+    )
     parser.add_argument("--json", action="store_true", help="Print structured JSON outcome")
     args = parser.parse_args(argv)
 
@@ -37,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         report = verify_sitemap_manifest(
             read_manifest(args.manifest), args.sitemaps,
             require_indexability_coverage=args.require_indexability_coverage,
+            reject_noncanonical_urls=args.reject_noncanonical_urls,
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -59,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Missing required: {_display(url)}")
         for url in report["present_excluded"]:
             print(f"  Unexpected noindex URL: {_display(url)}")
+        for url in report.get("present_noncanonical", []):
+            print(f"  Noncanonical reviewed URL in sitemap: {_display(url)}")
     return 0 if report["status"] == "pass" else 1
 
 

@@ -132,6 +132,7 @@ def verify_sitemap_manifest(
     sitemap_path: Path | Sequence[Path],
     *,
     require_indexability_coverage: bool = False,
+    reject_noncanonical_urls: bool = False,
 ) -> dict:
     """Assert only reviewed indexable/noindex intentions against local XML.
 
@@ -149,6 +150,7 @@ def verify_sitemap_manifest(
 
     required: dict[tuple, str] = {}
     excluded: dict[tuple, str] = {}
+    noncanonical: dict[tuple, str] = {}
     seen_pages: set[str] = set()
     seen_urls: set[tuple] = set()
     unasserted = 0
@@ -183,6 +185,13 @@ def verify_sitemap_manifest(
         if indexable is True:
             expected = contract.get("canonical", page_url)
             required[_page_url_identity(expected)] = expected
+            if (
+                reject_noncanonical_urls
+                and "canonical" in contract
+                and page_identity != _page_url_identity(expected)
+            ):
+                # Only explicit, reviewed canonical aliases are forbidden.
+                noncanonical[page_identity] = page_url
         elif indexable is False:
             excluded[page_identity] = page_url
         else:
@@ -200,8 +209,9 @@ def verify_sitemap_manifest(
     sitemap = _read_sitemaps(sitemap_path)
     missing = sorted(url for identity, url in required.items() if identity not in sitemap)
     present = sorted(url for identity, url in excluded.items() if identity in sitemap)
-    return {
-        "status": "fail" if missing or present else "pass",
+    aliases = sorted(url for identity, url in noncanonical.items() if identity in sitemap)
+    report = {
+        "status": "fail" if missing or present or aliases else "pass",
         "summary": {
             "required": len(required), "excluded": len(excluded),
             "unasserted_pages": unasserted, "sitemap_urls": len(sitemap),
@@ -209,3 +219,7 @@ def verify_sitemap_manifest(
         "missing_required": missing,
         "present_excluded": present,
     }
+    # Preserve the default JSON report schema for existing consumers.
+    if reject_noncanonical_urls:
+        report["present_noncanonical"] = aliases
+    return report
