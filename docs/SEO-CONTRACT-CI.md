@@ -770,6 +770,36 @@ errors with exit 2. This mode checks each declared page independently by
 default. Cross-page canonical relationships and reciprocal hreflang links
 require explicit flags below. It does not change deployment or run a crawl.
 
+## Opt-in reviewed internal navigation gate
+
+For a site with a **complete, developer-reviewed set of public routes**, check
+that built HTML navigation does not accidentally point to a stale or missing
+same-origin URL:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --require-full-coverage --check-reviewed-navigation --json
+```
+
+`--check-reviewed-navigation` is also accepted by the combined
+`searcharis.release_cli` offline HTML+sitemap gate. It inspects active HTML
+`<a href>` elements, resolves relative links using the first valid head
+`<base href>` (otherwise the reviewed page URL), ignores URL fragments and
+deduplicates equivalent URL spellings. Same-origin means the same scheme,
+hostname and effective port; URL paths and nonempty queries remain significant.
+An internal link whose destination is not listed in the manifest fails with
+`navigation_target_unreviewed` and exit **1**, with source path and target
+available in JSON. The `reviewed_navigation` record reports distinct local
+links inspected and unreviewed targets. Default behavior remains unchanged.
+
+**This is deliberately strict, not a general link crawler.** Partial manifests,
+virtual routes, deliberate redirects, URL query variants or hosting rewrite
+rules may require more reviewed route entries or leaving the flag disabled.
+External domains, non-HTTP protocols, and malformed/unresolvable URLs are not
+validated by this check. Inert template/raw-text HTML is ignored. The checker
+never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
+navigation, redirects, public deployment routes or actual search indexing.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates

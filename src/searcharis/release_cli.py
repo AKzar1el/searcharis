@@ -61,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-canonical-consistency", action="store_true",
         help="Check internal canonical targets and self-links among reviewed pages",
     )
+    parser.add_argument(
+        "--check-reviewed-navigation", action="store_true",
+        help="Fail if same-origin HTML navigation links target URLs absent from the manifest",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -94,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_reciprocity=args.check_hreflang_reciprocity,
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
+            check_reviewed_navigation=args.check_reviewed_navigation,
         )
         sitemap = verify_sitemap_manifest(
             reviewed_manifest, args.sitemaps,
