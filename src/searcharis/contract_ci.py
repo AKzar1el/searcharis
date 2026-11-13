@@ -6,6 +6,7 @@ caller must provide the trusted expected contract and the built HTML bytes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from html.parser import HTMLParser
@@ -613,6 +614,7 @@ def verify_contract(
     include_canonical: bool = False,
     include_anchors: bool = False,
     include_fragment_ids: bool = False,
+    include_title: bool = False,
 ) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
@@ -852,6 +854,15 @@ def verify_contract(
                         fail(f"hreflang_invalid_url:{language}", "absolute HTTP(S) URL", target)
             resolved_hreflang[language] = valid_targets
     result = {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
+    if include_title:
+        # Keep cross-page grouping bounded even if a title consumes the whole
+        # 4 MB input limit; the full title never enters the serialized report.
+        normalized_title = " ".join("".join(page.title_chunks).split())
+        result["observed_title"] = {
+            "sha256": hashlib.sha256(normalized_title.encode("utf-8")).hexdigest()
+            if normalized_title else None,
+            "prefix": normalized_title[:120],
+        }
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.
         result["observed_hreflang"] = resolved_hreflang
