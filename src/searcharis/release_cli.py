@@ -60,21 +60,23 @@ def main(argv: list[str] | None = None) -> int:
         "--check-canonical-consistency", action="store_true",
         help="Check internal canonical targets and self-links among reviewed pages",
     )
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json", action="store_true", help="Print both reports as JSON")
-    output.add_argument(
+    stdout = parser.add_mutually_exclusive_group()
+    stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
+    parser.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write both reports to a new UTF-8 JSON file; never overwrite",
     )
-    output.add_argument(
+    stdout.add_argument(
         "--junit", action="store_true",
         help="Print a JUnit XML suite of blocking HTML and sitemap findings",
     )
-    output.add_argument(
+    parser.add_argument(
         "--junit-file", type=Path, metavar="PATH",
-        help="Write JUnit XML to a new file outside the build; never overwrite",
+        help="Write JUnit XML to a new file outside the build; combines with --json-file",
     )
     args = parser.parse_args(argv)
+    if (args.json or args.junit) and (args.json_file or args.junit_file):
+        parser.error("stdout report mode is not allowed with file report modes")
 
     try:
         reviewed_manifest = read_manifest(args.manifest)
@@ -100,40 +102,42 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.junit or args.junit_file:
-        junit = build_release_junit(site, sitemap)
+    if args.json_file or args.junit_file:
+        reports: list[tuple[Path, str, str]] = []
+        if args.json_file:
+            reports.append((args.json_file, "JSON", json.dumps(
+                {"status": status, "site": site, "sitemap": sitemap},
+                indent=2, sort_keys=True,
+            )))
         if args.junit_file:
-            try:
-                target = args.junit_file.resolve()
-                if target.is_relative_to(args.build_dir.resolve()):
-                    raise ValueError("JUnit report must be outside the build directory")
-                # Create exclusively, preserving immutable build inputs and old reports.
-                with args.junit_file.open("x", encoding="utf-8", newline="\n") as report:
-                    report.write(junit + "\n")
-            except (OSError, UnicodeError, ValueError) as error:
-                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
-                return 2
-        else:
-            print(junit)
-    elif args.json or args.json_file:
+            reports.append((args.junit_file, "JUnit", build_release_junit(site, sitemap)))
+        try:
+            # Preflight every target before writing either report. The second
+            # artifact must not invalidate or overwrite the first one.
+            build_root = args.build_dir.resolve()
+            targets = [path.resolve() for path, _, _ in reports]
+            if len(set(targets)) != len(targets):
+                raise ValueError("JSON and JUnit reports must use distinct files")
+            for (path, label, _), target in zip(reports, targets, strict=True):
+                if target.is_relative_to(build_root):
+                    raise ValueError(f"{label} report must be outside the build directory")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"{label} report already exists: {path}")
+            for path, _, payload in reports:
+                # Exclusive creation still protects against a post-preflight race.
+                with path.open("x", encoding="utf-8", newline="\n") as output:
+                    output.write(payload + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.junit:
+        print(build_release_junit(site, sitemap))
+    elif args.json:
         serialized = json.dumps(
             {"status": status, "site": site, "sitemap": sitemap},
             indent=2, sort_keys=True,
         )
-        if args.json_file:
-            try:
-                target = args.json_file.resolve()
-                if target.is_relative_to(args.build_dir.resolve()):
-                    raise ValueError("JSON report must be outside the build directory")
-                # Exclusive creation preserves earlier CI artifacts; direct UTF-8
-                # avoids Windows PowerShell's UTF-16LE stdout redirection.
-                with args.json_file.open("x", encoding="utf-8", newline="\n") as report:
-                    report.write(serialized + "\n")
-            except (OSError, UnicodeError, ValueError) as error:
-                print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
-                return 2
-        else:
-            print(serialized)
+        print(serialized)
     else:
         pages = site["summary"]
         xml = sitemap["summary"]

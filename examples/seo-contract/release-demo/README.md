@@ -18,9 +18,15 @@ and must be outside the build tree. The command writes UTF-8 directly, does
 not modify the build or sitemap and never uploads anything.
 
 For CI services accepting JUnit test reports, use `--junit-file seo-release.xml`
-instead of `--json`. This writes one passing testcase when both gates pass,
-or one failed testcase per blocking HTML/sitemap finding. The artifact is
-created exclusively outside the build directory and preserves exit codes.
+instead of `--json`. To save **both** the complete JSON evidence and the JUnit
+test results in one checked build, pass `--json-file seo-release.json` and
+`--junit-file seo-release.xml` together. Both paths must be distinct, absent,
+and outside the build tree; known invalid destinations are rejected before
+either report is written. These create-only files preserve exit 0/1/2, and
+stdout stays empty. A filesystem failure during writing can still leave a
+partial artifact, so consumers must check the exit code before using reports.
+The JUnit suite has one passing testcase when both gates pass or one failed
+testcase per blocking HTML/sitemap finding.
 See [offline release JUnit usage](../../../docs/SEO-RELEASE-JUNIT.md).
 
 To see deliberate failures without editing this snapshot, run

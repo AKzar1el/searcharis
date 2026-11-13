@@ -3,6 +3,7 @@
 import json
 import shutil
 import socket
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from searcharis.release_cli import main as release_gate
@@ -94,3 +95,21 @@ def test_release_demo_portable_json_file_is_create_only(
     assert json.loads(payload.decode("utf-8"))["status"] == "pass"
     assert _check(BUILD, DEMO / "sitemap.xml", "--json-file", str(target)) == 2
     assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
+
+
+def test_compiled_vite_demo_emits_json_and_junit_in_one_pass(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    json_path = tmp_path / "seo-release.json"
+    junit_path = tmp_path / "seo-release.xml"
+    assert _check(BUILD, DEMO / "sitemap.xml", "--json-file", str(json_path),
+                  "--junit-file", str(junit_path)) == 0
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    suite = ET.fromstring(junit_path.read_bytes())
+    assert report["site"]["summary"]["passed"] == 2
+    assert report["sitemap"]["summary"]["required"] == 2
+    assert report["status"] == "pass"
+    assert suite.attrib["tests"] == "1" and suite.attrib["failures"] == "0"
