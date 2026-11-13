@@ -50,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Check actual canonical links and self-canonical targets among manifest pages",
     )
+    parser.add_argument(
+        "--check-reviewed-navigation", action="store_true",
+        help="Fail if same-origin HTML navigation targets are absent from the reviewed manifest",
+    )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
@@ -74,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_reciprocity=args.check_hreflang_reciprocity,
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
+            check_reviewed_navigation=args.check_reviewed_navigation,
         )
         sources = (
             read_source_map(args.sarif_source_map, report, source_root=Path.cwd())
@@ -131,6 +136,12 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Canonicals: {canonical['internal_targets_checked']} internal targets checked, "
                 f"{len(canonical['unverified_targets'])} targets outside manifest (not verified)"
+            )
+        if args.check_reviewed_navigation:
+            navigation = report["reviewed_navigation"]
+            print(
+                f"  Navigation: {navigation['checked_links']} distinct local links checked, "
+                f"{len(navigation['unreviewed_targets'])} unreviewed targets"
             )
     return 0 if report["status"] == "pass" else 1
 
