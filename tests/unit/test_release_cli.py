@@ -497,6 +497,28 @@ def test_dual_release_input_error_creates_neither_output(tmp_path, capsys):
     assert not json_path.exists() and not junit_path.exists()
 
 
+@pytest.mark.parametrize("parent_type", ["missing", "file"])
+@pytest.mark.parametrize("late_mode", ["junit", "markdown"])
+def test_multi_artifact_preflight_rejects_unusable_later_parent_without_partial_file(
+    tmp_path, capsys, parent_type, late_mode,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    first = tmp_path / "first.json"
+    unusable_parent = tmp_path / "unusable-parent"
+    if parent_type == "file":
+        unusable_parent.write_text("keep this file", encoding="utf-8")
+    later = unusable_parent / ("later.xml" if late_mode == "junit" else "later.md")
+    args = [str(manifest), str(build), str(sitemap), "--json-file", str(first)]
+    args += ["--junit-file" if late_mode == "junit" else "--markdown-file", str(later)]
+
+    code = main(args)
+    output = capsys.readouterr()
+    assert code == 2 and output.out == "" and "Invalid input" in output.err
+    assert not first.exists() and not later.exists()
+    if parent_type == "file":
+        assert unusable_parent.read_text(encoding="utf-8") == "keep this file"
+
+
 def test_release_junit_strict_coverage_is_blocking_only_when_enabled(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
     (build / "unlisted.html").write_text("<html/>", encoding="utf-8")

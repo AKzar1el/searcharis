@@ -124,6 +124,14 @@ on invalid input or output-path errors, exit 2 is reported on stderr and no
 successful release artifact is claimed. Neither the built site nor any sitemap
 is modified. Do not automatically upload reports or change protected CI workflows.
 
+When combining `--json-file`, `--junit-file` and `--markdown-file` in one
+release-gate invocation, all destination parents must already be directories.
+The checker validates all parents, filename collisions, and build-tree
+exclusions **before** creating any report. A missing or invalid later parent
+therefore cannot leave an earlier, misleading report behind. This is not an
+atomic multi-file transaction: an unexpected write-time failure can still
+leave a partial artifact, so downstream CI must check the process exit code.
+
 This only checks files already present on disk; it does **not** build the site,
 discover sitemap shards, resolve XML sitemap indexes, fetch URLs, change
 deployment settings, or upload CI artifacts. Neither input is changed.
