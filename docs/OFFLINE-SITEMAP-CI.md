@@ -34,6 +34,33 @@ resolution: the checker never follows `<sitemapindex>` URLs, reads remote
 content, or automatically discovers files. Supply and review every local URL
 set yourself; an omitted shard can cause an intentional missing-URL failure.
 
+## Optional one-command built-HTML + sitemap release gate
+
+For CI that needs **both** the built HTML contracts and explicit sitemap
+indexability checks, run one opt-in command with the same reviewed manifest:
+
+```sh
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
+```
+
+`release_cli` reads the manifest once and invokes the same local verification
+functions used by `site_cli` and `sitemap_cli`. The JSON report has `site` and
+`sitemap` sections plus a combined `status`. Exit **0** requires both to pass;
+**1** means one or both found a reviewed SEO mismatch; **2** means an input is
+invalid or unreadable and no passing release claim is made. The optional HTML
+flags `--require-full-coverage`, `--check-hreflang-reciprocity`,
+`--check-hreflang-clusters` and `--check-canonical-consistency` keep their
+existing meanings. The sitemap gate always requires at least one explicitly
+reviewed `indexable` assertion, so teams with no such policy should use
+`site_cli` alone until the manifest is reviewed.
+
+This only checks files already present on disk; it does **not** build the site,
+discover sitemap shards, resolve XML sitemap indexes, fetch URLs, change
+deployment settings, or upload CI artifacts. Neither input is changed.
+Separate `site_cli` / `sitemap_cli` invocations remain supported, including
+their individual machine-readable outputs and SARIF options where available.
+
 ## Policy (only explicit assertions count)
 
 - `indexable: true` requires the page's reviewed `canonical` URL in the
