@@ -427,13 +427,74 @@ def test_release_junit_input_error_does_not_emit_false_report(tmp_path, capsys):
 
 def test_release_junit_modes_are_mutually_exclusive(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
-    for incompatible in ("--json", "--json-file", "--junit"):
-        extra = [str(tmp_path / "report.json")] if incompatible == "--json-file" else []
+    for incompatible in ("--json", "--junit"):
         with pytest.raises(SystemExit) as error:
-            main([str(manifest), str(build), str(sitemap), incompatible, *extra,
+            main([str(manifest), str(build), str(sitemap), incompatible,
                   "--junit-file", str(tmp_path / "report.xml")])
         assert error.value.code == 2
         assert "not allowed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failing", [False, True])
+def test_release_writes_json_and_junit_in_one_offline_run(tmp_path, capsys, failing,
+                                                       monkeypatch):
+    manifest, build, sitemap = _fixture(tmp_path)
+    if failing:
+        _sitemap(sitemap, ["https://example.test/draft"])
+    json_path = tmp_path / "result.json"
+    junit_path = tmp_path / "result.xml"
+
+    def deny(*_args, **_kwargs):
+        raise AssertionError("Release artifact generation must not fetch URLs")
+
+    monkeypatch.setattr(socket.socket, "connect", deny)
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(json_path), "--junit-file", str(junit_path)])
+    output = capsys.readouterr()
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    suite = ET.fromstring(junit_path.read_bytes())
+    assert code == (1 if failing else 0)
+    assert output.out == output.err == ""
+    assert report["status"] == ("fail" if failing else "pass")
+    assert int(suite.attrib["failures"]) > 0 if failing else suite.attrib["failures"] == "0"
+
+
+@pytest.mark.parametrize("blocked", ["existing_json", "existing_xml", "build_json",
+                                         "build_xml", "same_path"])
+def test_dual_release_outputs_preflight_both_paths_before_any_write(
+    tmp_path, capsys, blocked,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    json_path = tmp_path / "result.json"
+    junit_path = tmp_path / "result.xml"
+    if blocked == "existing_json":
+        json_path.write_bytes(b"prior JSON")
+    elif blocked == "existing_xml":
+        junit_path.write_bytes(b"prior JUnit")
+    elif blocked == "build_json":
+        json_path = build / "report.json"
+    elif blocked == "build_xml":
+        junit_path = build / "report.xml"
+    else:
+        junit_path = json_path
+    before_json = json_path.read_bytes() if json_path.exists() else None
+    before_junit = junit_path.read_bytes() if junit_path.exists() else None
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(json_path), "--junit-file", str(junit_path)])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == "" and "Invalid input" in output.err
+    assert (json_path.read_bytes() if json_path.exists() else None) == before_json
+    assert (junit_path.read_bytes() if junit_path.exists() else None) == before_junit
+
+
+def test_dual_release_input_error_creates_neither_output(tmp_path, capsys):
+    manifest, build, _ = _fixture(tmp_path)
+    json_path = tmp_path / "result.json"
+    junit_path = tmp_path / "result.xml"
+    code = main([str(manifest), str(build), str(tmp_path / "missing.xml"),
+                 "--json-file", str(json_path), "--junit-file", str(junit_path)])
+    assert code == 2 and "Invalid input" in capsys.readouterr().err
+    assert not json_path.exists() and not junit_path.exists()
 
 
 def test_release_junit_strict_coverage_is_blocking_only_when_enabled(tmp_path, capsys):
