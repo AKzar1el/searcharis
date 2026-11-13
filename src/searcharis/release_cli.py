@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.release_markdown import build_release_markdown
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_release_junit
 from searcharis.sitemap_ci import verify_sitemap_manifest
@@ -74,8 +75,14 @@ def main(argv: list[str] | None = None) -> int:
         "--junit-file", type=Path, metavar="PATH",
         help="Write JUnit XML to a new file outside the build; combines with --json-file",
     )
+    parser.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write a bounded Markdown CI summary to a new file outside the build",
+    )
     args = parser.parse_args(argv)
-    if (args.json or args.junit) and (args.json_file or args.junit_file):
+    if (args.json or args.junit) and (
+        args.json_file or args.junit_file or args.markdown_file
+    ):
         parser.error("stdout report mode is not allowed with file report modes")
 
     try:
@@ -102,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.json_file or args.junit_file:
+    if args.json_file or args.junit_file or args.markdown_file:
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((args.json_file, "JSON", json.dumps(
@@ -111,13 +118,17 @@ def main(argv: list[str] | None = None) -> int:
             )))
         if args.junit_file:
             reports.append((args.junit_file, "JUnit", build_release_junit(site, sitemap)))
+        if args.markdown_file:
+            reports.append((args.markdown_file, "Markdown", build_release_markdown(
+                site, sitemap,
+            )))
         try:
             # Preflight every target before writing either report. The second
             # artifact must not invalidate or overwrite the first one.
             build_root = args.build_dir.resolve()
             targets = [path.resolve() for path, _, _ in reports]
             if len(set(targets)) != len(targets):
-                raise ValueError("JSON and JUnit reports must use distinct files")
+                raise ValueError("All report destinations must be distinct files")
             for (path, label, _), target in zip(reports, targets, strict=True):
                 if target.is_relative_to(build_root):
                     raise ValueError(f"{label} report must be outside the build directory")
