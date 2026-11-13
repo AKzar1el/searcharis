@@ -114,3 +114,91 @@ def test_release_cli_navigation_option_blocks_when_sitemap_is_valid(tmp_path, ca
     result = json.loads(capsys.readouterr().out)
     assert result['site']['status'] == 'fail'
     assert result['sitemap']['status'] == 'pass'
+
+
+def test_reviewed_fragments_opt_in_catches_broken_same_and_cross_page_jumps(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="#missing">Jump</a><a href="/about/#team">Team</a>',
+    )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    assert verify_manifest(manifest, build, check_reviewed_navigation=True)['status'] == 'pass'
+    result = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert result['status'] == 'fail'
+    assert result['reviewed_fragments']['checked_fragments'] == 2
+    assert result['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#team'},
+        {'path': 'en/index.html', 'target': 'https://example.test/en/#missing'},
+    ]
+    assert [issue['code'] for issue in result['pages'][1]['issues']] == [
+        'navigation_fragment_missing', 'navigation_fragment_missing',
+    ]
+
+
+def test_reviewed_fragments_accept_id_legacy_name_encoded_fragment_and_base(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="#faq%20%26%20docs">FAQ</a>'
+        '<a href="#legacy">Legacy</a>'
+        '<a href="#team">Team</a><a href="#raw%20id">Raw encoded ID</a>',
+        head_extra='<base href="https://example.test/about/">',
+    )
+    about = build / 'about' / 'index.html'
+    about.write_text(
+        about.read_text(encoding='utf-8').replace(
+            '<h1>About</h1>',
+            '<h1>About</h1><h2 id="team">Team</h2>'
+            '<div id="faq &amp; docs"></div><a name="legacy"></a>'
+            '<div id="raw%20id"></div>',
+        ), encoding='utf-8',
+    )
+    result = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert result['status'] == 'pass'
+    assert result['reviewed_fragments']['checked_fragments'] == 4
+    assert result['reviewed_fragments']['missing_targets'] == []
+
+
+def test_reviewed_fragments_ignore_inert_ids_and_unreviewed_routes(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<template><div id="ghost"></div></template>'
+        '<script>"<div id=\'ghost\'></div>"</script>'
+        '<textarea><div id="ghost"></div></textarea>'
+        '<a href="#ghost">Broken</a><a href="#ghost">Duplicate</a>'
+        '<a href="#top">Top</a><a href="#">Empty fragment</a>'
+        '<a href="#not-here">Broken</a>'
+        '<a href="#:~:text=Sample">Browser text fragment</a>'
+        '<a href="/unreviewed/#external">Unknown route</a>'
+        '<a href="https://elsewhere.test/page/#missing">External</a>',
+    )
+    result = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert result['status'] == 'fail'
+    assert result['reviewed_fragments']['checked_fragments'] == 3
+    assert result['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/en/#ghost'},
+        {'path': 'en/index.html', 'target': 'https://example.test/en/#not-here'},
+    ]
+    assert result['reviewed_fragments']['unverified_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/unreviewed/#external'},
+    ]
+
+
+def test_reviewed_fragment_flag_is_available_in_both_offline_clis(tmp_path, capsys):
+    build, manifest = _site(tmp_path, '<a href="#missing">Broken</a>')
+    manifest_file = tmp_path / 'manifest.json'
+    manifest_file.write_text(json.dumps(manifest), encoding='utf-8')
+    sitemap = tmp_path / 'sitemap.xml'
+    sitemap.write_text(
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<url><loc>https://example.test/en/</loc></url>'
+        '<url><loc>https://example.test/about/</loc></url></urlset>',
+        encoding='utf-8',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network attempted')):
+        assert site_main([str(manifest_file), str(build),
+                          '--check-reviewed-fragments', '--json']) == 1
+        site_report = json.loads(capsys.readouterr().out)
+        assert site_report['reviewed_fragments']['missing_targets']
+        assert release_main([str(manifest_file), str(build), str(sitemap),
+                             '--check-reviewed-fragments', '--json']) == 1
+        combined = json.loads(capsys.readouterr().out)
+    assert combined['site']['status'] == 'fail'
+    assert combined['sitemap']['status'] == 'pass'

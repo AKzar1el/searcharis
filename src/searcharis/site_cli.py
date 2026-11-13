@@ -54,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-navigation", action="store_true",
         help="Fail if same-origin HTML navigation targets are absent from the reviewed manifest",
     )
+    parser.add_argument(
+        "--check-reviewed-fragments", action="store_true",
+        help="Fail if links to reviewed same-origin pages use missing HTML fragment IDs",
+    )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
@@ -79,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
+            check_reviewed_fragments=args.check_reviewed_fragments,
         )
         sources = (
             read_source_map(args.sarif_source_map, report, source_root=Path.cwd())
@@ -142,6 +147,13 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Navigation: {navigation['checked_links']} distinct local links checked, "
                 f"{len(navigation['unreviewed_targets'])} unreviewed targets"
+            )
+        if args.check_reviewed_fragments:
+            fragments = report["reviewed_fragments"]
+            print(
+                f"  Fragments: {fragments['checked_fragments']} reviewed targets checked, "
+                f"{len(fragments['missing_targets'])} missing IDs, "
+                f"{len(fragments['unverified_targets'])} outside-manifest targets"
             )
     return 0 if report["status"] == "pass" else 1
 

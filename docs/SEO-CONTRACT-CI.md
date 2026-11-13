@@ -800,6 +800,38 @@ validated by this check. Inert template/raw-text HTML is ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
 
+## Opt-in reviewed fragment destinations
+
+Static navigation can point at a valid reviewed page but still contain a
+broken in-page jump such as `/about/#missing-section`. To detect this
+without crawling or running a browser, enable:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --check-reviewed-fragments --json
+```
+
+The same flag works with `searcharis.release_cli` and may be combined with
+`--check-reviewed-navigation`. It checks each distinct nonempty fragment in
+active HTML `<a href>` links **only when its same-origin URL maps to another
+reviewed built HTML page (or the current page)**. The literal fragment is
+checked first, then its percent-decoded form, against case-sensitive active
+HTML `id` or legacy `<a name>` attributes. The special `#top` target is
+accepted even without an ID, as required by the HTML navigation standard.
+It honors the first head `<base href>`, deduplicates repeated links, ignores
+empty `#` jumps and inert template/raw-text markup, and never fetches URLs.
+Browser text fragment directives such as `#:~:text=phrase` are skipped,
+because checking text matching would require browser behavior.
+Missing IDs create `navigation_fragment_missing` findings with exit **1**.
+The JSON `reviewed_fragments` record reports checked, missing and
+outside-manifest fragment targets. The flag is disabled by default.
+
+Unreviewed routes are reported as **unverified**, not failed by this option;
+enable the separate reviewed-navigation gate when the manifest is complete.
+This does not evaluate JavaScript-created IDs, runtime router behavior,
+scrolling, redirects, HTTP responses or deployed content. Such sites may need
+to leave this opt-in policy disabled or provide appropriate reviewed artifacts.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates
