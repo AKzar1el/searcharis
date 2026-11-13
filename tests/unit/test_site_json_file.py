@@ -55,6 +55,26 @@ def test_json_file_preserves_failed_site_report_for_comparison(tmp_path, capsys)
     assert result["status"] == "regression"
 
 
+def test_json_file_retains_reviewed_fragment_failures_after_main_sync(tmp_path, capsys):
+    root, manifest = _build(tmp_path, "build")
+    (root / "index.html").write_text(
+        '<!doctype html><html><head><title>Example</title></head>'
+        '<body><a href="#missing">Broken section link</a></body></html>',
+        encoding="utf-8",
+    )
+    output_file = tmp_path / "fragment-report.json"
+    assert site_main([
+        str(manifest), str(root), "--check-reviewed-fragments",
+        "--json-file", str(output_file),
+    ]) == 1
+    assert capsys.readouterr().out == ""
+    report = json.loads(output_file.read_text(encoding="utf-8"))
+    assert report["status"] == "fail"
+    assert report["reviewed_fragments"]["missing_targets"] == [
+        {"path": "index.html", "target": "https://example.com/#missing"},
+    ]
+
+
 def test_json_file_refuses_to_overwrite_existing_artifact(tmp_path, capsys):
     root, manifest = _build(tmp_path, "build")
     target = tmp_path / "result.json"
