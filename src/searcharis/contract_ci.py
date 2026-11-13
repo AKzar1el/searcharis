@@ -615,6 +615,7 @@ def verify_contract(
     include_anchors: bool = False,
     include_fragment_ids: bool = False,
     include_title: bool = False,
+    include_description: bool = False,
 ) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
@@ -862,6 +863,13 @@ def verify_contract(
             "sha256": hashlib.sha256(normalized_title.encode("utf-8")).hexdigest()
             if normalized_title else None,
             "prefix": normalized_title[:120],
+        }
+    if include_description:
+        normalized_description = " ".join((page.description_content or "").split())
+        result["observed_description"] = {
+            "sha256": hashlib.sha256(normalized_description.encode("utf-8")).hexdigest()
+            if normalized_description else None,
+            "prefix": normalized_description[:120],
         }
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.

@@ -74,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail on duplicate normalized HTML titles among reviewed indexable pages on the same origin",
     )
     parser.add_argument(
+        "--check-unique-descriptions", action="store_true",
+        help="Fail on duplicate normalized meta descriptions among reviewed indexable same-origin pages",
+    )
+    parser.add_argument(
         "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
         help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
     )
@@ -113,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             check_reviewed_navigation=args.check_reviewed_navigation,
             check_reviewed_fragments=args.check_reviewed_fragments,
             check_unique_titles=args.check_unique_titles,
+            check_unique_descriptions=args.check_unique_descriptions,
             required_inbound_paths=tuple(args.require_inbound_link),
         )
         sitemap = verify_sitemap_manifest(
