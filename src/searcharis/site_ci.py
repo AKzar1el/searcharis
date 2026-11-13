@@ -118,6 +118,7 @@ def verify_manifest(
     check_reviewed_navigation: bool = False,
     check_reviewed_fragments: bool = False,
     check_unique_titles: bool = False,
+    check_unique_descriptions: bool = False,
     required_inbound_paths: tuple[str, ...] = (),
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
@@ -139,6 +140,7 @@ def verify_manifest(
     observed_canonicals: dict[str, list[str]] = {}
     observed_anchors: dict[str, dict] = {}
     observed_titles: dict[str, dict] = {}
+    observed_descriptions: dict[str, dict] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -160,6 +162,7 @@ def verify_manifest(
             ),
             include_fragment_ids=check_reviewed_fragments,
             include_title=check_unique_titles,
+            include_description=check_unique_descriptions,
         )
         url_identity = _page_url_identity(report["checked_url"])
         if url_identity in urls:
@@ -173,6 +176,8 @@ def verify_manifest(
             observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
         if check_unique_titles:
             observed_titles[report["checked_url"]] = report.pop("observed_title")
+        if check_unique_descriptions:
+            observed_descriptions[report["checked_url"]] = report.pop("observed_description")
         # Bind this route's findings to the assertions that produced them.
         # Key ordering and JSON whitespace do not change the fingerprint.
         contract_json = json.dumps(
@@ -217,6 +222,34 @@ def verify_manifest(
                         "also_in": peer["path"],
                         "title_prefix": observed["prefix"],
                         "title_sha256": observed["sha256"],
+                    },
+                })
+                report["status"] = "fail"
+
+    if check_unique_descriptions:
+        # Only compare explicit, nonempty page-level descriptions from the
+        # same origin; presence can be independently required per contract.
+        groups: dict[tuple[tuple[str, str, int | None], str], list[dict]] = {}
+        for entry, report in zip(pages, reports, strict=True):
+            description = observed_descriptions[report["checked_url"]]
+            if entry["contract"].get("indexable") is False or not description["sha256"]:
+                continue
+            origin = _page_url_identity(report["checked_url"])[:3]
+            groups.setdefault((origin, description["sha256"]), []).append(report)
+        for same_description in groups.values():
+            if len(same_description) < 2:
+                continue
+            same_description.sort(key=lambda report: report["path"])
+            for report in same_description:
+                peer = same_description[1] if report is same_description[0] else same_description[0]
+                observed = observed_descriptions[report["checked_url"]]
+                report["issues"].append({
+                    "code": "description_duplicate",
+                    "expected": "a distinct meta description among reviewed same-origin indexable pages",
+                    "actual": {
+                        "also_in": peer["path"],
+                        "description_prefix": observed["prefix"],
+                        "description_sha256": observed["sha256"],
                     },
                 })
                 report["status"] = "fail"

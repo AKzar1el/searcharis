@@ -892,6 +892,34 @@ findings are a release-contract choice, not evidence of a search penalty,
 Google's displayed titles, live indexing or improved rankings. All HTML and
 sitemap inputs remain local; no URL is fetched.
 
+## Opt-in duplicate meta-description release gate
+
+For reviewed, same-origin indexable HTML pages, reject accidental repeated
+first-head meta descriptions before publishing:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --check-unique-descriptions --json
+```
+
+This release-gate-only option compares the first active
+`<meta name="description" content="...">` in each document head, after HTML
+entity decoding and whitespace collapsing (case-sensitive). Nonblank
+duplicates produce `description_duplicate` on all affected pages (exit **1**).
+JSON, JUnit and Markdown reports show one other matching local page, a
+120-character maximum prefix and an SHA-256 digest, not the entire description.
+An absent or empty description is not a duplicate: explicitly require
+`description_present: true` for those pages if needed.
+
+Pages with `indexable: false` in the reviewed manifest and pages on a different
+origin are excluded. The flag is off by default, runs only on supplied local
+artifacts and never fetches URLs. Review intentional aliases, multilingual
+pages and shared templates before enabling it. Google recommends unique,
+page-specific meta descriptions
+(https://developers.google.com/search/docs/appearance/snippet), but this
+check cannot establish deployed snippets, search rankings, actual indexing or
+commercial results.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates
