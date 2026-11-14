@@ -72,10 +72,15 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
 
     html_items: list[str] = []
     html_count = 0
+    # Reserve a coverage example when strict coverage is enabled; otherwise
+    # numerous page issues could hide the first unlisted built HTML path.
+    issue_limit = _MAX_FINDINGS - int(bool(
+        coverage["require_full_coverage"] and coverage["unlisted"]
+    ))
     for page in site["pages"]:
         for issue in page["issues"]:
             html_count += 1
-            if len(html_items) >= _MAX_FINDINGS:
+            if len(html_items) >= issue_limit:
                 continue
             item = f"- Page {_code(page['path'])}: issue {_code(issue['code'])}"
             if "expected" in issue:
@@ -99,15 +104,19 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
 
     sitemap_items: list[str] = []
     sitemap_count = 0
-    for key, label in (
+    sitemap_groups = (
         ("missing_required", "Missing required canonical URL"),
         ("present_excluded", "Reviewed noindex URL unexpectedly present"),
         ("present_noncanonical", "Reviewed noncanonical URL unexpectedly present"),
         ("unreviewed_urls", "Unreviewed URL unexpectedly present"),
-    ):
+    )
+    for index, (key, label) in enumerate(sitemap_groups):
         urls = sitemap.get(key, [])
         sitemap_count += len(urls)
-        remaining = _MAX_FINDINGS - len(sitemap_items)
+        # Keep one actionable example for each later nonempty sitemap category
+        # without increasing the bounded report size.
+        reserved = sum(bool(sitemap.get(next_key)) for next_key, _ in sitemap_groups[index + 1:])
+        remaining = _MAX_FINDINGS - len(sitemap_items) - reserved
         for url in urls[:max(0, remaining)]:
             sitemap_items.append(f"- {label}: {_code(url)}")
 

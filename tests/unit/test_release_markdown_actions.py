@@ -68,3 +68,29 @@ def test_remediation_hints_are_bounded_and_never_echo_untrusted_issue_code():
     assert "## Suggested reviewer actions" in result
     assert "<script>" not in result
     assert len(result) < 10000
+
+
+def test_bounded_html_findings_keep_one_required_unlisted_page():
+    site, sitemap = _results(*(["title_duplicate"] * 40), unlisted=True)
+    result = build_release_markdown(site, sitemap)
+    assert "- Unlisted built HTML: <code>&#x27;forgotten.html&#x27;</code>" in result
+    assert "21 more HTML findings" in result
+    assert sum(line.startswith("- Page ") or line.startswith("- Unlisted built HTML:")
+               for line in result.splitlines()) == 20
+
+
+def test_bounded_sitemap_findings_preserve_each_blocking_category():
+    site, sitemap = _results(missing_sitemap=True)
+    sitemap["missing_required"] = [
+        f"https://example.test/missing-{i}" for i in range(40)
+    ]
+    sitemap["present_excluded"] = ["https://example.test/noindex"]
+    sitemap["present_noncanonical"] = ["https://example.test/alias"]
+    sitemap["unreviewed_urls"] = ["https://example.test/unreviewed"]
+
+    result = build_release_markdown(site, sitemap)
+    assert "Reviewed noindex URL unexpectedly present" in result
+    assert "Reviewed noncanonical URL unexpectedly present" in result
+    assert "Unreviewed URL unexpectedly present" in result
+    assert "23 more sitemap findings" in result
+    assert sum(line.startswith("- ") for line in result.split("## Blocking sitemap findings")[1].split("## Suggested reviewer actions")[0].splitlines()) == 21
