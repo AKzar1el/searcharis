@@ -1094,6 +1094,121 @@ def test_archived_comparison_junit_file_conflicts_with_stdout_json(tmp_path):
     assert not output.exists()
 
 
+@pytest.mark.parametrize("new_issue", [False, True])
+def test_archived_sarif_is_offline_and_regression_only(tmp_path, monkeypatch, capsys, new_issue):
+    baseline = _report([("en/index.html", [_issue("inherited")])])
+    candidate = _report([
+        ("en/index.html", [_issue("inherited")]),
+        ("fr/index.html", [_issue("nouveau <titre>\n\u00e9")] if new_issue else []),
+    ])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    output = tmp_path / "compare.sarif"
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived SARIF must never fetch a URL")
+    ))
+    monkeypatch.setattr(socket.socket, "connect", lambda *_a, **_k: (
+        pytest.fail("Archived SARIF must never connect")
+    ))
+
+    assert main([str(before), str(after), "--sarif-file", str(output)]) == int(new_issue)
+    assert capsys.readouterr().out == ""
+    sarif = json.loads(output.read_text(encoding="utf-8"))
+    assert sarif["version"] == "2.1.0"
+    results = sarif["runs"][0]["results"]
+    assert len(results) == int(new_issue)
+    if new_issue:
+        assert results[0]["ruleId"] == "title_presence"
+        assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"] == {
+            "uri": "fr/index.html", "uriBaseId": "%BUILDROOT%",
+        }
+        assert "nouveau" in results[0]["message"]["text"]
+    assert "inherited" not in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("unlisted_gate,target_gate,count", [
+    (False, False, 0), (True, False, 1), (False, True, 1), (True, True, 2),
+])
+def test_archived_sarif_respects_optional_gates(tmp_path, unlisted_gate, target_gate, count):
+    before_report = _report([("index.html", [])], checks=("canonical_consistency",))
+    after_report = _report([
+        ("index.html", []),
+    ], unlisted=("new.html",), checks=("canonical_consistency",))
+    after_report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "index.html", "target": "https://other.test/new",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(before_report), encoding="utf-8")
+    after.write_text(json.dumps(after_report), encoding="utf-8")
+    output = tmp_path / "result.sarif"
+    args = [str(before), str(after), "--sarif-file", str(output)]
+    if unlisted_gate:
+        args.append("--fail-on-new-unlisted")
+    if target_gate:
+        args.append("--fail-on-new-unverified-targets")
+    assert main(args) == int(count > 0)
+    results = json.loads(output.read_text(encoding="utf-8"))["runs"][0]["results"]
+    assert len(results) == count
+    assert {r["ruleId"] for r in results} == (
+        ({"unlisted_html"} if unlisted_gate else set()) |
+        ({"canonical_consistency_unverified_target"} if target_gate else set())
+    )
+
+
+def test_archived_sarif_coemits_existing_formats(tmp_path):
+    baseline = _report([("index.html", [_issue("inherited")])])
+    candidate = _report([("index.html", [_issue("inherited")]), ("new.html", [_issue()])])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    targets = [tmp_path / n for n in ("compare.json", "compare.md", "compare.xml", "compare.sarif")]
+    assert main([
+        str(before), str(after), "--json-file", str(targets[0]),
+        "--markdown-file", str(targets[1]), "--junit-file", str(targets[2]),
+        "--sarif-file", str(targets[3]),
+    ]) == 1
+    assert json.loads(targets[0].read_text(encoding="utf-8"))["summary"]["new_issues"] == 1
+    assert "REGRESSION" in targets[1].read_text(encoding="utf-8")
+    assert ET.fromstring(targets[2].read_bytes()).attrib["failures"] == "1"
+    assert len(json.loads(targets[3].read_text(encoding="utf-8"))["runs"][0]["results"]) == 1
+
+
+@pytest.mark.parametrize("invalid", ["same", "input", "existing", "missing"])
+def test_archived_sarif_preflights_all_destinations(tmp_path, invalid):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_out = tmp_path / "compare.json"
+    existing = tmp_path / "existing.sarif"
+    existing.write_bytes(b"KEEP")
+    bad = {
+        "same": json_out, "input": before, "existing": existing,
+        "missing": tmp_path / "missing" / "result.sarif",
+    }[invalid]
+    assert main([
+        str(before), str(after), "--json-file", str(json_out),
+        "--sarif-file", str(bad),
+    ]) == 2
+    assert not json_out.exists()
+    assert existing.read_bytes() == b"KEEP"
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_sarif_invalid_input_and_stdout_conflict(tmp_path):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text("{", encoding="utf-8")
+    after.write_text(json.dumps(_report([("index.html", [])])), encoding="utf-8")
+    output = tmp_path / "result.sarif"
+    assert main([str(before), str(after), "--sarif-file", str(output)]) == 2
+    assert not output.exists()
+    with pytest.raises(SystemExit) as error:
+        main([str(before), str(after), "--json", "--sarif-file", str(output)])
+    assert error.value.code == 2
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])
 def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
     tmp_path, capsys, observed,
