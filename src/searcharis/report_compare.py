@@ -162,12 +162,19 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
     return report, options
 
 
-def _issues(report: dict) -> dict[tuple[str, str, str, int], dict]:
+def _issues(report: dict) -> dict[tuple[str, tuple[str, str, int | None, str, str], str, int], dict]:
     results = {}
     for page in report["pages"]:
-        occurrences: dict[tuple[str, str, str], int] = {}
+        occurrences: dict[
+            tuple[str, tuple[str, str, int | None, str, str], str], int
+        ] = {}
         for issue in page["issues"]:
-            signature = (page["path"], page["checked_url"], json.dumps(issue, sort_keys=True))
+            # Equivalent spellings of one HTTP(S) resource remain the same
+            # reviewed page across separately saved baseline/candidate reports.
+            signature = (
+                page["path"], _page_url_identity(page["checked_url"]),
+                json.dumps(issue, sort_keys=True),
+            )
             # Multiple identical findings are distinct failures, not a set.
             ordinal = occurrences.get(signature, 0)
             occurrences[signature] = ordinal + 1
@@ -233,11 +240,16 @@ def compare_reports(
     old_issues, current_issues = _issues(before), _issues(after)
     new_keys = sorted(current_issues.keys() - old_issues.keys())
     fixed_keys = sorted(old_issues.keys() - current_issues.keys())
-    old_pages = {(p["path"], p["checked_url"]) for p in before["pages"]}
-    current_pages = {(p["path"], p["checked_url"]) for p in after["pages"]}
+    old_pages = {
+        (p["path"], _page_url_identity(p["checked_url"])) for p in before["pages"]
+    }
+    current_pages = {
+        (p["path"], _page_url_identity(p["checked_url"])) for p in after["pages"]
+    }
+    old_urls = {p["path"]: p["checked_url"] for p in before["pages"]}
     removed = [
-        {"path": path, "checked_url": url}
-        for path, url in sorted(old_pages - current_pages)
+        {"path": path, "checked_url": old_urls[path]}
+        for path, _identity in sorted(old_pages - current_pages)
     ]
     new_unlisted = sorted(set(after["coverage"]["unlisted"]) - set(before["coverage"]["unlisted"]))
     before_unverified, after_unverified = _unverified(before), _unverified(after)
