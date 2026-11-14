@@ -162,6 +162,10 @@ comparison findings directly as UTF-8 for local CI artifact consumers. The
 file must be new and outside both build snapshots; the checker never uploads
 it. Unlike SARIF and JUnit, this JSON includes pre-existing and resolved debt
 as well as newly blocking regressions, while retaining exit codes 0/1/2.
+For separately archived baseline and candidate JSON reports, the
+`report_compare` command also supports `--json-file comparison.json`: it
+creates the same full JSON comparison directly in UTF-8 without PowerShell
+redirection or overwriting existing reports.
 Use `--sarif` for machine-readable findings limited to *new blocking* issues;
 an optional reviewed `--sarif-source-map` links those findings to checked-in
 source files without guessing exact source lines or uploading anything.

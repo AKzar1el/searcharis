@@ -344,7 +344,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare two local SEO site JSON reports")
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
     parser.add_argument("candidate", type=Path, help="Current build report from site_cli --json")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable comparison")
+    output_mode = parser.add_mutually_exclusive_group()
+    output_mode.add_argument(
+        "--json", action="store_true", help="Print machine-readable comparison",
+    )
+    output_mode.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete comparison JSON to a new UTF-8 file; never overwrite",
+    )
     parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block newly unlisted HTML artifacts without failing on existing coverage gaps",
@@ -367,11 +374,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    print_comparison(
-        result,
-        as_json=args.json,
-        fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
-    )
+    if args.json_file:
+        try:
+            target = args.json_file
+            if target.exists() or target.is_symlink():
+                raise FileExistsError(f"Comparison report already exists: {target}")
+            if not target.parent.is_dir():
+                raise ValueError(f"Report parent must be an existing directory: {target.parent}")
+            if target.resolve() in {args.baseline.resolve(), args.candidate.resolve()}:
+                raise ValueError("Comparison report cannot replace an input report")
+            with target.open("x", encoding="utf-8", newline="\n") as output:
+                output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid report destination: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    else:
+        print_comparison(
+            result,
+            as_json=args.json,
+            fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
+        )
     return 1 if result["status"] == "regression" else 0
 
 
