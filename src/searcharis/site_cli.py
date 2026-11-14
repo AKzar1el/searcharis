@@ -63,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write structured UTF-8 JSON findings to a new file without overwriting",
+    )
+    output.add_argument(
         "--sarif",
         action="store_true",
         help="Print SARIF 2.1.0 issues for built HTML (or explicitly mapped sources)",
@@ -102,20 +106,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.sarif_file:
+    if args.json_file or args.sarif_file:
         try:
-            path = args.sarif_file
+            path = args.json_file or args.sarif_file
+            format_name = "JSON" if args.json_file else "SARIF"
             if path.resolve().is_relative_to(args.build_dir.resolve()):
-                raise ValueError("SARIF report must be outside the build directory")
+                raise ValueError(f"{format_name} report must be outside the build directory")
             if path.exists() or path.is_symlink():
-                raise FileExistsError(f"SARIF report already exists: {path}")
+                raise FileExistsError(f"{format_name} report already exists: {path}")
             if not path.parent.is_dir():
-                raise ValueError(f"SARIF report parent must be an existing directory: {path.parent}")
+                raise ValueError(f"{format_name} report parent must be an existing directory: {path.parent}")
+            payload = report if args.json_file else build_sarif_report(report, sources=sources)
             # Exclusive creation protects existing artifacts if another CI job races us.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
-                output_file.write(json.dumps(
-                    build_sarif_report(report, sources=sources), indent=2, sort_keys=True,
-                ) + "\n")
+                output_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
             return 2

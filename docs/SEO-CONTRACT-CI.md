@@ -1276,13 +1276,22 @@ artifacts from exit 2. This performs no hosted upload or URL fetch.
 
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
-on the candidate build, saving their complete `--json` outputs:
+on the candidate build, saving complete UTF-8 JSON reports directly:
 
 ```sh
-uv run python -m searcharis.site_cli manifest.json baseline-build --json > baseline.json
-uv run python -m searcharis.site_cli manifest.json candidate-build --json > candidate.json
+uv run python -m searcharis.site_cli manifest.json baseline-build --json-file baseline.json
+uv run python -m searcharis.site_cli manifest.json candidate-build --json-file candidate.json
 uv run python -m searcharis.report_compare baseline.json candidate.json --json-file comparison.json
 ```
+
+`--json-file PATH` writes the same structured report as `--json` to a new
+UTF-8 file without JSON on stdout. It cannot be combined with `--json`,
+`--sarif`, or `--sarif-file`. It will not overwrite an existing file and rejects
+destinations inside the immutable build directory. Input errors (exit 2) do not create a
+report; invalid output destinations also return 2. Use a fresh artifact path
+for each run. This avoids Windows PowerShell 5.1's default UTF-16LE `>`
+redirection, which `report_compare` cannot read as UTF-8. The original
+`--json` stdout mode remains available when your shell preserves UTF-8.
 
 The first two invocations may return **1** when their build has known contract
 failures; when collecting reports, handle that exit status without aborting
@@ -1414,8 +1423,8 @@ For portable Windows and CI artifacts, use `--sarif-file PATH` instead of
 `--sarif`: it writes the same complete SARIF 2.1.0 JSON directly as UTF-8,
 without printing it to stdout. The output parent directory must already exist;
 the path must be outside the supplied build tree, and existing files are never
-overwritten. `--sarif-file` is mutually exclusive with `--sarif` and `--json`,
-but supports the same reviewed `--sarif-source-map` option:
+overwritten. `--sarif-file` is mutually exclusive with `--sarif`, `--json`,
+and `--json-file`, but supports the same reviewed `--sarif-source-map` option:
 
 ```sh
 uv run python -m searcharis.site_cli manifest.json dist \
