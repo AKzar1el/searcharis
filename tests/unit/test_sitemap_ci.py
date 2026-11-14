@@ -672,3 +672,83 @@ def test_cli_fails_closed_on_invalid_later_file(tmp_path, capsys):
     second = _sitemap(tmp_path, xml="<sitemapindex/>", filename="index.xml")
     assert main([str(manifest), str(first), str(second), "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+@pytest.mark.parametrize("indexable,expected_exit", [(True, 0), (False, 1)])
+def test_cli_json_file_writes_complete_utf8_report_without_stdout(
+    tmp_path, capsys, indexable, expected_exit,
+):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/page", "indexable": indexable,
+    })), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/page")
+    target = tmp_path / "report.json"
+    code = main([str(manifest), str(sitemap), "--json-file", str(target)])
+    assert code == expected_exit
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    data = target.read_bytes()
+    assert not data.startswith(b"\xef\xbb\xbf")
+    report = json.loads(data.decode("utf-8"))
+    assert report["status"] == ("pass" if indexable else "fail")
+    assert report["summary"]["sitemap_urls"] == 1
+    assert report["missing_required"] == []
+    assert report["present_excluded"] == ([] if indexable else ["https://example.test/page"])
+
+
+def test_cli_json_file_never_overwrites_supplied_path_or_existing_artifact(
+    tmp_path, capsys,
+):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/")
+    existing = tmp_path / "existing.json"
+    existing.write_bytes(b"preserve me")
+    original_manifest = manifest.read_bytes()
+    original_sitemap = sitemap.read_bytes()
+    for target in (existing, manifest, sitemap):
+        assert main([str(manifest), str(sitemap), "--json-file", str(target)]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Invalid input:" in captured.err
+    assert existing.read_bytes() == b"preserve me"
+    assert manifest.read_bytes() == original_manifest
+    assert sitemap.read_bytes() == original_sitemap
+
+
+def test_cli_json_file_invalid_later_sitemap_does_not_create_artifact(
+    tmp_path, capsys,
+):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    first = _sitemap(tmp_path, "https://example.test/", filename="first.xml")
+    invalid = _sitemap(tmp_path, xml="<sitemapindex/>", filename="invalid.xml")
+    target = tmp_path / "report.json"
+    assert main([str(manifest), str(first), str(invalid), "--json-file", str(target)]) == 2
+    assert not target.exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_cli_json_file_requires_existing_directory(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/")
+    target = tmp_path / "absent" / "report.json"
+    assert main([str(manifest), str(sitemap), "--json-file", str(target)]) == 2
+    assert not target.parent.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_cli_json_file_and_stdout_json_are_mutually_exclusive(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    sitemap = tmp_path / "sitemap.xml"
+    with pytest.raises(SystemExit, match="2"):
+        main([str(manifest), str(sitemap), "--json", "--json-file", str(tmp_path / "out")])
