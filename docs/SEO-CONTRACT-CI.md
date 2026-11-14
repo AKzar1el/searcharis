@@ -1514,3 +1514,27 @@ fixture sources with Vite 5.4.21 and are verified by static integration tests.
 Searcharis tests do not install or invoke either compiler. Integrators must
 supply their own compiled output and route contracts; dynamic SPA content
 is outside the offline parser's scope.
+
+## Archived SEO report SARIF for separate CI stages
+
+The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0
+artifact using `--sarif-file PATH` when the trusted baseline and candidate
+reports were generated in separate CI stages. For example, after creating
+`baseline.json` and `candidate.json` with matching site contracts and options:
+
+```sh
+uv run python -m searcharis.report_compare baseline.json candidate.json \
+  --json-file comparison.json --markdown-file comparison.md \
+  --junit-file comparison.xml --sarif-file comparison.sarif
+```
+
+The SARIF contains **only newly blocking regressions**; inherited issues do
+not become alerts. Opt-in `--fail-on-new-unlisted` and
+`--fail-on-new-unverified-targets` also determine SARIF findings. Output
+locations refer to reviewed generated HTML paths at document-level line 1,
+not inferred source-template locations. All four destinations must be distinct,
+non-existing files in existing parent directories and cannot replace input
+reports. They are validated before any is written. If an I/O failure occurs
+after writing begins, discard all outputs on exit 2. No network access,
+upload, GitHub permissions, protected workflow change or source mapping is
+performed. Hosted SARIF acceptance and actual adoption remain unverified.

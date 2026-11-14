@@ -15,6 +15,7 @@ from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
 from searcharis.site_ci import _page_url_identity
 from searcharis.site_junit import build_comparison_junit
+from searcharis.site_sarif import build_comparison_sarif
 
 _MAX_REPORT_BYTES = 16_000_000
 _MAX_HUMAN_DETAILS = 20
@@ -362,6 +363,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Write regression-only JUnit XML to a new UTF-8 file; never overwrite",
     )
     parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write regression-only SARIF 2.1.0 to a new UTF-8 file; never overwrite",
+    )
+    parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block newly unlisted HTML artifacts without failing on existing coverage gaps",
     )
@@ -370,7 +375,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Treat newly unverified canonical/hreflang targets as CI regressions",
     )
     args = parser.parse_args(argv)
-    if args.json and (args.json_file or args.markdown_file or args.junit_file):
+    if args.json and (
+        args.json_file or args.markdown_file or args.junit_file or args.sarif_file
+    ):
         parser.error("--json stdout mode cannot be combined with file reports")
     try:
         baseline_report = _read_report(args.baseline)
@@ -387,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.markdown_file or args.junit_file:
+    if args.json_file or args.markdown_file or args.junit_file or args.sarif_file:
         try:
             outputs: list[tuple[Path, str]] = []
             gate_unlisted = (
@@ -412,6 +419,15 @@ def main(argv: list[str] | None = None) -> int:
                         gate_new_unlisted=gate_unlisted,
                         gate_new_unverified_targets=args.fail_on_new_unverified_targets,
                     ),
+                ))
+            if args.sarif_file:
+                outputs.append((
+                    args.sarif_file,
+                    json.dumps(build_comparison_sarif(
+                        result, candidate_report,
+                        gate_new_unlisted=gate_unlisted,
+                        gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+                    ), indent=2, sort_keys=True),
                 ))
             resolved = [path.resolve() for path, _ in outputs]
             if len(resolved) != len(set(resolved)):
