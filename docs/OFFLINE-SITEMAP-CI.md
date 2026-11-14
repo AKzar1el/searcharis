@@ -15,6 +15,10 @@ uv run python -m searcharis.sitemap_cli examples/seo-contract/sitemap-intent/man
 The first command passes (exit 0); the second intentionally fails (exit 1)
 because the reviewed noindex URL is included. An unreadable or invalid input
 returns exit 2. `--json` emits a deterministic report on all three outcomes.
+For large failing sitemaps, default terminal output includes at most 20 URL
+findings with an omitted count, preserving an example of each populated
+blocking category (missing, noindex, noncanonical and unreviewed). Use `--json`
+for the complete untruncated findings; result status and exit codes are unchanged.
 For your own build, supply your **own, reviewed** `seo-manifest.json` and
 `path/to/dist/sitemap.xml`. Run `site_cli` separately on the built HTML to
 check that the actual pages still satisfy their reviewed SEO contracts.

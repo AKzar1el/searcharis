@@ -346,6 +346,56 @@ def test_sitemap_cli_reject_unreviewed_urls_json_and_text(tmp_path, capsys):
     assert "Unreviewed sitemap URL" in capsys.readouterr().out
 
 
+def test_sitemap_cli_bounds_missing_required_urls_without_losing_json(tmp_path, capsys):
+    urls = [f"https://example.test/missing-{i}" for i in range(35)]
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest(*(
+        {"url": url, "indexable": True} for url in urls
+    ))), encoding="utf-8")
+    sitemap = _sitemap(tmp_path)
+
+    assert main([str(manifest), str(sitemap)]) == 1
+    output = capsys.readouterr().out
+    assert output.count("  Missing required:") == 20
+    assert "15 more sitemap findings" in output
+    assert "use --json" in output
+
+    assert main([str(manifest), str(sitemap), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["missing_required"] == sorted(urls)
+
+
+def test_sitemap_cli_retains_every_blocking_category_when_bounded(tmp_path, capsys):
+    missing = [f"https://example.test/missing-{i}" for i in range(35)]
+    alias = "https://example.test/alias"
+    excluded = "https://example.test/noindex"
+    unreviewed = "https://example.test/stale"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest(
+        *({"url": url, "indexable": True} for url in missing),
+        {"url": alias, "canonical": "https://example.test/", "indexable": True},
+        {"url": excluded, "indexable": False},
+    )), encoding="utf-8")
+    sitemap = _sitemap(tmp_path, "https://example.test/", alias, excluded, unreviewed)
+    args = [str(manifest), str(sitemap), "--reject-noncanonical-urls",
+            "--reject-unreviewed-urls"]
+
+    assert main(args) == 1
+    output = capsys.readouterr().out
+    assert output.count("  Missing required:") == 17
+    assert f"Unexpected noindex URL: '{excluded}'" in output
+    assert f"Noncanonical reviewed URL in sitemap: '{alias}'" in output
+    assert f"Unreviewed sitemap URL: '{unreviewed}'" in output
+    assert "18 more sitemap findings" in output
+
+    assert main([*args, "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert len(report["missing_required"]) == 35
+    assert report["present_excluded"] == [excluded]
+    assert report["present_noncanonical"] == [alias]
+    assert report["unreviewed_urls"] == [unreviewed]
+
+
 def test_no_explicit_indexability_policy_is_not_a_false_pass(tmp_path):
     with pytest.raises(ValueError, match="explicit indexable"):
         verify_sitemap_manifest(
