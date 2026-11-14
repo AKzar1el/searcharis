@@ -117,6 +117,9 @@ def verify_manifest(
     check_canonical_consistency: bool = False,
     check_reviewed_navigation: bool = False,
     check_reviewed_fragments: bool = False,
+    check_unique_titles: bool = False,
+    check_unique_descriptions: bool = False,
+    required_inbound_paths: tuple[str, ...] = (),
 ) -> dict:
     """Verify declared pages, report unlisted HTML; reject unsafe or missing inputs."""
     if not isinstance(manifest, dict) or set(manifest) != {"version", "pages"}:
@@ -136,6 +139,8 @@ def verify_manifest(
     observed_links: dict[str, dict[str, list[str]]] = {}
     observed_canonicals: dict[str, list[str]] = {}
     observed_anchors: dict[str, dict] = {}
+    observed_titles: dict[str, dict] = {}
+    observed_descriptions: dict[str, dict] = {}
     for entry in pages:
         if not isinstance(entry, dict) or set(entry) != {"path", "contract"}:
             raise ValueError("Each page requires exactly 'path' and 'contract'")
@@ -151,8 +156,13 @@ def verify_manifest(
             _read_limited(html_path),
             include_hreflang=check_hreflang_reciprocity or check_hreflang_clusters,
             include_canonical=check_canonical_consistency,
-            include_anchors=check_reviewed_navigation or check_reviewed_fragments,
+            include_anchors=(
+                check_reviewed_navigation or check_reviewed_fragments
+                or bool(required_inbound_paths)
+            ),
             include_fragment_ids=check_reviewed_fragments,
+            include_title=check_unique_titles,
+            include_description=check_unique_descriptions,
         )
         url_identity = _page_url_identity(report["checked_url"])
         if url_identity in urls:
@@ -162,8 +172,12 @@ def verify_manifest(
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
-        if check_reviewed_navigation or check_reviewed_fragments:
+        if check_reviewed_navigation or check_reviewed_fragments or required_inbound_paths:
             observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
+        if check_unique_titles:
+            observed_titles[report["checked_url"]] = report.pop("observed_title")
+        if check_unique_descriptions:
+            observed_descriptions[report["checked_url"]] = report.pop("observed_description")
         # Bind this route's findings to the assertions that produced them.
         # Key ordering and JSON whitespace do not change the fingerprint.
         contract_json = json.dumps(
@@ -175,6 +189,112 @@ def verify_manifest(
             "contract_sha256": hashlib.sha256(contract_json.encode("utf-8")).hexdigest(),
             **report,
         })
+
+    required_inbound = [_manifest_path(path) for path in required_inbound_paths]
+    required_set = set(required_inbound)
+    if len(required_set) != len(required_inbound):
+        raise ValueError("Duplicate required inbound page path")
+    unknown_required = sorted(required_set - listed)
+    if unknown_required:
+        raise ValueError(f"Required inbound page is absent from manifest: {unknown_required}")
+
+    if check_unique_titles:
+        # Group by declared site origin and normalized built <title>. Reviewers
+        # may intentionally exempt non-indexable pages in their manifest.
+        groups: dict[tuple[tuple[str, str, int | None], str], list[dict]] = {}
+        for entry, report in zip(pages, reports, strict=True):
+            title = observed_titles[report["checked_url"]]
+            if entry["contract"].get("indexable") is False or not title["sha256"]:
+                continue  # A blank title is governed by title_present, if asserted.
+            origin = _page_url_identity(report["checked_url"])[:3]
+            groups.setdefault((origin, title["sha256"]), []).append(report)
+        for same_title in groups.values():
+            if len(same_title) < 2:
+                continue
+            same_title.sort(key=lambda report: report["path"])
+            for report in same_title:
+                peer = same_title[1] if report is same_title[0] else same_title[0]
+                observed = observed_titles[report["checked_url"]]
+                report["issues"].append({
+                    "code": "title_duplicate",
+                    "expected": "a distinct title among reviewed same-origin indexable pages",
+                    "actual": {
+                        "also_in": peer["path"],
+                        "title_prefix": observed["prefix"],
+                        "title_sha256": observed["sha256"],
+                    },
+                })
+                report["status"] = "fail"
+
+    if check_unique_descriptions:
+        # Only compare explicit, nonempty page-level descriptions from the
+        # same origin; presence can be independently required per contract.
+        groups: dict[tuple[tuple[str, str, int | None], str], list[dict]] = {}
+        for entry, report in zip(pages, reports, strict=True):
+            description = observed_descriptions[report["checked_url"]]
+            if entry["contract"].get("indexable") is False or not description["sha256"]:
+                continue
+            origin = _page_url_identity(report["checked_url"])[:3]
+            groups.setdefault((origin, description["sha256"]), []).append(report)
+        for same_description in groups.values():
+            if len(same_description) < 2:
+                continue
+            same_description.sort(key=lambda report: report["path"])
+            for report in same_description:
+                peer = same_description[1] if report is same_description[0] else same_description[0]
+                observed = observed_descriptions[report["checked_url"]]
+                report["issues"].append({
+                    "code": "description_duplicate",
+                    "expected": "a distinct meta description among reviewed same-origin indexable pages",
+                    "actual": {
+                        "also_in": peer["path"],
+                        "description_prefix": observed["prefix"],
+                        "description_sha256": observed["sha256"],
+                    },
+                })
+                report["status"] = "fail"
+
+    inbound_summary = None
+    if required_inbound:
+        # Only explicitly selected pages require an incoming link. This avoids
+        # treating intentionally standalone pages as automatic SEO failures.
+        targets = {
+            _page_url_identity(report["checked_url"]): report["path"]
+            for report in reports if report["path"] in required_set
+        }
+        linked: set[str] = set()
+        for source in reports:
+            source_url = source["checked_url"]
+            source_identity = _page_url_identity(source_url)
+            anchors = observed_anchors[source_url]
+            for href in anchors["hrefs"]:
+                try:
+                    resolved = urljoin(anchors["base_url"], href)
+                except ValueError:
+                    continue
+                if not _is_http_url(resolved):
+                    continue
+                target_url = urlsplit(resolved)._replace(fragment="").geturl()
+                identity = _page_url_identity(target_url)
+                if identity[:3] != source_identity[:3] or identity == source_identity:
+                    continue
+                target_path = targets.get(identity)
+                if target_path is not None:
+                    linked.add(target_path)
+        missing = sorted(required_set - linked)
+        for report in reports:
+            if report["path"] in required_set and report["path"] not in linked:
+                report["issues"].append({
+                    "code": "reviewed_inbound_link_missing",
+                    "expected": "a link from another reviewed page on the same origin",
+                    "actual": "no such link in reviewed built HTML",
+                })
+                report["status"] = "fail"
+        inbound_summary = {
+            "required_paths": sorted(required_inbound),
+            "linked_paths": sorted(linked),
+            "missing_paths": missing,
+        }
 
     navigation_summary = None
     if check_reviewed_navigation:
@@ -221,8 +341,15 @@ def verify_manifest(
             _page_url_identity(report["checked_url"]): set(observed_anchors[report["checked_url"]]["ids"])
             for report in reports
         }
+        duplicate_ids = {
+            _page_url_identity(report["checked_url"]): set(
+                observed_anchors[report["checked_url"]]["duplicate_ids"]
+            )
+            for report in reports
+        }
         checked_fragments = 0
         missing: list[dict[str, str]] = []
+        ambiguous: list[dict[str, str]] = []
         unverified: list[dict[str, str]] = []
         for report in reports:
             source_url = report["checked_url"]
@@ -262,9 +389,17 @@ def verify_manifest(
                 # HTML fragment navigation tries the raw string first, then
                 # its UTF-8 percent-decoded form. "top" is a valid special
                 # document target even if no element carries that ID.
-                if (raw_fragment not in reviewed_ids[identity]
-                        and decoded_fragment not in reviewed_ids[identity]
-                        and decoded_fragment.lower() != "top"):
+                matched_id = (raw_fragment if raw_fragment in reviewed_ids[identity]
+                              else decoded_fragment)
+                if matched_id in duplicate_ids[identity]:
+                    report["issues"].append({
+                        "code": "navigation_fragment_ambiguous",
+                        "expected": "a unique fragment target in the reviewed built HTML",
+                        "actual": target,
+                    })
+                    ambiguous.append(detail)
+                elif (matched_id not in reviewed_ids[identity]
+                      and decoded_fragment.lower() != "top"):
                     report["issues"].append({
                         "code": "navigation_fragment_missing",
                         "expected": "a fragment ID in the reviewed built HTML",
@@ -276,6 +411,7 @@ def verify_manifest(
         fragment_summary = {
             "checked_fragments": checked_fragments,
             "missing_targets": sorted(missing, key=lambda item: (item["path"], item["target"])),
+            "ambiguous_targets": sorted(ambiguous, key=lambda item: (item["path"], item["target"])),
             "unverified_targets": sorted(unverified, key=lambda item: (item["path"], item["target"])),
         }
 
@@ -501,6 +637,8 @@ def verify_manifest(
         result["canonical_consistency"] = canonical_summary
     if navigation_summary is not None:
         result["reviewed_navigation"] = navigation_summary
+    if inbound_summary is not None:
+        result["reviewed_inbound"] = inbound_summary
     if fragment_summary is not None:
         result["reviewed_fragments"] = fragment_summary
     return result

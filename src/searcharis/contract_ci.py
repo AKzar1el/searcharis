@@ -6,6 +6,7 @@ caller must provide the trusted expected contract and the built HTML bytes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from html.parser import HTMLParser
@@ -30,7 +31,7 @@ _HEAD_ELEMENTS = frozenset({
 })
 _RAWTEXT_ELEMENTS = frozenset({"iframe", "xmp", "noembed", "noframes", "noscript"})
 _NONVOID_STATE_ELEMENTS = _RAWTEXT_ELEMENTS | frozenset({
-    "head", "h1", "script", "style", "template", "textarea", "title", "plaintext", "select",
+    "head", "h1", "map", "script", "style", "template", "textarea", "title", "plaintext", "select",
 })
 _TWITTER_CARD_TYPES = frozenset({"summary", "summary_large_image", "app", "player"})
 _IMAGE_MIME = re.compile(r"image/[a-z0-9][a-z0-9.+_-]*", re.IGNORECASE | re.ASCII)
@@ -46,6 +47,7 @@ class _SEOParser(HTMLParser):
         self.collect_fragment_ids = collect_fragment_ids
         self.anchors: list[str] = []
         self.fragment_ids: set[str] = set()
+        self.duplicate_fragment_ids: set[str] = set()
         self.has_html = False
         self.html_tag_seen = False
         self.html_lang: str | None = None
@@ -90,6 +92,7 @@ class _SEOParser(HTMLParser):
         self.in_jsonld = False
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
+        self.map_depth = 0
         self.in_textarea = False
         self.in_plaintext = False
 
@@ -148,11 +151,23 @@ class _SEOParser(HTMLParser):
         if self.collect_fragment_ids:
             # Only active DOM elements define fragment targets; inert templates
             # and raw-text contexts were excluded before attribute collection.
+            targets: set[str] = set()
             if values.get("id"):
-                self.fragment_ids.add(values["id"])
+                targets.add(values["id"])
             if tag == "a" and values.get("name"):
-                self.fragment_ids.add(values["name"])
-        if self.collect_anchors and tag == "a" and "href" in values:
+                targets.add(values["name"])
+            # The same element's matching id/name is one target, while two
+            # separate elements with the same target make navigation ambiguous.
+            for target in targets:
+                if target in self.fragment_ids:
+                    self.duplicate_fragment_ids.add(target)
+                self.fragment_ids.add(target)
+        if tag == "map":
+            self.map_depth += 1
+        if (self.collect_anchors and "href" in values
+                and (tag == "a" or (tag == "area" and self.map_depth > 0))):
+            # Image-map hotspots are links too; stray area elements outside a
+            # map are not navigable, and template contents were skipped above.
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
             self.anchors.append((values["href"] or "").strip())
@@ -332,6 +347,8 @@ class _SEOParser(HTMLParser):
             return
         if self.template_depth:
             return
+        if tag == "map":
+            self.map_depth = max(0, self.map_depth - 1)
         if tag == "head":
             self.in_head = False
             self.in_title = False
@@ -597,6 +614,8 @@ def verify_contract(
     include_canonical: bool = False,
     include_anchors: bool = False,
     include_fragment_ids: bool = False,
+    include_title: bool = False,
+    include_description: bool = False,
 ) -> dict:
     """Return structured findings; raise ValueError for an invalid contract."""
     spec = _check_contract(contract)
@@ -836,6 +855,22 @@ def verify_contract(
                         fail(f"hreflang_invalid_url:{language}", "absolute HTTP(S) URL", target)
             resolved_hreflang[language] = valid_targets
     result = {"status": "pass" if not issues else "fail", "checked_url": url, "issues": issues}
+    if include_title:
+        # Keep cross-page grouping bounded even if a title consumes the whole
+        # 4 MB input limit; the full title never enters the serialized report.
+        normalized_title = " ".join("".join(page.title_chunks).split())
+        result["observed_title"] = {
+            "sha256": hashlib.sha256(normalized_title.encode("utf-8")).hexdigest()
+            if normalized_title else None,
+            "prefix": normalized_title[:120],
+        }
+    if include_description:
+        normalized_description = " ".join((page.description_content or "").split())
+        result["observed_description"] = {
+            "sha256": hashlib.sha256(normalized_description.encode("utf-8")).hexdigest()
+            if normalized_description else None,
+            "prefix": normalized_description[:120],
+        }
     if include_hreflang:
         # Site-level checks need the actual built links, not just contract expectations.
         result["observed_hreflang"] = resolved_hreflang
@@ -849,4 +884,5 @@ def verify_contract(
         result["observed_anchors"] = {"base_url": base_url, "hrefs": page.anchors}
         if include_fragment_ids:
             result["observed_anchors"]["ids"] = sorted(page.fragment_ids)
+            result["observed_anchors"]["duplicate_ids"] = sorted(page.duplicate_fragment_ids)
     return result

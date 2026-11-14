@@ -72,7 +72,21 @@ reciprocal hreflang. CI does not mutate the production site.
 
 ## 5. Release checks
 
-- Test with a known healthy HTML page and deliberately missing canonical.
+- Smoke-test regression-only CI with the checked-in two-page example (from the
+  repository root, Python 3.11+ and `uv` installed):
+
+  ```sh
+  uv run python -m searcharis.build_compare examples/seo-contract/regression-demo/manifest.json examples/seo-contract/regression-demo/baseline examples/seo-contract/regression-demo/candidate-passing --require-full-coverage --json
+  # Expected exit 0: no new issues, one inherited home-page description issue.
+  uv run python -m searcharis.build_compare examples/seo-contract/regression-demo/manifest.json examples/seo-contract/regression-demo/baseline examples/seo-contract/regression-demo/candidate --require-full-coverage --json
+  # Expected exit 1: new missing pricing-page title; inherited debt remains allowed.
+  ```
+
+  CI must propagate the second command's nonzero status, rather than ignoring
+  or converting it to a passing job. After smoke testing, replace the fixture
+  paths with independently produced, immutable baseline/candidate build roots
+  and use a developer-reviewed manifest. Neither demo verifies live URLs.
+- For single-page checks, test with a known healthy HTML page and deliberately missing canonical.
 - Confirm CI fails on the broken fixture rather than reporting a pass.
 - Run the full repository offline unit/integration suite.
 - Do not add production credentials to fixtures, logs or CI artifacts.

@@ -15,6 +15,18 @@ uv run python -m searcharis.sitemap_cli examples/seo-contract/sitemap-intent/man
 The first command passes (exit 0); the second intentionally fails (exit 1)
 because the reviewed noindex URL is included. An unreadable or invalid input
 returns exit 2. `--json` emits a deterministic report on all three outcomes.
+For large failing sitemaps, default terminal output includes at most 20 URL
+findings with an omitted count, preserving an example of each populated
+blocking category (missing, noindex, noncanonical and unreviewed). Use `--json`
+for the complete untruncated findings; result status and exit codes are unchanged.
+For a portable CI artifact, use `--json-file ci-artifacts/sitemap.json` instead
+of `--json`. This saves the same complete JSON as UTF-8 (including on Windows
+PowerShell 5.1, where redirecting stdout can produce UTF-16LE). The destination
+must be a new file in an existing directory; an existing file, input error or
+invalid destination returns exit 2 instead of overwriting anything or
+reporting success. Valid checks still return 0 (pass) or 1 (mismatch) and
+write the report without stdout. Create `ci-artifacts/` outside your generated
+site directory before running CI; do not automatically upload site data.
 For your own build, supply your **own, reviewed** `seo-manifest.json` and
 `path/to/dist/sitemap.xml`. Run `site_cli` separately on the built HTML to
 check that the actual pages still satisfy their reviewed SEO contracts.
@@ -29,6 +41,7 @@ uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml.gz 
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --require-indexability-coverage --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --reject-noncanonical-urls --json
 uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --reject-unreviewed-urls --json
+uv run python -m searcharis.sitemap_cli seo-manifest.json dist/sitemap-1.xml dist/sitemap-2.xml --json-file ci-artifacts/sitemap.json
 ```
 
 Local files with a `.gz` suffix are decompressed as gzip before XML validation;
@@ -58,6 +71,7 @@ uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml 
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --require-indexability-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --sarif-file ci-artifacts/seo-release.sarif
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-noncanonical-urls --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-unreviewed-urls --junit
 ```

@@ -107,3 +107,26 @@ def test_json_file_is_mutually_exclusive_with_stdout_modes(tmp_path):
         with pytest.raises(SystemExit) as raised:
             site_main([str(manifest), str(root), option, "--json-file", str(tmp_path / "a.json")])
         assert raised.value.code == 2
+
+
+def test_json_file_remains_exclusive_with_newer_sarif_file(tmp_path):
+    root, manifest = _build(tmp_path, "build")
+    json_path = tmp_path / "site.json"
+    sarif_path = tmp_path / "site.sarif"
+    with pytest.raises(SystemExit) as raised:
+        site_main([
+            str(manifest), str(root), "--json-file", str(json_path),
+            "--sarif-file", str(sarif_path),
+        ])
+    assert raised.value.code == 2
+    assert not json_path.exists() and not sarif_path.exists()
+
+
+def test_json_file_requires_existing_output_directory(tmp_path, capsys):
+    root, manifest = _build(tmp_path, "build")
+    target = tmp_path / "missing" / "site.json"
+    assert site_main([str(manifest), str(root), "--json-file", str(target)]) == 2
+    assert not target.parent.exists()
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "existing directory" in output.err

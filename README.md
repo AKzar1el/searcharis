@@ -124,6 +124,19 @@ indexability, description, route-map and per-page policies only after reviewing
 actual hosting routes. Built HTML checks cannot prove HTTP response status,
 headers, redirects, JavaScript-rendered metadata or Google indexing.
 
+For reviewed in-page and cross-page anchor navigation, opt in to
+`site_cli --check-reviewed-fragments` (also available in `release_cli`). It
+checks fragment targets in the supplied built HTML and rejects missing or
+ambiguous targets such as duplicate active IDs or named anchors. It does not
+fetch links, inspect unreviewed routes or change the default SEO gate. The
+reviewed navigation and fragment gates also inspect image-map `<area href>`
+hotspots inside active `<map>` elements.
+For critical landing pages, the combined `release_cli` also supports
+repeatable `--require-inbound-link services/index.html`: it fails when no
+other reviewed same-origin built page links to that explicitly selected
+manifest artifact path. This does not establish whether a deployed page is
+reachable from unreviewed or JavaScript-created navigation.
+
 For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
 explicit local sitemap URL sets against reviewed `indexable: true/false` page
 contracts. It never fetches URLs, resolves sitemap indexes, or guesses which
@@ -162,6 +175,10 @@ the checker exits 1; see the [JUnit guide](docs/SEO-CONTRACT-CI.md#compare-local
 Use `--junit-file seo-regressions.xml` to create an XML artifact directly
 without shell redirection (especially useful on Windows PowerShell 5.1).
 The file must not already exist or be inside either build snapshot.
+For a human CI reviewer, use `--markdown-file seo-regressions.md` to write a
+bounded UTF-8 summary of new findings, optional coverage gates, inherited
+baseline debt and resolved-issue counts. It is mutually exclusive with the
+other comparison report modes, never overwrites and does not fetch URLs.
 
 For a single page, use `contract_cli`; for a ready-made multi-page contract,
 use `site_cli` directly:

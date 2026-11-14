@@ -13,14 +13,29 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.release_markdown import build_release_markdown
+from searcharis.release_sarif import build_release_sarif
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_release_junit
+from searcharis.site_source_map import read_source_map
 from searcharis.sitemap_ci import verify_sitemap_manifest
+
+_MAX_HUMAN_FINDINGS = 20
+_MAX_CODES_PER_PAGE = 8
 
 
 def _preview(value: object, *, limit: int = 120) -> str:
     text = repr(value)
     return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def _bounded_human_lines(groups: tuple[list[str], ...]) -> tuple[list[str], int]:
+    """Keep one example of each nonempty category inside the CI log budget."""
+    selected: list[str] = []
+    for index, group in enumerate(groups):
+        reserved = sum(bool(later) for later in groups[index + 1:])
+        available = max(0, _MAX_HUMAN_FINDINGS - len(selected) - reserved)
+        selected.extend(group[:available])
+    return selected, sum(map(len, groups)) - len(selected)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,6 +84,18 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-fragments", action="store_true",
         help="Fail if reviewed same-origin HTML navigation fragments have no target ID",
     )
+    parser.add_argument(
+        "--check-unique-titles", action="store_true",
+        help="Fail on duplicate normalized HTML titles among reviewed indexable pages on the same origin",
+    )
+    parser.add_argument(
+        "--check-unique-descriptions", action="store_true",
+        help="Fail on duplicate normalized meta descriptions among reviewed indexable same-origin pages",
+    )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -87,9 +114,19 @@ def main(argv: list[str] | None = None) -> int:
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded Markdown CI summary to a new file outside the build",
     )
+    parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write combined HTML and sitemap findings as new UTF-8 SARIF 2.1.0",
+    )
+    parser.add_argument(
+        "--sarif-source-map", type=Path, metavar="PATH",
+        help="Reviewed local build-to-source hints for HTML SARIF findings only",
+    )
     args = parser.parse_args(argv)
+    if args.sarif_source_map and not args.sarif_file:
+        parser.error("--sarif-source-map requires --sarif-file")
     if (args.json or args.junit) and (
-        args.json_file or args.junit_file or args.markdown_file
+        args.json_file or args.junit_file or args.markdown_file or args.sarif_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
 
@@ -104,12 +141,19 @@ def main(argv: list[str] | None = None) -> int:
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
             check_reviewed_fragments=args.check_reviewed_fragments,
+            check_unique_titles=args.check_unique_titles,
+            check_unique_descriptions=args.check_unique_descriptions,
+            required_inbound_paths=tuple(args.require_inbound_link),
         )
         sitemap = verify_sitemap_manifest(
             reviewed_manifest, args.sitemaps,
             require_indexability_coverage=args.require_indexability_coverage,
             reject_noncanonical_urls=args.reject_noncanonical_urls,
             reject_unreviewed_urls=args.reject_unreviewed_urls,
+        )
+        sources = (
+            read_source_map(args.sarif_source_map, site, source_root=Path.cwd())
+            if args.sarif_source_map else {}
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -119,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.json_file or args.junit_file or args.markdown_file:
+    if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((args.json_file, "JSON", json.dumps(
@@ -131,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.markdown_file:
             reports.append((args.markdown_file, "Markdown", build_release_markdown(
                 site, sitemap,
+            )))
+        if args.sarif_file:
+            reports.append((args.sarif_file, "SARIF", json.dumps(
+                build_release_sarif(site, sitemap, args.manifest, sources=sources),
+                indent=2, sort_keys=True,
             )))
         try:
             # Preflight every target before writing either report. The second
@@ -170,24 +219,46 @@ def main(argv: list[str] | None = None) -> int:
         xml = sitemap["summary"]
         print(f"{site['status'].upper()} HTML: {pages['passed']}/{pages['checked']} "
               "reviewed pages passed")
+        failed_pages: list[str] = []
         for page in site["pages"]:
             if page["status"] == "fail":
-                codes = ", ".join(_preview(issue["code"]) for issue in page["issues"])
-                print(f"  FAIL {_preview(page['path'])}: {codes}")
+                issues = page["issues"]
+                codes = ", ".join(
+                    _preview(issue["code"]) for issue in issues[:_MAX_CODES_PER_PAGE]
+                )
+                if len(issues) > _MAX_CODES_PER_PAGE:
+                    codes += f" (+{len(issues) - _MAX_CODES_PER_PAGE} more; use --json)"
+                failed_pages.append(f"  FAIL {_preview(page['path'])}: {codes}")
         unlisted = site["coverage"]["unlisted"]
         if unlisted:
             print(f"  Unlisted built HTML: {len(unlisted)} "
                   "(use --json for exact paths)")
+        # Preserve a strict coverage example even when many failed pages fill
+        # the console; optional unlisted pages remain a count, not failures.
+        coverage_lines = (
+            [f"  Unlisted HTML: {_preview(path)}" for path in unlisted]
+            if site["coverage"]["require_full_coverage"] else []
+        )
+        html_lines, hidden_html = _bounded_human_lines((failed_pages, coverage_lines))
+        for line in html_lines:
+            print(line)
+        if hidden_html:
+            print(f"  ... and {hidden_html} more HTML findings; use --json for all")
         print(f"{sitemap['status'].upper()} sitemap: {xml['required']} required, "
               f"{xml['excluded']} excluded, {xml['sitemap_urls']} URLs examined")
-        for url in sitemap["missing_required"]:
-            print(f"  Missing required: {_preview(url)}")
-        for url in sitemap["present_excluded"]:
-            print(f"  Unexpected noindex: {_preview(url)}")
-        for url in sitemap.get("present_noncanonical", []):
-            print(f"  Noncanonical reviewed sitemap URL: {_preview(url)}")
-        for url in sitemap.get("unreviewed_urls", []):
-            print(f"  Unreviewed sitemap URL: {_preview(url)}")
+        sitemap_groups = (
+            [f"  Missing required: {_preview(url)}" for url in sitemap["missing_required"]],
+            [f"  Unexpected noindex: {_preview(url)}" for url in sitemap["present_excluded"]],
+            [f"  Noncanonical reviewed sitemap URL: {_preview(url)}"
+             for url in sitemap.get("present_noncanonical", [])],
+            [f"  Unreviewed sitemap URL: {_preview(url)}"
+             for url in sitemap.get("unreviewed_urls", [])],
+        )
+        sitemap_lines, hidden_sitemap = _bounded_human_lines(sitemap_groups)
+        for line in sitemap_lines:
+            print(line)
+        if hidden_sitemap:
+            print(f"  ... and {hidden_sitemap} more sitemap findings; use --json for all")
     return 0 if status == "pass" else 1
 
 

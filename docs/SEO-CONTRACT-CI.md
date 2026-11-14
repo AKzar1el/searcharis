@@ -758,9 +758,11 @@ HTML not declared in the manifest. Partial adoption is supported: unlisted
 pages are **reported but not failures** by default. For complete-site CI,
 add `--require-full-coverage` to fail on any unlisted HTML.
 
-Human-readable CI output escapes control characters in page names and issue
-codes, abbreviates long values, and lists at most 20 unlisted HTML paths with
-an explicit remaining count. Use `--json` or `--sarif` for the full
+Human-readable `site_cli` output escapes control characters in page names and
+issue codes and abbreviates long values. For large failing builds it shows at
+most 20 failed pages and eight issues per displayed page, with omitted counts.
+The separate unlisted-HTML coverage summary remains visible and shows up to 20
+paths even if many reviewed pages fail. Use `--json` or `--sarif` for the full
 machine-readable findings; their values and exit codes are unchanged.
 
 Exit codes: **0** all assertions passed (and coverage if enforced),
@@ -783,7 +785,8 @@ uv run python -m searcharis.site_cli manifest.json dist \
 
 `--check-reviewed-navigation` is also accepted by the combined
 `searcharis.release_cli` offline HTML+sitemap gate. It inspects active HTML
-`<a href>` elements, resolves relative links using the first valid head
+`<a href>` elements and navigable `<area href>` hotspots inside active
+`<map>` elements, resolves relative links using the first valid head
 `<base href>` (otherwise the reviewed page URL), ignores URL fragments and
 deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
@@ -796,9 +799,40 @@ links inspected and unreviewed targets. Default behavior remains unchanged.
 virtual routes, deliberate redirects, URL query variants or hosting rewrite
 rules may require more reviewed route entries or leaving the flag disabled.
 External domains, non-HTTP protocols, and malformed/unresolvable URLs are not
-validated by this check. Inert template/raw-text HTML is ignored. The checker
+validated by this check. Stray `<area>` elements outside a `<map>` and inert
+template/raw-text HTML are ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
+
+## Opt-in critical-page inbound link assertions
+
+For important landing pages, the combined offline HTML+sitemap release gate can
+require at least one navigable link from a **different reviewed page on the same
+origin**. Select exactly which compiled manifest paths are critical:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-inbound-link services/index.html \
+  --require-inbound-link pricing/index.html --json
+```
+
+Each `--require-inbound-link` value is an exact relative **manifest artifact
+path**, not a live URL. Unknown, unsafe, wrong-case or repeated paths are input
+errors (exit **2**). A selected page with no qualifying inbound link gets a
+`reviewed_inbound_link_missing` finding (exit **1**); the structured
+`reviewed_inbound` record includes required, linked and missing paths.
+The check uses active built `<a href>` and image-map `<area href>` links,
+honors the first document `<base href>`, URL identity normalization, paths
+and queries, and ignores self-links, external origins and inert markup.
+
+This is intentionally **not** a whole-site orphan-page detector: links from
+unreviewed HTML, live CMS/JavaScript navigation and deployed redirects cannot
+be seen. Only explicitly selected pages are constrained; a sitemap listing
+does not count as an HTML inbound link. The flag is off by default and never
+fetches URLs. Google recommends linking to important pages from other
+findable pages; see [Google Search Central's link guidance](https://developers.google.com/search/docs/crawling-indexing/links-crawlable).
+Passing this local check cannot prove crawling, indexing, search rankings or
+customer adoption.
 
 ## Opt-in reviewed fragment destinations
 
@@ -813,8 +847,9 @@ uv run python -m searcharis.site_cli manifest.json dist \
 
 The same flag works with `searcharis.release_cli` and may be combined with
 `--check-reviewed-navigation`. It checks each distinct nonempty fragment in
-active HTML `<a href>` links **only when its same-origin URL maps to another
-reviewed built HTML page (or the current page)**. The literal fragment is
+active HTML `<a href>` links and `<map>` image-map `<area href>` hotspots,
+**only when the destination is a reviewed same-origin built HTML page**.
+The literal fragment is
 checked first, then its percent-decoded form, against case-sensitive active
 HTML `id` or legacy `<a name>` attributes. The special `#top` target is
 accepted even without an ID, as required by the HTML navigation standard.
@@ -831,6 +866,127 @@ enable the separate reviewed-navigation gate when the manifest is complete.
 This does not evaluate JavaScript-created IDs, runtime router behavior,
 scrolling, redirects, HTTP responses or deployed content. Such sites may need
 to leave this opt-in policy disabled or provide appropriate reviewed artifacts.
+
+## Opt-in duplicate page-title release gate
+
+When reviewing a complete set of indexable static pages, catch accidental
+copy-pasted HTML titles with the combined offline release checker:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --check-unique-titles --json
+```
+
+This **release-gate-only** option compares the first active head `<title>`
+across reviewed pages on the same scheme, hostname and effective port.
+It decodes HTML entities and collapses whitespace before comparing text
+**case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
+on all affected pages (exit **1**), with one other matching built HTML path,
+a bounded title prefix and a SHA-256 fingerprint in the JSON findings.
+Pages explicitly declared `indexable: false` in the reviewed manifest are
+excluded. Blank titles are outside this comparison; require
+`title_present: true` to reject them independently. The option is off by
+default and does not modify any built files, manifest or sitemap.
+
+The developer must review intentional repeated titles, canonical aliases,
+localized pages and excluded routes before enabling this policy. Same-title
+findings are a release-contract choice, not evidence of a search penalty,
+Google's displayed titles, live indexing or improved rankings. All HTML and
+sitemap inputs remain local; no URL is fetched.
+
+## Opt-in duplicate meta-description release gate
+
+For reviewed, same-origin indexable HTML pages, reject accidental repeated
+first-head meta descriptions before publishing:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --check-unique-descriptions --json
+```
+
+This release-gate-only option compares the first active
+`<meta name="description" content="...">` in each document head, after HTML
+entity decoding and whitespace collapsing (case-sensitive). Nonblank
+duplicates produce `description_duplicate` on all affected pages (exit **1**).
+JSON, JUnit and Markdown reports show one other matching local page, a
+120-character maximum prefix and an SHA-256 digest, not the entire description.
+An absent or empty description is not a duplicate: explicitly require
+`description_present: true` for those pages if needed.
+
+Pages with `indexable: false` in the reviewed manifest and pages on a different
+origin are excluded. The flag is off by default, runs only on supplied local
+artifacts and never fetches URLs. Review intentional aliases, multilingual
+pages and shared templates before enabling it. Google recommends unique,
+page-specific meta descriptions
+(https://developers.google.com/search/docs/appearance/snippet), but this
+check cannot establish deployed snippets, search rankings, actual indexing or
+commercial results.
+
+## Suggested reviewer actions in Markdown release reports
+
+The combined offline release gate can save a human-readable reviewer summary:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --markdown-file release-summary.md
+```
+
+When the local gate fails, the Markdown report includes a bounded,
+deduplicated **Suggested reviewer actions** section. It maps known HTML
+issues (for example, duplicate titles/descriptions or stale navigation
+targets) and sitemap discrepancies to fixed remediation hints. Unknown issue
+codes still appear in the blocking findings; they do not inject arbitrary
+instructions. Passing reports omit the action section. Hints never edit the
+build, manifest or sitemap, fetch URLs or prove live routing/search impact.
+Under the 20-detail limit per HTML and sitemap section, the summary retains
+at least one example from each nonempty blocking category (including strict
+coverage gaps, excluded URLs and noncanonical sitemap entries), rather than
+letting a large first category hide a distinct release failure.
+Use the full structured report and site-specific policy to decide each fix.
+
+The default terminal output is also bounded to 20 detailed HTML lines and 20
+sitemap URL lines, reserving an example for each nonempty blocking category.
+It reports the number of omitted details and directs reviewers to `--json`
+for complete findings. Each failed-page line also caps individual issue codes
+at eight. Ungated unlisted HTML is counted but does not consume
+blocking detail slots. Exit codes and JSON/JUnit/Markdown artifacts are unchanged.
+
+## One-pass HTML and sitemap SARIF release artifact
+
+For a single offline release check that preserves *both* built-HTML failures
+and reviewed sitemap URL discrepancies in one machine-readable SARIF 2.1.0 file:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-full-coverage --reject-unreviewed-urls \
+  --sarif-file reports/release.sarif --json-file reports/release.json
+```
+
+`--sarif-file` creates a complete UTF-8 file without stdout, with no overwrite,
+an existing parent directory, and a destination outside the supplied build.
+It may be combined with `--json-file`, `--junit-file` and `--markdown-file`
+from the *same* verification pass. Destinations must all be distinct and are
+preflighted before any file is written; an unexpected mid-write filesystem
+failure is not an atomic multi-file transaction. Stdout `--json` and
+`--junit` remain mutually exclusive with file report modes. Exit 0 still means
+both gates pass, 1 means a blocking mismatch, and 2 means an input/output error.
+
+HTML findings retain the standalone HTML SARIF artifact anchors and stable
+fingerprints. Optionally provide `--sarif-source-map sources.json` for
+explicitly reviewed build-to-repository source-file hints; it is valid only
+with `--sarif-file` and never guesses source line numbers. Sitemap findings
+use distinct stable rules for missing required, included noindex, included
+noncanonical, and unreviewed URLs. They anchor to **line 1 of the reviewed
+manifest** as a document-level hint because a missing URL cannot be assigned
+an XML line and split sitemap shards do not identify one offending source.
+Review the manifest and each supplied XML URL set; no source line is inferred.
+An absolute manifest path outside the working directory is represented by its
+filename rather than leaking a machine-specific absolute directory.
+
+This creates a local artifact only: it does not upload SARIF to a hosted
+consumer, validate GitHub code-scanning acceptance, discover deployed routes,
+fetch URLs, or measure search impact. Configure and verify downstream ingestion
+separately using your approved CI pipeline.
 
 ## Reciprocal hreflang between local build artifacts
 
@@ -956,12 +1112,50 @@ cross-page flags as `site_cli` work with
 `--fail-on-new-unverified-targets`. Baseline and candidate directories must
 be separate, non-overlapping trees (neither nested inside the other); the
 checker rejects nested roots before recursively discovering HTML. The
-checker also rejects declared HTML files that are hard-linked across the two
-builds: editing a candidate hard link would silently change the baseline and
-could hide a regression. Use independent build artifacts rather than hard-link
-copies for the compared pages. Filesystems without usable file IDs cannot
+checker also rejects HTML files that are hard-linked across the two builds,
+including files outside the reviewed manifest: editing a candidate hard link
+would silently change the baseline and could hide a regression. Use independent
+build artifacts rather than hard-link copies, even for unlisted HTML.
+Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
+
+Optional `--check-reviewed-navigation` and `--check-reviewed-fragments`
+also work with `build_compare`. They compare the **same opt-in checks on
+both** builds and block only newly introduced same-origin links outside the
+reviewed manifest, or new links to missing/ambiguous fragment IDs in reviewed
+local HTML. Pre-existing broken links do not block the candidate. These flags
+use the same static-only semantics as the corresponding site/release gates;
+they do not fetch URLs, test live routing or inspect JavaScript-created IDs.
+Outside-manifest fragment destinations cannot be verified. For example:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-reviewed-navigation --check-reviewed-fragments \
+  --json-file seo-navigation-regressions.json
+```
+
+The JSON artifact contains only comparison deltas, including inherited and
+resolved issue counts, and is create-only outside both build snapshots.
+`--fail-on-new-unverified-targets` still applies specifically to enabled
+canonical/hreflang cross-page checks, not to unknown fragment destinations.
+
+To catch newly duplicated page titles or meta descriptions without blocking
+unchanged legacy duplicates, enable `--check-unique-titles` and/or
+`--check-unique-descriptions`. As in the combined release gate, uniqueness is
+scoped to reviewed indexable HTML on the same origin. Blank metadata is
+governed by explicit presence contracts, and intentionally noindex pages are
+excluded. For example:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-unique-titles --check-unique-descriptions --json-file seo-metadata-regressions.json
+```
+
+This compares both builds with identical policies and reports only new
+duplicate findings as release blockers. It cannot observe deployed pages,
+Google-selected titles or search appearance; inspect deliberate duplicate
+titles/descriptions before enabling these opt-in checks.
 
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
@@ -1017,9 +1211,10 @@ the original `--junit` option remains available; ensure your shell saves
 its output in a compatible encoding. See
 [Microsoft's Windows PowerShell encoding reference](https://github.com/MicrosoftDocs/PowerShell-Docs/blob/main/reference/5.1/Microsoft.PowerShell.Core/About/about_Character_Encoding.md).
 
-JUnit output modes are mutually exclusive with `--json`, `--sarif` and `--sarif-file`;
-`--sarif-source-map` remains SARIF-only. The XML contains one failed testcase
-per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
+The stdout mode `--junit` is mutually exclusive with other stdout modes and
+file report options; `--junit-file` can now accompany other file report
+options. `--sarif-source-map` remains SARIF-only. The XML contains one failed
+testcase per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
 or newly unverified cross-page target when gated. The testcase name identifies
 the built artifact and check. If only old known problems remain, the report
 contains one passing `no-new-blocking-regressions` testcase so it is not an
@@ -1036,6 +1231,49 @@ retaining that nonzero release-gate result. This is a report conversion,
 See [GitLab JUnit report documentation](https://docs.gitlab.com/ci/yaml/artifacts_reports/#artifactsreportsjunit)
 and [Jenkins JUnit publisher](https://www.jenkins.io/doc/pipeline/steps/junit/).
 
+For a human reviewer of local static-build regressions, write a bounded Markdown
+summary directly as a new UTF-8 artifact (no shell redirection):
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --fail-on-new-unlisted --markdown-file seo-regressions.md
+```
+
+This opt-in report separates newly blocking page failures and removed pages
+from inherited baseline debt; it labels newly unlisted HTML or unverified
+cross-page targets as blocking only when the corresponding policy flag is set.
+It shows at most 20 escaped, abbreviated new observations (with a remainder
+count), reserving one example from each nonempty category so a flood of page
+issues cannot hide removed routes or other new observations. Summary counts
+remain complete, with fixed reviewer next steps. It never fetches URLs,
+modifies either build, overwrites an existing file, or changes comparison exit
+codes 0/1/2. `--markdown-file` can accompany the other *file* report options
+but not stdout report modes; choose a fresh path outside both build snapshots
+and publish it even on regression exit 1. It is not evidence of hosted CI ingestion, deployed
+routing, search rankings or customer adoption.
+
+To deliver complete machine findings, a human review summary and a source-linked
+SARIF artifact from **one** baseline/candidate comparison, run:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --json-file reports/seo-regressions.json \
+  --markdown-file reports/seo-regressions.md \
+  --sarif-file reports/seo-regressions.sarif
+```
+
+All four file options (`--json-file`, `--junit-file`, `--markdown-file`,
+`--sarif-file`) may be combined, including with reviewed
+`--sarif-source-map`. Each destination must be a **distinct new path** in an
+existing directory outside both build snapshots; collisions, pre-existing
+files, missing parents or build-tree destinations are rejected before any
+output is created. The original `--json`, `--junit`, and `--sarif` stdout
+modes remain mutually exclusive and cannot be mixed with file modes. Outputs
+use UTF-8 and preserve the single comparison's regression-only 0/1/2 exit
+code. Preflight protects against invalid destinations, but an unexpected I/O
+failure after writing starts can leave an earlier artifact; CI should discard
+artifacts from exit 2. This performs no hosted upload or URL fetch.
+
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving complete UTF-8 JSON reports directly:
@@ -1047,9 +1285,9 @@ uv run python -m searcharis.report_compare baseline.json candidate.json --json
 ```
 
 `--json-file PATH` writes the same structured report as `--json` to a new
-UTF-8 file without JSON on stdout. It cannot be combined with `--json` or
-`--sarif`, will not overwrite an existing file, and rejects destinations
-inside the immutable build directory. Input errors (exit 2) do not create a
+UTF-8 file without JSON on stdout. It cannot be combined with `--json`,
+`--sarif`, or `--sarif-file`. It will not overwrite an existing file and rejects
+destinations inside the immutable build directory. Input errors (exit 2) do not create a
 report; invalid output destinations also return 2. Use a fresh artifact path
 for each run. This avoids Windows PowerShell 5.1's default UTF-16LE `>`
 redirection, which `report_compare` cannot read as UTF-8. The original
@@ -1172,9 +1410,22 @@ uv run python -m searcharis.site_cli \
 
 `--sarif` and `--json` are mutually exclusive. SARIF is printed to stdout;
 capture it as **UTF-8** when writing a `.sarif` file for a CI consumer.
+For portable Windows and CI artifacts, use `--sarif-file PATH` instead of
+`--sarif`: it writes the same complete SARIF 2.1.0 JSON directly as UTF-8,
+without printing it to stdout. The output parent directory must already exist;
+the path must be outside the supplied build tree, and existing files are never
+overwritten. `--sarif-file` is mutually exclusive with `--sarif`, `--json`,
+and `--json-file`, but supports the same reviewed `--sarif-source-map` option:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --sarif-file reports/seo-site.sarif --sarif-source-map source-map.json
+```
+
 The usual process exit codes are unchanged: 0 for pass, 1 for failed checks,
-2 for invalid input. An input error is printed to stderr, **not** as a
-misleading valid SARIF run. When capturing a report in a shell configured to
+2 for invalid input or an unsafe output destination. Such errors produce no
+report and are printed to stderr, **not** as a misleading valid SARIF run.
+When capturing a report in a shell configured to
 abort on exit 1, explicitly retain its output and treat 2 as an input failure.
 
 Each failed page assertion becomes an error result; if

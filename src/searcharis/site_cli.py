@@ -13,6 +13,8 @@ from searcharis.site_sarif import build_sarif_report
 from searcharis.site_source_map import read_source_map
 
 _MAX_UNLISTED_DISPLAY = 20
+_MAX_FAILED_PAGE_DISPLAY = 20
+_MAX_ISSUES_PER_PAGE = 8
 
 
 def _label(value: str, *, limit: int = 120) -> str:
@@ -69,14 +71,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print SARIF 2.1.0 issues for built HTML (or explicitly mapped sources)",
     )
+    output.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write SARIF 2.1.0 to a new UTF-8 file; never overwrite existing files",
+    )
     parser.add_argument(
         "--sarif-source-map",
         type=Path,
         help="Optional JSON map of built HTML to existing repository source files (SARIF only)",
     )
     args = parser.parse_args(argv)
-    if args.sarif_source_map and not args.sarif:
-        parser.error("--sarif-source-map requires --sarif")
+    if args.sarif_source_map and not (args.sarif or args.sarif_file):
+        parser.error("--sarif-source-map requires --sarif or --sarif-file")
 
     try:
         report = verify_manifest(
@@ -100,14 +106,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file:
+    if args.json_file or args.sarif_file:
         try:
-            if args.json_file.resolve().is_relative_to(args.build_dir.resolve()):
-                raise ValueError("JSON report file must be outside the build directory")
-            # Exclusive create preserves existing CI artifacts; writing UTF-8
-            # avoids the default UTF-16LE stdout redirection of PowerShell 5.1.
-            with args.json_file.open("x", encoding="utf-8", newline="\n") as destination:
-                destination.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+            path = args.json_file or args.sarif_file
+            format_name = "JSON" if args.json_file else "SARIF"
+            if path.resolve().is_relative_to(args.build_dir.resolve()):
+                raise ValueError(f"{format_name} report must be outside the build directory")
+            if path.exists() or path.is_symlink():
+                raise FileExistsError(f"{format_name} report already exists: {path}")
+            if not path.parent.is_dir():
+                raise ValueError(f"{format_name} report parent must be an existing directory: {path.parent}")
+            payload = report if args.json_file else build_sarif_report(report, sources=sources)
+            # Exclusive creation protects existing artifacts if another CI job races us.
+            with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                output_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
             return 2
@@ -123,14 +135,20 @@ def main(argv: list[str] | None = None) -> int:
             f"{summary['passed']}/{summary['checked']} checked pages passed; "
             f"{coverage['discovered']} built HTML, {len(coverage['unlisted'])} unlisted"
         )
-        for page in report["pages"]:
-            if page["status"] == "fail":
-                print(f"  FAIL {_label(page['path'])} ({_label(page['checked_url'])})")
-                for issue in page["issues"]:
-                    print(
-                        f"    {_label(issue['code'])}: expected {_preview(issue['expected'])}, "
-                        f"observed {_preview(issue['actual'])}"
-                    )
+        failures = [page for page in report["pages"] if page["status"] == "fail"]
+        for page in failures[:_MAX_FAILED_PAGE_DISPLAY]:
+            print(f"  FAIL {_label(page['path'])} ({_label(page['checked_url'])})")
+            for issue in page["issues"][:_MAX_ISSUES_PER_PAGE]:
+                print(
+                    f"    {_label(issue['code'])}: expected {_preview(issue['expected'])}, "
+                    f"observed {_preview(issue['actual'])}"
+                )
+            remaining_issues = len(page["issues"]) - _MAX_ISSUES_PER_PAGE
+            if remaining_issues > 0:
+                print(f"    ... and {remaining_issues} more issues (use --json for all)")
+        remaining_pages = len(failures) - _MAX_FAILED_PAGE_DISPLAY
+        if remaining_pages > 0:
+            print(f"  ... and {remaining_pages} more failed pages (use --json for all)")
         if coverage["unlisted"]:
             unlisted = coverage["unlisted"]
             visible = ", ".join(_label(path) for path in unlisted[:_MAX_UNLISTED_DISPLAY])

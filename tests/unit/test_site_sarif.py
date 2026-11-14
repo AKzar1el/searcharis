@@ -381,3 +381,108 @@ def test_source_mapping_only_with_sarif(tmp_path):
     with pytest.raises(SystemExit) as failure:
         main([str(manifest), str(tmp_path), "--json", "--sarif-source-map", "x.json"])
     assert failure.value.code == 2
+
+
+def test_site_sarif_file_writes_complete_utf8_without_stdout(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    (build / "sl" / "index.html").write_text("<html><head><title>Wrong</title></head></html>")
+    artifact = tmp_path / "site.sarif"
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 1
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    raw = artifact.read_bytes()
+    assert b"\x00" not in raw
+    sarif = json.loads(raw.decode("utf-8"))
+    assert sarif["version"] == "2.1.0"
+    assert sarif["runs"][0]["results"][0]["ruleId"] == "canonical"
+
+
+def test_site_sarif_file_preserves_pass_with_empty_results(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    artifact = tmp_path / "pass.sarif"
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(artifact.read_text(encoding="utf-8"))["runs"][0]["results"] == []
+
+
+def test_site_sarif_file_never_overwrites_existing_file(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    artifact = tmp_path / "site.sarif"
+    artifact.write_bytes(b"existing user data")
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 2
+    assert artifact.read_bytes() == b"existing user data"
+    assert capsys.readouterr().out == ""
+
+
+def test_site_sarif_file_rejects_mutating_build_tree(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    artifact = build / "site.sarif"
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert "outside" in capsys.readouterr().err
+
+
+def test_site_sarif_file_invalid_inputs_create_nothing(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    manifest.write_text('{"version":2,"pages":[]}', encoding="utf-8")
+    artifact = tmp_path / "site.sarif"
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_site_sarif_file_rejects_missing_parent_without_mutation(tmp_path, capsys):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    artifact = tmp_path / "missing" / "site.sarif"
+
+    assert main([str(manifest), str(build), "--sarif-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert "parent" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["--json", "--sarif"])
+def test_site_sarif_file_is_mutually_exclusive(tmp_path, flag):
+    manifest = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as failure:
+        main([str(manifest), str(tmp_path), "--sarif-file", "site.sarif", flag])
+    assert failure.value.code == 2
+
+
+def test_site_sarif_file_supports_reviewed_source_mapping(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    build.mkdir()
+    manifest = _fixture(build)
+    (build / "sl" / "index.html").write_text("<html></html>")
+    source = tmp_path / "src" / "pages" / "sl.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Source</h1>", encoding="utf-8")
+    mapping = _source_map(tmp_path, {"sl/index.html": "src/pages/sl.astro"})
+    monkeypatch.chdir(tmp_path)
+    artifact = tmp_path / "site.sarif"
+
+    assert main([
+        str(manifest), str(build), "--sarif-file", str(artifact),
+        "--sarif-source-map", str(mapping),
+    ]) == 1
+    assert capsys.readouterr().out == ""
+    finding = json.loads(artifact.read_text(encoding="utf-8"))["runs"][0]["results"][0]
+    assert finding["locations"][0]["physicalLocation"]["artifactLocation"] == {
+        "uri": "src/pages/sl.astro"
+    }
