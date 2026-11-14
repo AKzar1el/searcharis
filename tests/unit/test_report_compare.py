@@ -799,6 +799,95 @@ def test_opt_in_unverified_targets_gate_blocks_only_new_targets(check, item):
     assert compare_reports(candidate, baseline, fail_on_new_unverified_targets=True)["status"] == "pass"
 
 
+@pytest.mark.parametrize("alias", [
+    "https://OUTSIDE.test/fr/~",
+    "https://outside.test:443/fr/~",
+    "https://outside.test/a/../fr/~",
+    "https://outside.test/fr/%7e",
+])
+def test_archived_canonical_unverified_alias_is_not_new_target(alias):
+    baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    baseline["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": "https://outside.test/fr/~"},
+    ]
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": alias},
+    ]
+
+    comparison = compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )
+    assert comparison["status"] == "pass"
+    assert comparison["summary"]["new_unverified_targets"] == 0
+    assert comparison["new_unverified_targets"] == []
+
+
+@pytest.mark.parametrize("changed_target", [
+    "https://outside.test/fr/?lang=fr",
+    "http://outside.test/fr/~",
+    "https://outside.test:444/fr/~",
+])
+def test_archived_canonical_unverified_distinct_target_still_regresses(changed_target):
+    baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    baseline["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": "https://outside.test/fr/~"},
+    ]
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": changed_target},
+    ]
+
+    comparison = compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )
+    assert comparison["status"] == "regression"
+    assert comparison["summary"]["new_unverified_targets"] == 1
+    assert comparison["new_unverified_targets"][0]["target"] == changed_target
+
+
+def test_archived_hreflang_unverified_alias_stays_exact():
+    baseline = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    candidate = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    baseline["hreflang_clusters"]["unverified_targets"] = [
+        {"path": "en/index.html", "language": "fr", "target": "https://outside.test/fr/"},
+    ]
+    candidate["hreflang_clusters"]["unverified_targets"] = [
+        {"path": "en/index.html", "language": "fr", "target": "https://OUTSIDE.test/fr/"},
+    ]
+    assert compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )["summary"]["new_unverified_targets"] == 1
+
+
+def test_saved_canonical_target_alias_is_offline_pass_in_strict_cli(
+    tmp_path, capsys, monkeypatch,
+):
+    page = tmp_path / "index.html"
+    manifest = {"version": 1, "pages": [{"path": "index.html", "contract": {
+        "url": "https://example.test/", "title_present": True,
+    }}]}
+    def build_report(target):
+        page.write_text(
+            '<html><head><title>OK</title><link rel="canonical" href="'
+            + target + '"></head></html>', encoding="utf-8",
+        )
+        return verify_manifest(manifest, tmp_path, check_canonical_consistency=True)
+
+    baseline = build_report("https://outside.test/fr/~")
+    candidate = build_report("https://OUTSIDE.test:443/fr/%7e")
+    assert baseline["canonical_consistency"]["unverified_targets"]
+    assert candidate["canonical_consistency"]["unverified_targets"]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: pytest.fail("network call"))
+    assert main([str(before), str(after), "--json", "--fail-on-new-unverified-targets"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "pass"
+    assert result["summary"]["new_unverified_targets"] == 0
+
+
 @pytest.mark.parametrize("before_count,after_count,expected_new", [
     (0, 2, 2), (1, 2, 1), (2, 2, 0), (2, 1, 0),
 ])

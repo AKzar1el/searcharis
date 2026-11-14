@@ -44,6 +44,10 @@ Saved baseline and candidate reports must also use the same reviewed
 navigation and reviewed fragment check settings. A mismatch is an input
 error (exit 2), even when both reports happen to contain zero issues.
 Regenerate both reports with matching `site_cli` options before comparing.
+For the opt-in `--fail-on-new-unverified-targets` gate, equivalent canonical
+outside-target URL spellings (host casing, default ports, dot segments and
+unreserved escapes) are treated as inherited, not as new targets. Distinct
+canonical URLs still block; hreflang target matching remains exact.
 Markdown intentionally limits detailed findings so unexpected page content
 cannot flood a CI summary, and escapes HTML in untrusted input.
 
