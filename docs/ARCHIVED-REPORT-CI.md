@@ -44,6 +44,10 @@ Saved baseline and candidate reports must also use the same reviewed
 navigation and reviewed fragment check settings. A mismatch is an input
 error (exit 2), even when both reports happen to contain zero issues.
 Regenerate both reports with matching `site_cli` options before comparing.
+Archived `checked_url` values must be syntactically valid absolute HTTP(S)
+URLs without credentials, ambiguous authorities or whitespace. Corrupt
+saved URLs are input errors (exit 2), not clean comparisons; historical
+fragment spellings remain comparable for compatibility with older reports.
 For the opt-in `--fail-on-new-unverified-targets` gate, equivalent canonical
 outside-target URL spellings (host casing, default ports, dot segments and
 unreserved escapes) are treated as inherited, not as new targets. Distinct

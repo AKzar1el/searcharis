@@ -13,6 +13,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
+from searcharis.contract_ci import _is_http_url
 from searcharis.site_ci import _page_url_identity
 from searcharis.site_junit import build_comparison_junit
 from searcharis.site_sarif import build_comparison_sarif
@@ -58,7 +59,8 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         if not isinstance(page, dict):
             raise ValueError(f"{name}: invalid page entry")
         path, url, issues = page.get("path"), page.get("checked_url"), page.get("issues")
-        if not isinstance(path, str) or not path or not isinstance(url, str) or not url:
+        if (not isinstance(path, str) or not path or not isinstance(url, str)
+                or not _is_http_url(url)):
             raise ValueError(f"{name}: invalid page path or URL")
         # Historical reports may predate the manifest's URL alias checks.
         # Treat equivalent HTTP(S) resource spellings as one page even when
