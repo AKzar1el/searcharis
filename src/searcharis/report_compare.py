@@ -25,6 +25,7 @@ _REVIEWED_CHECKS = (
     ("reviewed_fragments", "checked_fragments",
      ("missing_targets", "ambiguous_targets", "unverified_targets")),
 )
+_UNIQUE_CHECKS = ("unique_titles", "unique_descriptions")
 
 
 def _int(value: object) -> bool:
@@ -183,10 +184,15 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
 
+    for check in _UNIQUE_CHECKS:
+        if check in report and report[check] is not True:
+            raise ValueError(f"{name}: invalid {check} provenance")
+
     options = (
         strict,
         *(check in report for check in _CHECKS),
         *(check in report for check, _, _ in _REVIEWED_CHECKS),
+        *(check in report for check in _UNIQUE_CHECKS),
     )
     return report, options
 
@@ -244,7 +250,7 @@ def compare_reports(
     if before_options != after_options:
         raise ValueError(
             "Reports use different check options; regenerate both with identical "
-            "coverage, canonical, hreflang and reviewed navigation/fragment flags"
+            "coverage, canonical, hreflang, reviewed navigation/fragment and uniqueness flags"
         )
     if fail_on_new_unverified_targets and not any(before_options[1:1 + len(_CHECKS)]):
         raise ValueError(

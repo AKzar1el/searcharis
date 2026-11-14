@@ -60,6 +60,14 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-fragments", action="store_true",
         help="Fail if links to reviewed same-origin pages use missing HTML fragment IDs",
     )
+    parser.add_argument(
+        "--check-unique-titles", action="store_true",
+        help="Fail on duplicate titles across reviewed same-origin indexable pages",
+    )
+    parser.add_argument(
+        "--check-unique-descriptions", action="store_true",
+        help="Fail on duplicate descriptions across reviewed same-origin indexable pages",
+    )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
@@ -90,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
             check_reviewed_fragments=args.check_reviewed_fragments,
+            check_unique_titles=args.check_unique_titles,
+            check_unique_descriptions=args.check_unique_descriptions,
         )
         sources = (
             read_source_map(args.sarif_source_map, report, source_root=Path.cwd())

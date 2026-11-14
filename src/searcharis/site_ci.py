@@ -641,6 +641,12 @@ def verify_manifest(
         result["reviewed_inbound"] = inbound_summary
     if fragment_summary is not None:
         result["reviewed_fragments"] = fragment_summary
+    # Archived comparisons must distinguish a clean opt-in uniqueness check
+    # from a report that never ran it, even when neither found duplicates.
+    if check_unique_titles:
+        result["unique_titles"] = True
+    if check_unique_descriptions:
+        result["unique_descriptions"] = True
     return result
 
 

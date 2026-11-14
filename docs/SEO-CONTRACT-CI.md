@@ -877,7 +877,7 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --check-unique-titles --json
 ```
 
-This **release-gate-only** option compares the first active head `<title>`
+This opt-in option also works in `site_cli` and `build_compare`. It compares the first active head `<title>`
 across reviewed pages on the same scheme, hostname and effective port.
 It decodes HTML entities and collapses whitespace before comparing text
 **case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
@@ -904,7 +904,7 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --check-unique-descriptions --json
 ```
 
-This release-gate-only option compares the first active
+This opt-in option also works in `site_cli` and `build_compare`. It compares the first active
 `<meta name="description" content="...">` in each document head, after HTML
 entity decoding and whitespace collapsing (case-sensitive). Nonblank
 duplicates produce `description_duplicate` on all affected pages (exit **1**).
@@ -1277,6 +1277,14 @@ artifacts from exit 2. This performs no hosted upload or URL fetch.
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving their complete `--json` outputs:
+
+The standalone site checker now accepts `--check-unique-titles` and
+`--check-unique-descriptions` without requiring a sitemap. For example, add
+both flags to **each** site_cli invocation below to gate only newly duplicated
+reviewed titles and descriptions. Archived reports record which checks ran,
+so a comparison refuses a baseline/candidate mismatch even when both builds
+have zero duplicate findings (exit **2**). These checks remain disabled by
+default; existing legacy reports without either option remain readable together.
 
 ```sh
 uv run python -m searcharis.site_cli manifest.json baseline-build --json > baseline.json
