@@ -861,3 +861,63 @@ def test_site_cli_human_output_bounds_issues_and_unlisted_html(tmp_path, capsys)
     result = json.loads(capsys.readouterr().out)
     assert len(result["coverage"]["unlisted"]) == 35
     assert result["pages"][-1]["issues"][0]["expected"] == "E" * 1600
+
+
+def test_site_cli_human_output_bounds_many_failed_pages_without_hiding_coverage(
+    tmp_path, capsys,
+):
+    manifest = _setup(tmp_path)
+    for index in range(35):
+        relative = f"page-{index:02}/index.html"
+        public = f"{BASE}page-{index:02}/"
+        artifact = tmp_path / relative
+        artifact.parent.mkdir()
+        artifact.write_text(_page(public), encoding="utf-8")
+        manifest["pages"].append({
+            "path": relative,
+            "contract": {"url": public, "title_equals": "Expected different title"},
+        })
+    (tmp_path / "unlisted.html").write_text(_page(f"{BASE}unlisted"), encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    args = [str(manifest_path), str(tmp_path), "--require-full-coverage"]
+
+    assert main(args) == 1
+    output = capsys.readouterr().out
+    assert len([line for line in output.splitlines() if line.startswith("  FAIL ")]) == 20
+    assert "15 more failed pages" in output
+    assert "Unlisted HTML: unlisted.html" in output
+    assert "page-34/index.html" not in output
+
+    assert main(args + ["--json"]) == 1
+    structured = json.loads(capsys.readouterr().out)
+    assert structured["summary"]["failed"] == 35
+    assert structured["coverage"]["unlisted"] == ["unlisted.html"]
+    assert any(page["path"] == "page-34/index.html" for page in structured["pages"])
+
+
+def test_site_cli_human_output_bounds_issues_per_failed_page(tmp_path, monkeypatch, capsys):
+    from searcharis import site_cli
+
+    manifest = _setup(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    issues = [
+        {"code": f"issue-{index:02}", "expected": "yes", "actual": "no"}
+        for index in range(50)
+    ]
+    fake_report = {
+        "status": "fail",
+        "summary": {"checked": 1, "passed": 0, "failed": 1},
+        "coverage": {"discovered": 1, "unlisted": [], "require_full_coverage": False},
+        "pages": [{"status": "fail", "path": "en/index.html",
+                   "checked_url": f"{BASE}en/", "issues": issues}],
+    }
+    monkeypatch.setattr(site_cli, "verify_manifest", lambda *_args, **_kwargs: fake_report)
+
+    assert main([str(manifest_path), str(tmp_path)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len([line for line in lines if line.startswith("    issue-")]) == 8
+    assert "42 more issues" in "\n".join(lines)
+    assert main([str(manifest_path), str(tmp_path), "--json"]) == 1
+    assert len(json.loads(capsys.readouterr().out)["pages"][0]["issues"]) == 50

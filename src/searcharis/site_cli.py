@@ -13,6 +13,8 @@ from searcharis.site_sarif import build_sarif_report
 from searcharis.site_source_map import read_source_map
 
 _MAX_UNLISTED_DISPLAY = 20
+_MAX_FAILED_PAGE_DISPLAY = 20
+_MAX_ISSUES_PER_PAGE = 8
 
 
 def _label(value: str, *, limit: int = 120) -> str:
@@ -108,14 +110,20 @@ def main(argv: list[str] | None = None) -> int:
             f"{summary['passed']}/{summary['checked']} checked pages passed; "
             f"{coverage['discovered']} built HTML, {len(coverage['unlisted'])} unlisted"
         )
-        for page in report["pages"]:
-            if page["status"] == "fail":
-                print(f"  FAIL {_label(page['path'])} ({_label(page['checked_url'])})")
-                for issue in page["issues"]:
-                    print(
-                        f"    {_label(issue['code'])}: expected {_preview(issue['expected'])}, "
-                        f"observed {_preview(issue['actual'])}"
-                    )
+        failures = [page for page in report["pages"] if page["status"] == "fail"]
+        for page in failures[:_MAX_FAILED_PAGE_DISPLAY]:
+            print(f"  FAIL {_label(page['path'])} ({_label(page['checked_url'])})")
+            for issue in page["issues"][:_MAX_ISSUES_PER_PAGE]:
+                print(
+                    f"    {_label(issue['code'])}: expected {_preview(issue['expected'])}, "
+                    f"observed {_preview(issue['actual'])}"
+                )
+            remaining_issues = len(page["issues"]) - _MAX_ISSUES_PER_PAGE
+            if remaining_issues > 0:
+                print(f"    ... and {remaining_issues} more issues (use --json for all)")
+        remaining_pages = len(failures) - _MAX_FAILED_PAGE_DISPLAY
+        if remaining_pages > 0:
+            print(f"  ... and {remaining_pages} more failed pages (use --json for all)")
         if coverage["unlisted"]:
             unlisted = coverage["unlisted"]
             visible = ", ".join(_label(path) for path in unlisted[:_MAX_UNLISTED_DISPLAY])
