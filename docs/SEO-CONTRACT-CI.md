@@ -1303,9 +1303,22 @@ uv run python -m searcharis.site_cli \
 
 `--sarif` and `--json` are mutually exclusive. SARIF is printed to stdout;
 capture it as **UTF-8** when writing a `.sarif` file for a CI consumer.
+For portable Windows and CI artifacts, use `--sarif-file PATH` instead of
+`--sarif`: it writes the same complete SARIF 2.1.0 JSON directly as UTF-8,
+without printing it to stdout. The output parent directory must already exist;
+the path must be outside the supplied build tree, and existing files are never
+overwritten. `--sarif-file` is mutually exclusive with `--sarif` and `--json`,
+but supports the same reviewed `--sarif-source-map` option:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --sarif-file reports/seo-site.sarif --sarif-source-map source-map.json
+```
+
 The usual process exit codes are unchanged: 0 for pass, 1 for failed checks,
-2 for invalid input. An input error is printed to stderr, **not** as a
-misleading valid SARIF run. When capturing a report in a shell configured to
+2 for invalid input or an unsafe output destination. Such errors produce no
+report and are printed to stderr, **not** as a misleading valid SARIF run.
+When capturing a report in a shell configured to
 abort on exit 1, explicitly retain its output and treat 2 as an input failure.
 
 Each failed page assertion becomes an error result; if

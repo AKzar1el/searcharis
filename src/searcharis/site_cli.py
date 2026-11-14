@@ -67,14 +67,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print SARIF 2.1.0 issues for built HTML (or explicitly mapped sources)",
     )
+    output.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write SARIF 2.1.0 to a new UTF-8 file; never overwrite existing files",
+    )
     parser.add_argument(
         "--sarif-source-map",
         type=Path,
         help="Optional JSON map of built HTML to existing repository source files (SARIF only)",
     )
     args = parser.parse_args(argv)
-    if args.sarif_source_map and not args.sarif:
-        parser.error("--sarif-source-map requires --sarif")
+    if args.sarif_source_map and not (args.sarif or args.sarif_file):
+        parser.error("--sarif-source-map requires --sarif or --sarif-file")
 
     try:
         report = verify_manifest(
@@ -98,7 +102,24 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.sarif_file:
+        try:
+            path = args.sarif_file
+            if path.resolve().is_relative_to(args.build_dir.resolve()):
+                raise ValueError("SARIF report must be outside the build directory")
+            if path.exists() or path.is_symlink():
+                raise FileExistsError(f"SARIF report already exists: {path}")
+            if not path.parent.is_dir():
+                raise ValueError(f"SARIF report parent must be an existing directory: {path.parent}")
+            # Exclusive creation protects existing artifacts if another CI job races us.
+            with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                output_file.write(json.dumps(
+                    build_sarif_report(report, sources=sources), indent=2, sort_keys=True,
+                ) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.sarif:
         print(json.dumps(build_sarif_report(report, sources=sources), indent=2, sort_keys=True))
