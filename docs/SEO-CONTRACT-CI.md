@@ -758,9 +758,11 @@ HTML not declared in the manifest. Partial adoption is supported: unlisted
 pages are **reported but not failures** by default. For complete-site CI,
 add `--require-full-coverage` to fail on any unlisted HTML.
 
-Human-readable CI output escapes control characters in page names and issue
-codes, abbreviates long values, and lists at most 20 unlisted HTML paths with
-an explicit remaining count. Use `--json` or `--sarif` for the full
+Human-readable `site_cli` output escapes control characters in page names and
+issue codes and abbreviates long values. For large failing builds it shows at
+most 20 failed pages and eight issues per displayed page, with omitted counts.
+The separate unlisted-HTML coverage summary remains visible and shows up to 20
+paths even if many reviewed pages fail. Use `--json` or `--sarif` for the full
 machine-readable findings; their values and exit codes are unchanged.
 
 Exit codes: **0** all assertions passed (and coverage if enforced),
