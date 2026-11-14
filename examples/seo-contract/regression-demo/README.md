@@ -38,3 +38,28 @@ For a real release gate, supply a developer-reviewed manifest and two
 independently produced, immutable local build artifacts. A trusted baseline
 needs its own provenance; a successful local demo is not evidence of customer
 adoption or revenue.
+
+## Optional regression-only link checks
+
+Add `--check-reviewed-navigation` to fail only for **new** links to same-origin
+routes absent from the reviewed manifest, or `--check-reviewed-fragments` to
+fail only for **new** links to missing or ambiguous fragment IDs in reviewed
+built pages. Both options reuse the same local HTML checks as `site_cli`; they
+apply identically to baseline and candidate, so inherited broken links do not
+block an otherwise unchanged release. Both checks are opt-in and can be
+combined with `--json-file`, `--junit-file`, `--markdown-file` or
+`--sarif-file` for CI evidence.
+
+```sh
+uv run python -m searcharis.build_compare \
+  examples/seo-contract/regression-demo/manifest.json \
+  examples/seo-contract/regression-demo/baseline \
+  examples/seo-contract/regression-demo/candidate \
+  --check-reviewed-navigation --check-reviewed-fragments
+```
+
+The command still exits 1 for this fixture's existing **new title regression**;
+the fixture has no navigation or fragment regressions. Fragment checks cover
+only static reviewed local HTML IDs, not JavaScript-generated elements or live
+routing. Links to pages outside the reviewed manifest cannot have their
+fragment targets verified. URLs in contracts and anchors are never fetched.

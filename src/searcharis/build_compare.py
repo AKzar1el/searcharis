@@ -58,6 +58,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Check declared pages' actual canonical links in each build",
     )
     parser.add_argument(
+        "--check-reviewed-navigation", action="store_true",
+        help="Gate new links to unreviewed same-origin routes in built HTML",
+    )
+    parser.add_argument(
+        "--check-reviewed-fragments", action="store_true",
+        help="Gate newly missing or ambiguous fragment IDs in reviewed built HTML",
+    )
+    parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block only newly unlisted HTML without blocking existing gaps",
     )
@@ -122,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
             "check_hreflang_reciprocity": args.check_hreflang_reciprocity,
             "check_hreflang_clusters": args.check_hreflang_clusters,
             "check_canonical_consistency": args.check_canonical_consistency,
+            "check_reviewed_navigation": args.check_reviewed_navigation,
+            "check_reviewed_fragments": args.check_reviewed_fragments,
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)
