@@ -1173,9 +1173,10 @@ the original `--junit` option remains available; ensure your shell saves
 its output in a compatible encoding. See
 [Microsoft's Windows PowerShell encoding reference](https://github.com/MicrosoftDocs/PowerShell-Docs/blob/main/reference/5.1/Microsoft.PowerShell.Core/About/about_Character_Encoding.md).
 
-JUnit output modes are mutually exclusive with `--json`, `--sarif` and `--sarif-file`;
-`--sarif-source-map` remains SARIF-only. The XML contains one failed testcase
-per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
+The stdout mode `--junit` is mutually exclusive with other stdout modes and
+file report options; `--junit-file` can now accompany other file report
+options. `--sarif-source-map` remains SARIF-only. The XML contains one failed
+testcase per *newly blocking* page issue, missing page, newly unlisted HTML when gated,
 or newly unverified cross-page target when gated. The testcase name identifies
 the built artifact and check. If only old known problems remain, the report
 contains one passing `no-new-blocking-regressions` testcase so it is not an
@@ -1208,10 +1209,32 @@ count), reserving one example from each nonempty category so a flood of page
 issues cannot hide removed routes or other new observations. Summary counts
 remain complete, with fixed reviewer next steps. It never fetches URLs,
 modifies either build, overwrites an existing file, or changes comparison exit
-codes 0/1/2. `--markdown-file` is mutually exclusive with JSON, SARIF and JUnit
-output modes; choose a fresh path outside both build snapshots and publish it
-even on regression exit 1. It is not evidence of hosted CI ingestion, deployed
+codes 0/1/2. `--markdown-file` can accompany the other *file* report options
+but not stdout report modes; choose a fresh path outside both build snapshots
+and publish it even on regression exit 1. It is not evidence of hosted CI ingestion, deployed
 routing, search rankings or customer adoption.
+
+To deliver complete machine findings, a human review summary and a source-linked
+SARIF artifact from **one** baseline/candidate comparison, run:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --json-file reports/seo-regressions.json \
+  --markdown-file reports/seo-regressions.md \
+  --sarif-file reports/seo-regressions.sarif
+```
+
+All four file options (`--json-file`, `--junit-file`, `--markdown-file`,
+`--sarif-file`) may be combined, including with reviewed
+`--sarif-source-map`. Each destination must be a **distinct new path** in an
+existing directory outside both build snapshots; collisions, pre-existing
+files, missing parents or build-tree destinations are rejected before any
+output is created. The original `--json`, `--junit`, and `--sarif` stdout
+modes remain mutually exclusive and cannot be mixed with file modes. Outputs
+use UTF-8 and preserve the single comparison's regression-only 0/1/2 exit
+code. Preflight protects against invalid destinations, but an unexpected I/O
+failure after writing starts can leave an earlier artifact; CI should discard
+artifacts from exit 2. This performs no hosted upload or URL fetch.
 
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and

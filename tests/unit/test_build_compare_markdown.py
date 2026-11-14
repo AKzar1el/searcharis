@@ -193,4 +193,4 @@ def test_markdown_report_mode_is_exclusive_with_json(tmp_path, capsys):
         _run(manifest, baseline, candidate,
              "--json", "--markdown-file", str(tmp_path / "summary.md"))
     assert failure.value.code == 2
-    assert "not allowed with argument" in capsys.readouterr().err
+    assert "stdout report mode is not allowed with file report modes" in capsys.readouterr().err
