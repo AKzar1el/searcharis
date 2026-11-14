@@ -94,3 +94,31 @@ def test_runnable_regression_demo_excludes_known_baseline_debt(
     assert sarif_results[0]["locations"][0]["physicalLocation"][
         "artifactLocation"
     ]["uri"] == "pricing/index.html"
+
+
+def test_runnable_regression_demo_passes_a_repaired_candidate_with_inherited_debt(
+    capsys, monkeypatch,
+):
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("Offline regression demo attempted an HTTP connection")
+
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    baseline = DEMO / "baseline"
+    repaired = DEMO / "candidate-passing"
+    for path in ("index.html", "pricing/index.html"):
+        assert (repaired / path).is_file()
+        assert not (baseline / path).samefile(repaired / path)
+
+    code = compare_builds([
+        str(DEMO / "manifest.json"), str(baseline), str(repaired),
+        "--require-full-coverage", "--json",
+    ])
+    output = capsys.readouterr()
+    assert code == 0
+    assert output.err == ""
+    report = json.loads(output.out)
+    assert report["status"] == "pass"
+    assert report["summary"]["new_issues"] == 0
+    assert report["summary"]["existing_issues"] == 1
+    assert report["summary"]["resolved_issues"] == 0

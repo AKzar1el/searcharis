@@ -34,6 +34,22 @@ The `seo-ci.invalid` URL values are reviewed assertions only, never requests.
 The checker does not fetch URLs, build pages, verify HTTP headers or establish
 actual Google indexing.
 
+## Verify the passing gate before enforcing it
+
+The separate `candidate-passing` snapshot restores the pricing title but keeps
+the inherited missing home description. Run this from the repository root:
+
+```sh
+uv run python -m searcharis.build_compare examples/seo-contract/regression-demo/manifest.json examples/seo-contract/regression-demo/baseline examples/seo-contract/regression-demo/candidate-passing --require-full-coverage --json
+```
+
+**Expected exit status: 0** (`status: pass`, zero new issues, one inherited
+home-page description issue). Compare it to the first command above, which
+**must exit 1** for a new pricing-page title regression. Both paths use the
+same reviewed manifest, no network, and independent local HTML snapshots.
+This gives CI adopters a safe positive and negative gate smoke test before
+substituting their own trusted baseline and candidate build directories.
+
 For a real release gate, supply a developer-reviewed manifest and two
 independently produced, immutable local build artifacts. A trusted baseline
 needs its own provenance; a successful local demo is not evidence of customer
