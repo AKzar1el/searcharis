@@ -1139,6 +1139,23 @@ resolved issue counts, and is create-only outside both build snapshots.
 `--fail-on-new-unverified-targets` still applies specifically to enabled
 canonical/hreflang cross-page checks, not to unknown fragment destinations.
 
+To catch newly duplicated page titles or meta descriptions without blocking
+unchanged legacy duplicates, enable `--check-unique-titles` and/or
+`--check-unique-descriptions`. As in the combined release gate, uniqueness is
+scoped to reviewed indexable HTML on the same origin. Blank metadata is
+governed by explicit presence contracts, and intentionally noindex pages are
+excluded. For example:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-unique-titles --check-unique-descriptions --json-file seo-metadata-regressions.json
+```
+
+This compares both builds with identical policies and reports only new
+duplicate findings as release blockers. It cannot observe deployed pages,
+Google-selected titles or search appearance; inspect deliberate duplicate
+titles/descriptions before enabling these opt-in checks.
+
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
 ```sh

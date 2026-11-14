@@ -66,6 +66,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate newly missing or ambiguous fragment IDs in reviewed built HTML",
     )
     parser.add_argument(
+        "--check-unique-titles", action="store_true",
+        help="Gate newly duplicated titles across reviewed indexable same-origin pages",
+    )
+    parser.add_argument(
+        "--check-unique-descriptions", action="store_true",
+        help="Gate newly duplicated descriptions across reviewed indexable same-origin pages",
+    )
+    parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block only newly unlisted HTML without blocking existing gaps",
     )
@@ -132,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
             "check_canonical_consistency": args.check_canonical_consistency,
             "check_reviewed_navigation": args.check_reviewed_navigation,
             "check_reviewed_fragments": args.check_reviewed_fragments,
+            "check_unique_titles": args.check_unique_titles,
+            "check_unique_descriptions": args.check_unique_descriptions,
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)
