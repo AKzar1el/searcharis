@@ -525,12 +525,10 @@ def test_sarif_file_not_created_when_comparison_input_invalid(tmp_path, capsys):
     assert capsys.readouterr().out == ""
 
 
-@pytest.mark.parametrize("flag", ["--sarif", "--json", "--junit", "--junit-file"])
-def test_sarif_file_is_exclusive_with_other_report_formats(tmp_path, flag):
+@pytest.mark.parametrize("flag", ["--sarif", "--json", "--junit"])
+def test_sarif_file_is_exclusive_with_stdout_report_formats(tmp_path, flag):
     manifest, baseline, candidate, _ = _fixture(tmp_path)
     args = ("--sarif-file", str(tmp_path / "seo.sarif"), flag)
-    if flag == "--junit-file":
-        args += (str(tmp_path / "seo.xml"),)
     with pytest.raises(SystemExit) as error:
         _run(manifest, baseline, candidate, *args)
     assert error.value.code == 2
@@ -619,12 +617,10 @@ def test_json_file_invalid_inputs_leave_no_output(tmp_path, capsys):
     assert "Invalid input" in out.err
 
 
-@pytest.mark.parametrize("other", ["--json", "--sarif", "--junit", "--sarif-file", "--junit-file"])
-def test_json_file_is_mutually_exclusive_with_other_formats(tmp_path, other):
+@pytest.mark.parametrize("other", ["--json", "--sarif", "--junit"])
+def test_json_file_is_mutually_exclusive_with_stdout_formats(tmp_path, other):
     manifest, baseline, candidate, _ = _fixture(tmp_path)
     args = ("--json-file", str(tmp_path / "report.json"), other)
-    if other.endswith("-file"):
-        args += (str(tmp_path / "other.xml"),)
     with pytest.raises(SystemExit) as error:
         _run(manifest, baseline, candidate, *args)
     assert error.value.code == 2
