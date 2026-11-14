@@ -11,10 +11,22 @@ from searcharis.cli_error_display import human_input_error
 from searcharis.site_ci import read_manifest
 from searcharis.sitemap_ci import verify_sitemap_manifest
 
+_MAX_HUMAN_FINDINGS = 20
+
 
 def _display(value: str) -> str:
     text = repr(value)
     return text if len(text) <= 140 else text[:137] + "..."
+
+
+def _bounded_human_lines(groups: tuple[list[str], ...]) -> tuple[list[str], int]:
+    """Reserve an example per populated sitemap failure category in CI logs."""
+    selected: list[str] = []
+    for index, group in enumerate(groups):
+        reserved = sum(bool(later) for later in groups[index + 1:])
+        available = max(0, _MAX_HUMAN_FINDINGS - len(selected) - reserved)
+        selected.extend(group[:available])
+    return selected, sum(map(len, groups)) - len(selected)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,14 +77,19 @@ def main(argv: list[str] | None = None) -> int:
             f"{summary['unasserted_pages']} without indexability assertion, "
             f"{summary['sitemap_urls']} sitemap URLs"
         )
-        for url in report["missing_required"]:
-            print(f"  Missing required: {_display(url)}")
-        for url in report["present_excluded"]:
-            print(f"  Unexpected noindex URL: {_display(url)}")
-        for url in report.get("present_noncanonical", []):
-            print(f"  Noncanonical reviewed URL in sitemap: {_display(url)}")
-        for url in report.get("unreviewed_urls", []):
-            print(f"  Unreviewed sitemap URL: {_display(url)}")
+        groups = (
+            [f"  Missing required: {_display(url)}" for url in report["missing_required"]],
+            [f"  Unexpected noindex URL: {_display(url)}" for url in report["present_excluded"]],
+            [f"  Noncanonical reviewed URL in sitemap: {_display(url)}"
+             for url in report.get("present_noncanonical", [])],
+            [f"  Unreviewed sitemap URL: {_display(url)}"
+             for url in report.get("unreviewed_urls", [])],
+        )
+        lines, omitted = _bounded_human_lines(groups)
+        for line in lines:
+            print(line)
+        if omitted:
+            print(f"  ... and {omitted} more sitemap findings; use --json for all")
     return 0 if report["status"] == "pass" else 1
 
 
