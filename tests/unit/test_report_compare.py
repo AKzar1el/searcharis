@@ -875,6 +875,99 @@ def test_archived_comparison_json_file_rejects_stdout_json_mode(tmp_path):
     assert not (tmp_path / "comparison.json").exists()
 
 
+@pytest.mark.parametrize("new_issue", [False, True])
+def test_archived_comparison_markdown_file_is_bounded_utf8_offline_and_gated(
+    tmp_path, capsys, monkeypatch, new_issue,
+):
+    baseline = _report([("en/index.html", [_issue("déjà vu")])])
+    candidate = _report([
+        ("en/index.html", [_issue("déjà vu")]),
+        ("fr/index.html", [_issue("<script>\nélément")] if new_issue else []),
+    ])
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    output = tmp_path / "comparison.md"
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived report Markdown must remain offline")
+    ))
+    monkeypatch.setattr(socket.socket, "connect", lambda *_a, **_k: (
+        pytest.fail("Archived report Markdown must never connect")
+    ))
+
+    assert main([str(before), str(after), "--markdown-file", str(output)]) == int(new_issue)
+    assert capsys.readouterr().out == ""
+    contents = output.read_bytes()
+    assert contents.decode("utf-8").startswith("# Searcharis SEO build comparison\n")
+    assert "Inherited baseline issues: 1 (not blocking)" in contents.decode("utf-8")
+    assert ("**Result: REGRESSION**" in contents.decode("utf-8")) == new_issue
+    if new_issue:
+        assert "élément".encode() in contents
+        assert b"<script>" not in contents
+        assert b"&lt;script&gt;" in contents
+        assert b"\\n" in contents
+
+
+def test_archived_comparison_markdown_file_rejects_collisions_and_missing_parent(
+    tmp_path, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    existing = tmp_path / "existing.md"
+    existing.write_bytes(b"DO NOT OVERWRITE")
+    for dest in (before, after, existing, tmp_path / "missing" / "comparison.md"):
+        assert main([str(before), str(after), "--markdown-file", str(dest)]) == 2
+        assert capsys.readouterr().out == ""
+    assert before.read_text(encoding="utf-8") == report
+    assert after.read_text(encoding="utf-8") == report
+    assert existing.read_bytes() == b"DO NOT OVERWRITE"
+    assert not (tmp_path / "missing").exists()
+
+
+def test_archived_comparison_markdown_file_invalid_report_creates_nothing(tmp_path, capsys):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text("{", encoding="utf-8")
+    after.write_text(json.dumps(_report([("index.html", [])])), encoding="utf-8")
+    destination = tmp_path / "comparison.md"
+    assert main([str(before), str(after), "--markdown-file", str(destination)]) == 2
+    assert "Invalid or incompatible report" in capsys.readouterr().err
+    assert not destination.exists()
+
+
+def test_archived_comparison_markdown_file_conflicts_with_json_modes(tmp_path):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    for conflicting_option in (["--json"], ["--json-file", str(tmp_path / "output.json")]):
+        with pytest.raises(SystemExit) as error:
+            main([
+                str(before), str(after), "--markdown-file", str(tmp_path / "output.md"),
+                *conflicting_option,
+            ])
+        assert error.value.code == 2
+    assert not (tmp_path / "output.md").exists()
+
+
+@pytest.mark.parametrize("strict,flag", [(False, False), (False, True), (True, False)])
+def test_archived_comparison_markdown_file_labels_new_unlisted_gate(
+    tmp_path, strict, flag,
+):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(_report([("index.html", [])], strict=strict)), encoding="utf-8")
+    after.write_text(json.dumps(_report(
+        [("index.html", [])], unlisted=("new.html",), strict=strict,
+    )), encoding="utf-8")
+    artifact = tmp_path / "summary.md"
+    args = [str(before), str(after), "--markdown-file", str(artifact)]
+    if flag:
+        args.append("--fail-on-new-unlisted")
+    gated = strict or flag
+    assert main(args) == int(gated)
+    content = artifact.read_text(encoding="utf-8")
+    assert f"New unlisted built HTML: 1 ({'blocking' if gated else 'not gated'})" in content
+    assert ("Result: REGRESSION" in content) == gated
+
+
 @pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])
 def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
     tmp_path, capsys, observed,

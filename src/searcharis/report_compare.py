@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.comparison_markdown import build_comparison_markdown
 from searcharis.site_ci import _page_url_identity
 
 _MAX_REPORT_BYTES = 16_000_000
@@ -352,6 +353,10 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Write complete comparison JSON to a new UTF-8 file; never overwrite",
     )
+    output_mode.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write a bounded Markdown regression review to a new UTF-8 file; never overwrite",
+    )
     parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block newly unlisted HTML artifacts without failing on existing coverage gaps",
@@ -362,8 +367,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        baseline_report = _read_report(args.baseline)
+        candidate_report = _read_report(args.candidate)
         result = compare_reports(
-            _read_report(args.baseline), _read_report(args.candidate),
+            baseline_report, candidate_report,
             fail_on_new_unlisted=args.fail_on_new_unlisted,
             fail_on_new_unverified_targets=args.fail_on_new_unverified_targets,
         )
@@ -374,17 +381,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file:
+    if args.json_file or args.markdown_file:
         try:
-            target = args.json_file
+            target = args.json_file or args.markdown_file
             if target.exists() or target.is_symlink():
                 raise FileExistsError(f"Comparison report already exists: {target}")
             if not target.parent.is_dir():
                 raise ValueError(f"Report parent must be an existing directory: {target.parent}")
             if target.resolve() in {args.baseline.resolve(), args.candidate.resolve()}:
                 raise ValueError("Comparison report cannot replace an input report")
+            payload = (
+                json.dumps(result, indent=2, sort_keys=True)
+                if args.json_file
+                else build_comparison_markdown(
+                    result,
+                    gate_new_unlisted=(
+                        args.fail_on_new_unlisted
+                        or baseline_report["coverage"]["require_full_coverage"]
+                    ),
+                    gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+                )
+            )
             with target.open("x", encoding="utf-8", newline="\n") as output:
-                output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+                output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid report destination: {human_input_error(error)}", file=sys.stderr)
             return 2
