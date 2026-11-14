@@ -84,6 +84,142 @@ def test_new_unlisted_page_opt_in_and_full_coverage(tmp_path, capsys):
     assert "UNLISTED extra.html" in capsys.readouterr().out
 
 
+def test_new_unreviewed_navigation_link_is_opt_in_regression(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    old_link = '<a href="/inherited">Old</a>'
+    header = "<html><head><title>Old</title></head><body>"
+    (baseline / "index.html").write_text(header + old_link, encoding="utf-8")
+    (candidate / "index.html").write_text(
+        header + old_link + '<a href="/new-route">New</a>', encoding="utf-8"
+    )
+
+    assert _run(manifest, baseline, candidate) == 0
+    capsys.readouterr()
+    assert _run(
+        manifest, baseline, candidate, "--check-reviewed-navigation", "--json"
+    ) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["existing_issues"] == 1
+    assert result["summary"]["new_issues"] == 1
+    assert result["new_issues"][0]["issue"]["code"] == "navigation_target_unreviewed"
+    assert result["new_issues"][0]["issue"]["actual"] == "https://example.test/new-route"
+
+
+def test_inherited_and_resolved_navigation_issues_do_not_block(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    old = '<html><head><title>Old</title></head><a href="/inherited">Old</a>'
+    (baseline / "index.html").write_text(old, encoding="utf-8")
+    (candidate / "index.html").write_text(old, encoding="utf-8")
+
+    assert _run(manifest, baseline, candidate, "--check-reviewed-navigation") == 0
+    assert "1 existing" in capsys.readouterr().out
+    (candidate / "index.html").write_text(
+        '<html><head><title>Old</title></head><a href="/">Fixed</a>',
+        encoding="utf-8",
+    )
+    assert _run(manifest, baseline, candidate, "--check-reviewed-navigation", "--json") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["new_issues"] == 0
+    assert result["summary"]["resolved_issues"] == 1
+
+
+def test_new_broken_reviewed_fragment_is_opt_in_regression(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    inherited = '<a href="#already-broken">Old</a>'
+    header = "<html><head><title>Old</title></head><body>"
+    (baseline / "index.html").write_text(header + inherited, encoding="utf-8")
+    (candidate / "index.html").write_text(
+        header + inherited + '<a href="#new-broken">New</a>', encoding="utf-8"
+    )
+
+    assert _run(manifest, baseline, candidate) == 0
+    capsys.readouterr()
+    assert _run(
+        manifest, baseline, candidate, "--check-reviewed-fragments", "--json"
+    ) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["existing_issues"] == 1
+    assert result["summary"]["new_issues"] == 1
+    assert result["new_issues"][0]["issue"]["code"] == "navigation_fragment_missing"
+    assert result["new_issues"][0]["issue"]["actual"] == "https://example.test/#new-broken"
+
+
+def test_new_ambiguous_reviewed_fragment_blocks_comparison(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    html = ('<html><head><title>Old</title></head>'
+            '<a href="#pricing">Go</a><section id="pricing">One</section>')
+    (baseline / "index.html").write_text(html, encoding="utf-8")
+    (candidate / "index.html").write_text(
+        html + '<section id="pricing">Duplicate</section>', encoding="utf-8"
+    )
+
+    assert _run(manifest, baseline, candidate, "--check-reviewed-fragments", "--json") == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["new_issues"] == 1
+    assert result["new_issues"][0]["issue"]["code"] == "navigation_fragment_ambiguous"
+
+
+def test_navigation_and_fragment_regressions_export_together(tmp_path, capsys):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    header = "<html><head><title>Old</title></head><body>"
+    (baseline / "index.html").write_text(
+        header + '<a href="#good">Good</a><i id="good"></i>', encoding="utf-8"
+    )
+    (candidate / "index.html").write_text(
+        header + '<a href="/unreviewed#broken">Route</a><a href="#missing">Fragment</a>',
+        encoding="utf-8",
+    )
+    output = tmp_path / "reviewed-navigation-regressions.json"
+    assert _run(
+        manifest, baseline, candidate, "--check-reviewed-navigation",
+        "--check-reviewed-fragments", "--json-file", str(output),
+    ) == 1
+    assert capsys.readouterr().out == ""
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert {item["issue"]["code"] for item in report["new_issues"]} == {
+        "navigation_target_unreviewed", "navigation_fragment_missing",
+    }
+
+
+def test_reviewed_cross_page_fragment_regression_requires_no_network(
+    tmp_path, capsys, monkeypatch
+):
+    manifest, baseline, candidate, data = _fixture(tmp_path)
+    data["pages"].append({
+        "path": "pricing.html",
+        "contract": {"url": "https://example.test/pricing", "title_present": True},
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    source_html = (
+        '<html><head><title>Old</title></head>'
+        '<a href="/pricing#plans">Plans</a>'
+    )
+    for root in (baseline, candidate):
+        (root / "index.html").write_text(source_html, encoding="utf-8")
+    (baseline / "pricing.html").write_text(
+        '<html><head><title>Pricing</title></head><h2 id="plans">Plans</h2>',
+        encoding="utf-8",
+    )
+    (candidate / "pricing.html").write_text(
+        "<html><head><title>Pricing</title></head><h2>Plans</h2>",
+        encoding="utf-8",
+    )
+
+    def forbid_network(*_args, **_kwargs):
+        raise AssertionError("The offline checker must not connect to any URL")
+
+    monkeypatch.setattr(socket.socket, "connect", forbid_network)
+    assert _run(manifest, baseline, candidate, "--check-reviewed-navigation") == 0
+    capsys.readouterr()
+    assert _run(
+        manifest, baseline, candidate, "--check-reviewed-fragments", "--json"
+    ) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["summary"]["new_issues"] == 1
+    assert result["new_issues"][0]["path"] == "index.html"
+    assert result["new_issues"][0]["issue"]["code"] == "navigation_fragment_missing"
+
+
 def test_unverified_target_gate_requires_cross_page_check(tmp_path, capsys):
     manifest, baseline, candidate, _ = _fixture(tmp_path)
     assert _run(

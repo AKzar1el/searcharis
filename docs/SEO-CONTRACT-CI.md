@@ -1119,6 +1119,26 @@ copies for the compared pages. Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
 
+Optional `--check-reviewed-navigation` and `--check-reviewed-fragments`
+also work with `build_compare`. They compare the **same opt-in checks on
+both** builds and block only newly introduced same-origin links outside the
+reviewed manifest, or new links to missing/ambiguous fragment IDs in reviewed
+local HTML. Pre-existing broken links do not block the candidate. These flags
+use the same static-only semantics as the corresponding site/release gates;
+they do not fetch URLs, test live routing or inspect JavaScript-created IDs.
+Outside-manifest fragment destinations cannot be verified. For example:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-reviewed-navigation --check-reviewed-fragments \
+  --json-file seo-navigation-regressions.json
+```
+
+The JSON artifact contains only comparison deltas, including inherited and
+resolved issue counts, and is create-only outside both build snapshots.
+`--fail-on-new-unverified-targets` still applies specifically to enabled
+canonical/hreflang cross-page checks, not to unknown fragment destinations.
+
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
 ```sh
