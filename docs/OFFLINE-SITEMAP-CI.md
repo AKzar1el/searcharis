@@ -71,6 +71,7 @@ uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml 
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --require-indexability-coverage --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap-1.xml dist/sitemap-2.xml --check-canonical-consistency
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --json-file ci-artifacts/seo-release.json
+uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --require-full-coverage --sarif-file ci-artifacts/seo-release.sarif
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-noncanonical-urls --json
 uv run python -m searcharis.release_cli seo-manifest.json dist dist/sitemap.xml --reject-unreviewed-urls --junit
 ```

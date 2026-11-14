@@ -29,6 +29,15 @@ The JUnit suite has one passing testcase when both gates pass or one failed
 testcase per blocking HTML/sitemap finding.
 See [offline release JUnit usage](../../../docs/SEO-RELEASE-JUNIT.md).
 
+For a single SARIF 2.1.0 artifact covering **both** local HTML and sitemap
+release failures, pass `--sarif-file seo-release.sarif` instead of `--json`,
+or add it to the JSON/JUnit/Markdown file options above in one pass. It creates
+a new UTF-8 file outside the build and never uploads it. Sitemap results use
+the reviewed manifest as a document-level location hint, not an inferred XML
+line. Explicit `--sarif-source-map sources.json` maps only reviewed generated
+HTML findings to checked-in source files. Check the process exit status and
+verify any downstream SARIF consumer independently before relying on annotations.
+
 To give reviewers a compact human-readable report, add
 `--markdown-file seo-release.md` alongside either or both artifact flags.
 The Markdown summary includes HTML and sitemap status, bounded actionable

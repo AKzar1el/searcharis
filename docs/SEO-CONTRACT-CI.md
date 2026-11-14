@@ -951,6 +951,43 @@ for complete findings. Each failed-page line also caps individual issue codes
 at eight. Ungated unlisted HTML is counted but does not consume
 blocking detail slots. Exit codes and JSON/JUnit/Markdown artifacts are unchanged.
 
+## One-pass HTML and sitemap SARIF release artifact
+
+For a single offline release check that preserves *both* built-HTML failures
+and reviewed sitemap URL discrepancies in one machine-readable SARIF 2.1.0 file:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-full-coverage --reject-unreviewed-urls \
+  --sarif-file reports/release.sarif --json-file reports/release.json
+```
+
+`--sarif-file` creates a complete UTF-8 file without stdout, with no overwrite,
+an existing parent directory, and a destination outside the supplied build.
+It may be combined with `--json-file`, `--junit-file` and `--markdown-file`
+from the *same* verification pass. Destinations must all be distinct and are
+preflighted before any file is written; an unexpected mid-write filesystem
+failure is not an atomic multi-file transaction. Stdout `--json` and
+`--junit` remain mutually exclusive with file report modes. Exit 0 still means
+both gates pass, 1 means a blocking mismatch, and 2 means an input/output error.
+
+HTML findings retain the standalone HTML SARIF artifact anchors and stable
+fingerprints. Optionally provide `--sarif-source-map sources.json` for
+explicitly reviewed build-to-repository source-file hints; it is valid only
+with `--sarif-file` and never guesses source line numbers. Sitemap findings
+use distinct stable rules for missing required, included noindex, included
+noncanonical, and unreviewed URLs. They anchor to **line 1 of the reviewed
+manifest** as a document-level hint because a missing URL cannot be assigned
+an XML line and split sitemap shards do not identify one offending source.
+Review the manifest and each supplied XML URL set; no source line is inferred.
+An absolute manifest path outside the working directory is represented by its
+filename rather than leaking a machine-specific absolute directory.
+
+This creates a local artifact only: it does not upload SARIF to a hosted
+consumer, validate GitHub code-scanning acceptance, discover deployed routes,
+fetch URLs, or measure search impact. Configure and verify downstream ingestion
+separately using your approved CI pipeline.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates

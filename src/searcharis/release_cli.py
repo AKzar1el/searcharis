@@ -13,8 +13,10 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.release_markdown import build_release_markdown
+from searcharis.release_sarif import build_release_sarif
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_release_junit
+from searcharis.site_source_map import read_source_map
 from searcharis.sitemap_ci import verify_sitemap_manifest
 
 _MAX_HUMAN_FINDINGS = 20
@@ -112,9 +114,19 @@ def main(argv: list[str] | None = None) -> int:
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded Markdown CI summary to a new file outside the build",
     )
+    parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write combined HTML and sitemap findings as new UTF-8 SARIF 2.1.0",
+    )
+    parser.add_argument(
+        "--sarif-source-map", type=Path, metavar="PATH",
+        help="Reviewed local build-to-source hints for HTML SARIF findings only",
+    )
     args = parser.parse_args(argv)
+    if args.sarif_source_map and not args.sarif_file:
+        parser.error("--sarif-source-map requires --sarif-file")
     if (args.json or args.junit) and (
-        args.json_file or args.junit_file or args.markdown_file
+        args.json_file or args.junit_file or args.markdown_file or args.sarif_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
 
@@ -139,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
             reject_noncanonical_urls=args.reject_noncanonical_urls,
             reject_unreviewed_urls=args.reject_unreviewed_urls,
         )
+        sources = (
+            read_source_map(args.sarif_source_map, site, source_root=Path.cwd())
+            if args.sarif_source_map else {}
+        )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
@@ -147,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
-    if args.json_file or args.junit_file or args.markdown_file:
+    if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((args.json_file, "JSON", json.dumps(
@@ -159,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.markdown_file:
             reports.append((args.markdown_file, "Markdown", build_release_markdown(
                 site, sitemap,
+            )))
+        if args.sarif_file:
+            reports.append((args.sarif_file, "SARIF", json.dumps(
+                build_release_sarif(site, sitemap, args.manifest, sources=sources),
+                indent=2, sort_keys=True,
             )))
         try:
             # Preflight every target before writing either report. The second
