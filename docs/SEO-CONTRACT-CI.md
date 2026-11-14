@@ -936,6 +936,10 @@ targets) and sitemap discrepancies to fixed remediation hints. Unknown issue
 codes still appear in the blocking findings; they do not inject arbitrary
 instructions. Passing reports omit the action section. Hints never edit the
 build, manifest or sitemap, fetch URLs or prove live routing/search impact.
+Under the 20-detail limit per HTML and sitemap section, the summary retains
+at least one example from each nonempty blocking category (including strict
+coverage gaps, excluded URLs and noncanonical sitemap entries), rather than
+letting a large first category hide a distinct release failure.
 Use the full structured report and site-specific policy to decide each fix.
 
 ## Reciprocal hreflang between local build artifacts
