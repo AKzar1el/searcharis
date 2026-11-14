@@ -50,7 +50,12 @@ def main(argv: list[str] | None = None) -> int:
         "--reject-unreviewed-urls", action="store_true",
         help="Reject local sitemap URLs absent from all reviewed manifest pages/canonicals",
     )
-    parser.add_argument("--json", action="store_true", help="Print structured JSON outcome")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print structured JSON outcome")
+    output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete JSON to a new UTF-8 file instead of stdout; never overwrite",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -67,7 +72,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.json_file:
+        try:
+            path = args.json_file
+            if path.exists() or path.is_symlink():
+                raise FileExistsError(f"JSON report already exists: {path}")
+            if not path.parent.is_dir():
+                raise ValueError(f"JSON report parent must be an existing directory: {path.parent}")
+            # Exclusive creation prevents a concurrent CI job from replacing an artifact.
+            with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         summary = report["summary"]
