@@ -349,6 +349,84 @@ def test_archived_reports_preserve_distinct_page_url_identities(different):
     assert compare_reports(report, report)["status"] == "pass"
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/pricing",
+    "https://example.test:443/pricing",
+    "https://example.test/a/../pricing",
+    "https://example.test/%70ricing",
+    "https://example.test/pricing#section",
+])
+def test_cross_report_equivalent_url_spelling_preserves_inherited_issue(alias):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = alias
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "pass"
+    assert result["summary"]["existing_issues"] == 1
+    assert result["summary"]["new_issues"] == 0
+    assert result["summary"]["resolved_issues"] == 0
+    assert result["summary"]["removed_pages"] == 0
+
+
+def test_cross_report_equivalent_url_spelling_still_detects_changed_issue():
+    baseline = _report([("pricing.html", [_issue("old")])])
+    candidate = _report([("pricing.html", [_issue("new")])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/pricing"
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["new_issues"] == 1
+    assert result["summary"]["resolved_issues"] == 1
+    assert result["summary"]["removed_pages"] == 0
+    assert result["new_issues"][0]["checked_url"] == "https://EXAMPLE.test:443/pricing"
+
+
+def test_cli_cross_report_equivalent_urls_remain_offline_and_nonblocking(
+    tmp_path, capsys, monkeypatch,
+):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/pricing"
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived report comparison must not fetch URLs")
+    ))
+
+    assert main([str(before), str(after), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "pass"
+    assert result["summary"]["existing_issues"] == 1
+    assert result["removed_pages"] == []
+
+
+@pytest.mark.parametrize("different", [
+    "https://example.test/Pricing",
+    "https://example.test/pricing?mode=other",
+    "https://example.test:444/pricing",
+    "https://example.test/pric%2Fing",
+    "http://example.test/pricing",
+])
+def test_cross_report_distinct_url_still_counts_removed_page(different):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = different
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["removed_pages"] == 1
+    assert result["summary"]["new_issues"] == 1
+    assert result["removed_pages"] == [{
+        "path": "pricing.html", "checked_url": "https://example.test/pricing",
+    }]
+
+
 def test_cli_rejects_archived_aliases_in_machine_readable_comparison(tmp_path, capsys):
     report = _report([("one.html", []), ("two.html", [])])
     report["pages"][0]["checked_url"] = "https://example.test/"

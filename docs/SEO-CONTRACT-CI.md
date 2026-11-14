@@ -1339,6 +1339,12 @@ exact duplicate paths and duplicate contract URLs are still invalid.
 A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
+When comparing legacy reports without contract fingerprints, resource-equivalent
+HTTP(S) spellings across saved runs (such as host casing, default ports or
+unreserved percent escapes) identify the same reviewed page for issue and
+removal matching. Original URLs remain in diagnostics. Different schemes,
+non-default ports, case-sensitive paths and queries remain distinct; newly
+generated fingerprinted reports still require identical reviewed contracts.
 When a team cannot yet require full coverage of its legacy site, it can
 prevent **new unreviewed HTML routes** without blocking known existing gaps:
 
