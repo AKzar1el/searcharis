@@ -804,6 +804,77 @@ def test_cli_regression_exit_codes_and_offline_behavior(tmp_path, capsys, monkey
     assert json.loads(capsys.readouterr().out)["status"] == "error"
 
 
+@pytest.mark.parametrize("has_regression", [False, True])
+def test_archived_comparison_json_file_is_complete_utf8_and_offline(
+    tmp_path, capsys, monkeypatch, has_regression,
+):
+    baseline = _report([("en/index.html", [_issue("déjà vu")])])
+    candidate = _report([
+        ("en/index.html", [_issue("déjà vu")]),
+        ("fr/index.html", [_issue("nouveau")] if has_regression else []),
+    ])
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    artifact = tmp_path / "reports" / "comparison.json"
+    artifact.parent.mkdir()
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived comparison must remain offline")
+    ))
+
+    expected_exit = 1 if has_regression else 0
+    assert main([str(before), str(after), "--json"]) == expected_exit
+    expected = json.loads(capsys.readouterr().out)
+    assert main([str(before), str(after), "--json-file", str(artifact)]) == expected_exit
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    assert artifact.read_bytes().startswith(b"{")
+    assert json.loads(artifact.read_text(encoding="utf-8")) == expected
+    assert expected["summary"]["existing_issues"] == 1
+    assert expected["summary"]["new_issues"] == int(has_regression)
+
+
+def test_archived_comparison_json_file_refuses_overwrite_and_missing_parent(tmp_path, capsys):
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    report = json.dumps(_report([("en/index.html", [])]))
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    existing = tmp_path / "existing.json"
+    existing.write_bytes(b"DO NOT REPLACE")
+    for destination in (existing, before, after, tmp_path / "absent" / "result.json"):
+        assert main([str(before), str(after), "--json-file", str(destination)]) == 2
+        assert capsys.readouterr().out == ""
+    assert existing.read_bytes() == b"DO NOT REPLACE"
+    assert before.read_text(encoding="utf-8") == report
+    assert after.read_text(encoding="utf-8") == report
+    assert not (tmp_path / "absent").exists()
+
+
+def test_archived_comparison_json_file_invalid_input_does_not_create_artifact(
+    tmp_path, capsys,
+):
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(_report([("en/index.html", [])])), encoding="utf-8")
+    after.write_text("{", encoding="utf-8")
+    artifact = tmp_path / "comparison.json"
+    assert main([str(before), str(after), "--json-file", str(artifact)]) == 2
+    captured = capsys.readouterr()
+    assert "Invalid or incompatible report" in captured.err
+    assert captured.out == ""
+    assert not artifact.exists()
+
+
+def test_archived_comparison_json_file_rejects_stdout_json_mode(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        main([
+            str(tmp_path / "baseline.json"),
+            str(tmp_path / "candidate.json"),
+            "--json", "--json-file", str(tmp_path / "comparison.json"),
+        ])
+    assert error.value.code == 2
+    assert not (tmp_path / "comparison.json").exists()
+
+
 @pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])
 def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
     tmp_path, capsys, observed,

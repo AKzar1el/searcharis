@@ -1281,7 +1281,7 @@ on the candidate build, saving complete UTF-8 JSON reports directly:
 ```sh
 uv run python -m searcharis.site_cli manifest.json baseline-build --json-file baseline.json
 uv run python -m searcharis.site_cli manifest.json candidate-build --json-file candidate.json
-uv run python -m searcharis.report_compare baseline.json candidate.json --json
+uv run python -m searcharis.report_compare baseline.json candidate.json --json-file comparison.json
 ```
 
 `--json-file PATH` writes the same structured report as `--json` to a new
@@ -1299,6 +1299,15 @@ the comparison, but always stop on **2** (invalid input). The last invocation
 returns **0** if no new regressions are found, **1** for new or changed page
 issues, missing baseline routes, or newly unlisted HTML when full coverage
 is enabled, and **2** for unreadable, malformed or incompatible reports.
+For the final archived comparison, `--json-file PATH` creates the complete
+`report_compare --json` payload directly as UTF-8, without stdout or shell
+redirection. Its parent must exist and the destination must be new, never an
+input report; invalid input does not create an artifact. Destination errors
+return **2** and do not replace existing files. If writing is interrupted,
+discard any incomplete artifact. The original `--json` stdout mode remains
+available with unchanged findings and exit codes. When producing the *input*
+reports on Windows PowerShell 5.1, ensure UTF-8 encoding: plain `>` may
+produce UTF-16LE and such reports are rejected.
 
 Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue
