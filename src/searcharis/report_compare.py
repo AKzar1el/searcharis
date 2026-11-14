@@ -229,7 +229,14 @@ def _unverified(report: dict) -> dict[tuple[str, str, int], dict]:
             continue
         occurrences: dict[str, int] = {}
         for item in report[check]["unverified_targets"]:
-            signature = json.dumps(item, sort_keys=True)
+            # Canonical URL identity already ignores equivalent HTTP(S)
+            # spellings inside a report; use it across archived builds too.
+            # Hreflang targets intentionally retain exact URL matching.
+            identity = (
+                {**item, "target": _page_url_identity(item["target"])}
+                if check == "canonical_consistency" else item
+            )
+            signature = json.dumps(identity, sort_keys=True)
             ordinal = occurrences.get(signature, 0)
             occurrences[signature] = ordinal + 1
             # A second identical outside-manifest link is still a new
