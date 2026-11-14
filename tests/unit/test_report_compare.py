@@ -2,6 +2,7 @@
 
 import json
 import socket
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -936,15 +937,14 @@ def test_archived_comparison_markdown_file_invalid_report_creates_nothing(tmp_pa
     assert not destination.exists()
 
 
-def test_archived_comparison_markdown_file_conflicts_with_json_modes(tmp_path):
+def test_archived_comparison_markdown_file_conflicts_with_json_stdout(tmp_path):
     before, after = tmp_path / "before.json", tmp_path / "after.json"
-    for conflicting_option in (["--json"], ["--json-file", str(tmp_path / "output.json")]):
-        with pytest.raises(SystemExit) as error:
-            main([
-                str(before), str(after), "--markdown-file", str(tmp_path / "output.md"),
-                *conflicting_option,
-            ])
-        assert error.value.code == 2
+    with pytest.raises(SystemExit) as error:
+        main([
+            str(before), str(after), "--markdown-file", str(tmp_path / "output.md"),
+            "--json",
+        ])
+    assert error.value.code == 2
     assert not (tmp_path / "output.md").exists()
 
 
@@ -966,6 +966,132 @@ def test_archived_comparison_markdown_file_labels_new_unlisted_gate(
     content = artifact.read_text(encoding="utf-8")
     assert f"New unlisted built HTML: 1 ({'blocking' if gated else 'not gated'})" in content
     assert ("Result: REGRESSION" in content) == gated
+
+
+@pytest.mark.parametrize("new_issue", [False, True])
+def test_archived_comparison_junit_file_is_offline_and_regression_only(
+    tmp_path, capsys, monkeypatch, new_issue,
+):
+    baseline = _report([("en/index.html", [_issue("inherited")])])
+    candidate = _report([
+        ("en/index.html", [_issue("inherited")]),
+        ("fr/index.html", [_issue("nouveau <titre>\n\x01")] if new_issue else []),
+    ])
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    artifact = tmp_path / "compare.xml"
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived JUnit must never fetch a URL")
+    ))
+    monkeypatch.setattr(socket.socket, "connect", lambda *_a, **_k: (
+        pytest.fail("Archived JUnit must never connect")
+    ))
+
+    assert main([str(before), str(after), "--junit-file", str(artifact)]) == int(new_issue)
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    assert artifact.read_bytes().startswith(b"<?xml")
+    suite = ET.fromstring(artifact.read_bytes())
+    assert suite.attrib["failures"] == str(int(new_issue))
+    assert suite.attrib["tests"] == "1"
+    failures = suite.findall("testcase/failure")
+    assert len(failures) == int(new_issue)
+    if new_issue:
+        assert "fr/index.html" in suite.find("testcase").attrib["name"]
+        assert "nouveau <titre>" in failures[0].text
+    assert "inherited" not in artifact.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("unlisted_gate,target_gate,expected_failures", [
+    (False, False, 0), (True, False, 1), (False, True, 1), (True, True, 2),
+])
+def test_archived_comparison_junit_file_honors_optional_gates(
+    tmp_path, unlisted_gate, target_gate, expected_failures,
+):
+    before_report = _report([("index.html", [])], checks=("canonical_consistency",))
+    after_report = _report(
+        [("index.html", [])], unlisted=("unreviewed.html",),
+        checks=("canonical_consistency",),
+    )
+    after_report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "index.html", "target": "https://other.test/new",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(before_report), encoding="utf-8")
+    after.write_text(json.dumps(after_report), encoding="utf-8")
+    artifact = tmp_path / "result.xml"
+    args = [str(before), str(after), "--junit-file", str(artifact)]
+    if unlisted_gate:
+        args.append("--fail-on-new-unlisted")
+    if target_gate:
+        args.append("--fail-on-new-unverified-targets")
+    assert main(args) == int(expected_failures > 0)
+    suite = ET.fromstring(artifact.read_bytes())
+    assert int(suite.attrib["failures"]) == expected_failures
+    assert len(suite.findall("testcase/failure")) == expected_failures
+
+
+def test_archived_comparison_junit_can_share_one_pass_with_json_and_markdown(tmp_path, capsys):
+    baseline = _report([("index.html", [_issue("inherited")])])
+    candidate = _report([("index.html", [_issue("inherited")]), ("new.html", [_issue()])])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    output = [tmp_path / "compare.json", tmp_path / "compare.md", tmp_path / "compare.xml"]
+    assert main([
+        str(before), str(after), "--json-file", str(output[0]),
+        "--markdown-file", str(output[1]), "--junit-file", str(output[2]),
+    ]) == 1
+    assert capsys.readouterr().out == ""
+    assert json.loads(output[0].read_text(encoding="utf-8"))["summary"]["new_issues"] == 1
+    assert "Result: REGRESSION" in output[1].read_text(encoding="utf-8")
+    assert ET.fromstring(output[2].read_bytes()).attrib["failures"] == "1"
+    assert before.read_text(encoding="utf-8") == json.dumps(baseline)
+
+
+@pytest.mark.parametrize("invalid_target", ["same", "input", "existing", "missing"])
+def test_archived_comparison_junit_preflights_all_destinations(tmp_path, capsys, invalid_target):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output = tmp_path / "compare.json"
+    existing = tmp_path / "existing.xml"
+    existing.write_bytes(b"UNCHANGED")
+    invalid = {
+        "same": json_output, "input": before, "existing": existing,
+        "missing": tmp_path / "no-directory" / "result.xml",
+    }[invalid_target]
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(invalid),
+    ]) == 2
+    assert capsys.readouterr().out == ""
+    assert not json_output.exists()
+    assert existing.read_bytes() == b"UNCHANGED"
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_junit_invalid_report_writes_nothing(tmp_path, capsys):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text("{", encoding="utf-8")
+    after.write_text(json.dumps(_report([("index.html", [])])), encoding="utf-8")
+    junit_output = tmp_path / "output.xml"
+    assert main([str(before), str(after), "--junit-file", str(junit_output)]) == 2
+    assert "Invalid or incompatible report" in capsys.readouterr().err
+    assert not junit_output.exists()
+
+
+def test_archived_comparison_junit_file_conflicts_with_stdout_json(tmp_path):
+    output = tmp_path / "compare.xml"
+    with pytest.raises(SystemExit) as error:
+        main([
+            str(tmp_path / "before.json"), str(tmp_path / "after.json"),
+            "--json", "--junit-file", str(output),
+        ])
+    assert error.value.code == 2
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])

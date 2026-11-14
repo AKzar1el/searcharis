@@ -1281,7 +1281,8 @@ on the candidate build, saving their complete `--json` outputs:
 ```sh
 uv run python -m searcharis.site_cli manifest.json baseline-build --json > baseline.json
 uv run python -m searcharis.site_cli manifest.json candidate-build --json > candidate.json
-uv run python -m searcharis.report_compare baseline.json candidate.json --json-file comparison.json
+uv run python -m searcharis.report_compare baseline.json candidate.json \
+  --json-file comparison.json --markdown-file comparison.md --junit-file comparison.xml
 ```
 
 The first two invocations may return **1** when their build has known contract
@@ -1290,15 +1291,27 @@ the comparison, but always stop on **2** (invalid input). The last invocation
 returns **0** if no new regressions are found, **1** for new or changed page
 issues, missing baseline routes, or newly unlisted HTML when full coverage
 is enabled, and **2** for unreadable, malformed or incompatible reports.
-For the final archived comparison, `--json-file PATH` creates the complete
-`report_compare --json` payload directly as UTF-8, without stdout or shell
-redirection. Its parent must exist and the destination must be new, never an
-input report; invalid input does not create an artifact. Destination errors
-return **2** and do not replace existing files. If writing is interrupted,
-discard any incomplete artifact. The original `--json` stdout mode remains
-available with unchanged findings and exit codes. When producing the *input*
-reports on Windows PowerShell 5.1, ensure UTF-8 encoding: plain `>` may
-produce UTF-16LE and such reports are rejected.
+For the final archived comparison, `--json-file PATH` saves the full JSON
+comparison, `--markdown-file PATH` saves a bounded, HTML-escaped human review,
+and `--junit-file PATH` saves JUnit XML for CI test-report consumers (for
+example GitLab or Jenkins). The JUnit suite fails only for newly blocking
+regressions; inherited issues remain informational. Its XML is serialized
+with ASCII-safe character references and written as UTF-8, without stdout
+redirection. `--fail-on-new-unlisted` and `--fail-on-new-unverified-targets`
+control optional JUnit failures just as they control comparison exit **1**.
+All three file options can be combined in one comparison pass, or used
+separately. The `--json` stdout mode cannot be combined with file options.
+Every destination must be a distinct new file in an existing parent directory,
+and cannot be either input report. **All** destinations are preflighted before
+creating any artifact; invalid input, a collision or a missing parent returns
+**2**, with no output written. A mid-write I/O failure can still leave an
+incomplete artifact: reject all outputs if the command exits **2** and do not
+ingest partial files. Successful local JUnit serialization alone does not
+prove GitLab/Jenkins ingestion or adoption; configure and verify that in your
+own authorized CI workflow. The original `--json` stdout mode keeps its
+findings and exit codes. When producing the *input* reports on Windows
+PowerShell 5.1, ensure UTF-8 encoding: plain `>` may produce UTF-16LE and
+such reports are rejected.
 
 Comparison uses the exact artifact path, declared URL and full issue details;
 changing an observed value counts as a new failure, while a persistent issue

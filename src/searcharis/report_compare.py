@@ -14,6 +14,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
 from searcharis.site_ci import _page_url_identity
+from searcharis.site_junit import build_comparison_junit
 
 _MAX_REPORT_BYTES = 16_000_000
 _MAX_HUMAN_DETAILS = 20
@@ -345,17 +346,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare two local SEO site JSON reports")
     parser.add_argument("baseline", type=Path, help="Trusted baseline from site_cli --json")
     parser.add_argument("candidate", type=Path, help="Current build report from site_cli --json")
-    output_mode = parser.add_mutually_exclusive_group()
-    output_mode.add_argument(
+    parser.add_argument(
         "--json", action="store_true", help="Print machine-readable comparison",
     )
-    output_mode.add_argument(
+    parser.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write complete comparison JSON to a new UTF-8 file; never overwrite",
     )
-    output_mode.add_argument(
+    parser.add_argument(
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded Markdown regression review to a new UTF-8 file; never overwrite",
+    )
+    parser.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write regression-only JUnit XML to a new UTF-8 file; never overwrite",
     )
     parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
@@ -366,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Treat newly unverified canonical/hreflang targets as CI regressions",
     )
     args = parser.parse_args(argv)
+    if args.json and (args.json_file or args.markdown_file or args.junit_file):
+        parser.error("--json stdout mode cannot be combined with file reports")
     try:
         baseline_report = _read_report(args.baseline)
         candidate_report = _read_report(args.candidate)
@@ -381,29 +387,45 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.markdown_file:
+    if args.json_file or args.markdown_file or args.junit_file:
         try:
-            target = args.json_file or args.markdown_file
-            if target.exists() or target.is_symlink():
-                raise FileExistsError(f"Comparison report already exists: {target}")
-            if not target.parent.is_dir():
-                raise ValueError(f"Report parent must be an existing directory: {target.parent}")
-            if target.resolve() in {args.baseline.resolve(), args.candidate.resolve()}:
-                raise ValueError("Comparison report cannot replace an input report")
-            payload = (
-                json.dumps(result, indent=2, sort_keys=True)
-                if args.json_file
-                else build_comparison_markdown(
-                    result,
-                    gate_new_unlisted=(
-                        args.fail_on_new_unlisted
-                        or baseline_report["coverage"]["require_full_coverage"]
-                    ),
-                    gate_new_unverified_targets=args.fail_on_new_unverified_targets,
-                )
+            outputs: list[tuple[Path, str]] = []
+            gate_unlisted = (
+                args.fail_on_new_unlisted or baseline_report["coverage"]["require_full_coverage"]
             )
-            with target.open("x", encoding="utf-8", newline="\n") as output:
-                output.write(payload + "\n")
+            if args.json_file:
+                outputs.append((args.json_file, json.dumps(result, indent=2, sort_keys=True)))
+            if args.markdown_file:
+                outputs.append((
+                    args.markdown_file,
+                    build_comparison_markdown(
+                        result,
+                        gate_new_unlisted=gate_unlisted,
+                        gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+                    ),
+                ))
+            if args.junit_file:
+                outputs.append((
+                    args.junit_file,
+                    build_comparison_junit(
+                        result,
+                        gate_new_unlisted=gate_unlisted,
+                        gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+                    ),
+                ))
+            resolved = [path.resolve() for path, _ in outputs]
+            if len(resolved) != len(set(resolved)):
+                raise ValueError("All comparison report destinations must be distinct files")
+            for (path, _), target in zip(outputs, resolved, strict=True):
+                if target in {args.baseline.resolve(), args.candidate.resolve()}:
+                    raise ValueError("Comparison report cannot replace an input report")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"Comparison report already exists: {path}")
+                if not path.parent.is_dir():
+                    raise ValueError(f"Report parent must be an existing directory: {path.parent}")
+            for path, payload in outputs:
+                with path.open("x", encoding="utf-8", newline="\n") as output:
+                    output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid report destination: {human_input_error(error)}", file=sys.stderr)
             return 2
