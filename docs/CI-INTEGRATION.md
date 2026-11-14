@@ -95,6 +95,10 @@ reciprocal hreflang. CI does not mutate the production site.
 Implementation and supported fields:
 [SEO-CONTRACT-CI.md](SEO-CONTRACT-CI.md).
 
+For independently saved baseline/candidate JSON reports, see the
+[archived-report Markdown review guide](ARCHIVED-REPORT-CI.md) for a bounded
+human-readable CI artifact without rebuilding or fetching URLs.
+
 For reproducible Astro-style multilingual and Vite-style static multipage
 examples, see the [offline generator fixtures](../examples/seo-contract/generator-fixtures/README.md).
 The checked-in snapshots are illustrative; always test your own actual build.
