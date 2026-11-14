@@ -269,6 +269,79 @@ def test_human_summary_and_no_outbound_urls(tmp_path, capsys, monkeypatch):
     assert "HTML" in result.out and "sitemap" in result.out
 
 
+def test_human_summary_bounds_sitemap_findings_but_preserves_every_category(
+    tmp_path, capsys, monkeypatch,
+):
+    import searcharis.release_cli as cli
+
+    manifest, build, sitemap = _fixture(tmp_path)
+    missing = [f"https://example.test/missing-{i}" for i in range(35)]
+    monkeypatch.setattr(cli, "verify_sitemap_manifest", lambda *_args, **_kwargs: {
+        "status": "fail",
+        "summary": {"required": 35, "excluded": 1, "sitemap_urls": 3},
+        "missing_required": missing,
+        "present_excluded": ["https://example.test/noindex-critical"],
+        "present_noncanonical": ["https://example.test/alias-critical"],
+        "unreviewed_urls": ["https://example.test/unreviewed-critical"],
+    })
+    assert main([str(manifest), str(build), str(sitemap)]) == 1
+    output = capsys.readouterr().out
+    details = [line for line in output.splitlines() if line.startswith((
+        "  Missing required:", "  Unexpected noindex:",
+        "  Noncanonical reviewed sitemap URL:", "  Unreviewed sitemap URL:",
+    ))]
+    assert len(details) == 20
+    assert "missing-0" in output
+    assert "noindex-critical" in output
+    assert "alias-critical" in output
+    assert "unreviewed-critical" in output
+    assert "18 more sitemap findings" in output
+    assert "--json" in output
+
+
+def test_human_summary_bounds_html_failures_but_keeps_strict_coverage_example(
+    tmp_path, capsys, monkeypatch,
+):
+    import searcharis.release_cli as cli
+
+    manifest, build, sitemap = _fixture(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_args, **_kwargs: {
+        "status": "fail",
+        "summary": {"checked": 35, "passed": 0, "failed": 35},
+        "pages": [{"status": "fail", "path": f"page-{i}.html",
+                   "issues": [{"code": "title_presence"}]} for i in range(35)],
+        "coverage": {"require_full_coverage": True,
+                     "unlisted": ["critical-unlisted.html"]},
+    })
+    assert main([str(manifest), str(build), str(sitemap)]) == 1
+    output = capsys.readouterr().out
+    assert len([line for line in output.splitlines() if line.startswith("  FAIL ")]) == 19
+    assert "critical-unlisted.html" in output
+    assert "16 more HTML findings" in output
+    assert "--json" in output
+
+
+def test_human_summary_bounds_issue_codes_on_a_single_failed_page(
+    tmp_path, capsys, monkeypatch,
+):
+    import searcharis.release_cli as cli
+
+    manifest, build, sitemap = _fixture(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_args, **_kwargs: {
+        "status": "fail", "summary": {"checked": 1, "passed": 0, "failed": 1},
+        "pages": [{"status": "fail", "path": "index.html", "issues": [
+            {"code": f"broken-{i}"} for i in range(100)
+        ]}],
+        "coverage": {"require_full_coverage": False, "unlisted": []},
+    })
+    assert main([str(manifest), str(build), str(sitemap)]) == 1
+    output = capsys.readouterr().out
+    assert "broken-0" in output and "broken-7" in output
+    assert "broken-8" not in output and "broken-99" not in output
+    assert "+92 more; use --json" in output
+    assert len(output) < 1000
+
+
 def test_python_module_entrypoint_is_ci_consumable(tmp_path):
     manifest, build, sitemap = _fixture(tmp_path)
     result = subprocess.run(

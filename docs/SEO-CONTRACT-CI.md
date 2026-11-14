@@ -942,6 +942,13 @@ coverage gaps, excluded URLs and noncanonical sitemap entries), rather than
 letting a large first category hide a distinct release failure.
 Use the full structured report and site-specific policy to decide each fix.
 
+The default terminal output is also bounded to 20 detailed HTML lines and 20
+sitemap URL lines, reserving an example for each nonempty blocking category.
+It reports the number of omitted details and directs reviewers to `--json`
+for complete findings. Each failed-page line also caps individual issue codes
+at eight. Ungated unlisted HTML is counted but does not consume
+blocking detail slots. Exit codes and JSON/JUnit/Markdown artifacts are unchanged.
+
 ## Reciprocal hreflang between local build artifacts
 
 For multilingual builds, opt into checking that HTML language alternates
