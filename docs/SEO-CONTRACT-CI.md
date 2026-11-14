@@ -1112,10 +1112,11 @@ cross-page flags as `site_cli` work with
 `--fail-on-new-unverified-targets`. Baseline and candidate directories must
 be separate, non-overlapping trees (neither nested inside the other); the
 checker rejects nested roots before recursively discovering HTML. The
-checker also rejects declared HTML files that are hard-linked across the two
-builds: editing a candidate hard link would silently change the baseline and
-could hide a regression. Use independent build artifacts rather than hard-link
-copies for the compared pages. Filesystems without usable file IDs cannot
+checker also rejects HTML files that are hard-linked across the two builds,
+including files outside the reviewed manifest: editing a candidate hard link
+would silently change the baseline and could hide a regression. Use independent
+build artifacts rather than hard-link copies, even for unlisted HTML.
+Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
 

@@ -19,18 +19,22 @@ from searcharis.site_source_map import read_source_map
 def _reject_shared_html_files(
     baseline_root: Path, candidate_root: Path, baseline: dict, candidate: dict
 ) -> None:
-    """A hard link makes two otherwise disjoint builds one mutable snapshot."""
+    """Reject cross-build hard links, including HTML outside the reviewed manifest."""
+    baseline_paths = {page["path"] for page in baseline["pages"]}
+    baseline_paths.update(baseline["coverage"]["unlisted"])
+    candidate_paths = {page["path"] for page in candidate["pages"]}
+    candidate_paths.update(candidate["coverage"]["unlisted"])
     baseline_files: dict[tuple[int, int], str] = {}
-    for page in baseline["pages"]:
-        info = (baseline_root / page["path"]).stat()
+    for path in sorted(baseline_paths):
+        info = (baseline_root / path).stat()
         if info.st_ino:  # Some filesystems do not expose a usable file ID.
-            baseline_files[(info.st_dev, info.st_ino)] = page["path"]
-    for page in candidate["pages"]:
-        info = (candidate_root / page["path"]).stat()
+            baseline_files[(info.st_dev, info.st_ino)] = path
+    for path in sorted(candidate_paths):
+        info = (candidate_root / path).stat()
         if info.st_ino and (info.st_dev, info.st_ino) in baseline_files:
             raise ValueError(
                 "Baseline and candidate share a hard-linked HTML artifact: "
-                f"{baseline_files[(info.st_dev, info.st_ino)]} and {page['path']}"
+                f"{baseline_files[(info.st_dev, info.st_ino)]} and {path}"
             )
 
 

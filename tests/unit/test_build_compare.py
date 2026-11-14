@@ -319,6 +319,40 @@ def test_hardlinked_html_under_different_page_names_is_rejected(tmp_path, capsys
     assert "about.html and index.html" in json.loads(capsys.readouterr().out)["error"]
 
 
+@pytest.mark.parametrize(
+    ("baseline_path", "candidate_path"),
+    [
+        ("extra.html", "extra.html"),
+        ("index.html", "extra.html"),
+        ("extra.html", "index.html"),
+    ],
+)
+def test_unlisted_html_hardlinks_cannot_alias_trusted_builds(
+    tmp_path, capsys, baseline_path, candidate_path
+):
+    manifest, baseline, candidate, _ = _fixture(tmp_path)
+    source = baseline / baseline_path
+    if not source.exists():
+        source.write_text("<title>Unlisted</title>", encoding="utf-8")
+    target = candidate / candidate_path
+    if target.exists():
+        target.unlink()
+    try:
+        os.link(source, target)
+    except OSError as error:
+        pytest.skip(f"Filesystem does not support hard links: {error}")
+
+    # A candidate edit can mutate a supposed baseline even when the shared
+    # artifact is unlisted in one or both reviewed manifests.
+    target.write_text("<html><head></head></html>", encoding="utf-8")
+    assert source.read_text(encoding="utf-8") == target.read_text(encoding="utf-8")
+
+    assert _run(manifest, baseline, candidate, "--json") == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "error"
+    assert f"{baseline_path} and {candidate_path}" in result["error"]
+
+
 def test_comparison_never_uses_network(tmp_path, monkeypatch, capsys):
     manifest, baseline, candidate, _ = _fixture(tmp_path)
 
