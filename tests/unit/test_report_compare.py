@@ -97,6 +97,61 @@ def test_contract_fingerprints_ignore_json_key_order(tmp_path):
     assert compare_reports(before, after, fail_on_new_unlisted=True)["status"] == "pass"
 
 
+@pytest.mark.parametrize("check", ["check_reviewed_navigation", "check_reviewed_fragments"])
+@pytest.mark.parametrize("enabled_in_baseline", [True, False])
+def test_archived_reports_reject_mismatched_reviewed_link_checks(
+    tmp_path, check, enabled_in_baseline,
+):
+    (tmp_path / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><a href="/">Home</a></body></html>',
+        encoding="utf-8",
+    )
+    manifest = {"version": 1, "pages": [{"path": "index.html", "contract": {
+        "url": "https://example.test/", "title_present": True,
+    }}]}
+    enabled = verify_manifest(manifest, tmp_path, **{check: True})
+    disabled = verify_manifest(manifest, tmp_path)
+    assert enabled["status"] == disabled["status"] == "pass"
+    assert compare_reports(enabled, enabled)["status"] == "pass"
+    baseline, candidate = (enabled, disabled) if enabled_in_baseline else (disabled, enabled)
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(baseline, candidate)
+
+
+@pytest.mark.parametrize("field, bad_summary", [
+    ("reviewed_navigation", {"checked_links": -1, "unreviewed_targets": []}),
+    ("reviewed_fragments", {"checked_fragments": "not-a-count", "missing_targets": [],
+                            "ambiguous_targets": [], "unverified_targets": []}),
+])
+def test_archived_reports_reject_invalid_reviewed_link_summaries(field, bad_summary):
+    report = _report([("index.html", [])])
+    report[field] = bad_summary
+    with pytest.raises(ValueError, match="invalid " + field):
+        compare_reports(report, report)
+
+
+def test_archived_cli_rejects_reviewed_check_mismatch_as_input_error(tmp_path, capsys):
+    baseline = _report([("index.html", [])])
+    candidate = _report([("index.html", [])])
+    candidate["reviewed_navigation"] = {"checked_links": 0, "unreviewed_targets": []}
+    before = tmp_path / "baseline.json"
+    after = tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+    assert "different check options" in output.out
+
+
+def test_reviewed_navigation_does_not_enable_unverified_hreflang_gate():
+    report = _report([("index.html", [])])
+    report["reviewed_navigation"] = {"checked_links": 0, "unreviewed_targets": []}
+    with pytest.raises(ValueError, match="requires at least one cross-page check"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
 def test_comparison_rejects_mixed_or_invalid_contract_fingerprints():
     legacy = _report([("index.html", [])])
     fingerprinted = _report([("index.html", [])])

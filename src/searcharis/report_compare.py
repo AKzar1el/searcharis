@@ -20,6 +20,11 @@ from searcharis.site_sarif import build_comparison_sarif
 _MAX_REPORT_BYTES = 16_000_000
 _MAX_HUMAN_DETAILS = 20
 _CHECKS = ("canonical_consistency", "hreflang_clusters", "hreflang_reciprocity")
+_REVIEWED_CHECKS = (
+    ("reviewed_navigation", "checked_links", ("unreviewed_targets",)),
+    ("reviewed_fragments", "checked_fragments",
+     ("missing_targets", "ambiguous_targets", "unverified_targets")),
+)
 
 
 def _int(value: object) -> bool:
@@ -158,7 +163,31 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         ):
             raise ValueError(f"{name}: invalid {check} unverified targets")
 
-    options = (strict, *(check in report for check in _CHECKS))
+    # A saved report with one of these opt-in checks disabled cannot be
+    # compared against one with it enabled, even if both found zero issues.
+    for check, count_key, target_keys in _REVIEWED_CHECKS:
+        if check not in report:
+            continue
+        data = report[check]
+        if not isinstance(data, dict) or not _int(data.get(count_key)):
+            raise ValueError(f"{name}: invalid {check} data")
+        for key in target_keys:
+            targets = data.get(key)
+            if not isinstance(targets, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("path"), str)
+                or item["path"] not in listed_paths
+                or not isinstance(item.get("target"), str)
+                or not item["target"]
+                for item in targets
+            ):
+                raise ValueError(f"{name}: invalid {check} {key}")
+
+    options = (
+        strict,
+        *(check in report for check in _CHECKS),
+        *(check in report for check, _, _ in _REVIEWED_CHECKS),
+    )
     return report, options
 
 
@@ -215,9 +244,9 @@ def compare_reports(
     if before_options != after_options:
         raise ValueError(
             "Reports use different check options; regenerate both with identical "
-            "coverage, canonical and hreflang flags"
+            "coverage, canonical, hreflang and reviewed navigation/fragment flags"
         )
-    if fail_on_new_unverified_targets and not any(before_options[1:]):
+    if fail_on_new_unverified_targets and not any(before_options[1:1 + len(_CHECKS)]):
         raise ValueError(
             "--fail-on-new-unverified-targets requires at least one cross-page check; "
             "regenerate both reports with --check-canonical-consistency, "
