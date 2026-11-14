@@ -56,6 +56,40 @@ def test_persistent_existing_failure_does_not_block_candidate():
     assert diff["new_issues"] == []
 
 
+@pytest.mark.parametrize("bad_url", [
+    "ftp://example.test/index.html",
+    "/index.html",
+    "https:///index.html",
+    "https://user@example.test/index.html",
+    "https://example.test/white space.html",
+    "https://exa%6dple.test/index.html",
+    "https://example.test\\other.test/index.html",
+])
+def test_comparison_rejects_invalid_archived_checked_url(bad_url):
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = bad_url
+    with pytest.raises(ValueError, match="invalid page path or URL"):
+        compare_reports(report, report)
+
+
+def test_archived_cli_rejects_invalid_checked_url_with_json_error(tmp_path, capsys):
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = "ftp://example.test/index.html"
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+
+
+def test_archived_comparison_keeps_valid_percent_encoded_urls():
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/%7Eexample?x=%2F"
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 def test_comparison_rejects_weakened_contract_for_same_route(tmp_path):
     (tmp_path / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
     baseline_manifest = {
@@ -1463,6 +1497,10 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
         unlisted=("other\nFORGED UNLISTED.html",), strict=True,
         checks=("hreflang_clusters",),
     )
+    # Keep the injected display label while using a syntactically valid
+    # archived checked URL; URL syntax is independently validated.
+    baseline["pages"][0]["checked_url"] = "https://example.test/index.html"
+    candidate["pages"][0]["checked_url"] = "https://example.test/index.html"
     candidate["hreflang_clusters"]["unverified_targets"] = [{
         "path": bad_path, "language": "de\nFORGED LOCALE",
         "target": "https://elsewhere.test/a\nFORGED TARGET",
