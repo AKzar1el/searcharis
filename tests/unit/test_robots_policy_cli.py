@@ -127,3 +127,76 @@ def test_checked_in_policy_smoke_matches_documented_exit_codes(capsys):
     bad, drift, _ = _run(capsys, root / "reviewed.txt", root / "blocked")
     assert good == 0 and report["status"] == "pass"
     assert bad == 1 and drift["reason"] == "changed"
+
+
+def test_standalone_required_sitemaps_pass_offline_with_multiple_reviewed_urls(
+    tmp_path, capsys, monkeypatch,
+):
+    reviewed, build = _fixture(tmp_path)
+    content = reviewed.read_bytes() + b"Sitemap: https://example.test/news.xml\n"
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    def deny_socket(*args, **kwargs):
+        raise AssertionError("Standalone robots policy must not fetch URLs")
+
+    monkeypatch.setattr(socket, "socket", deny_socket)
+    code, result, stderr = _run(
+        capsys, reviewed, build,
+        "--require-robots-sitemap", "https://example.test/sitemap.xml",
+        "--require-robots-sitemap", "https://example.test/news.xml",
+    )
+    assert (code, stderr, result["status"]) == (0, "", "pass")
+    assert result["required_sitemap_urls"] == [
+        "https://example.test/sitemap.xml", "https://example.test/news.xml",
+    ]
+    assert result["missing_sitemap_urls"] == []
+
+
+def test_standalone_missing_required_sitemap_fails_matching_policy(tmp_path, capsys):
+    reviewed, build = _fixture(tmp_path)
+    code, result, stderr = _run(
+        capsys, reviewed, build,
+        "--require-robots-sitemap", "https://example.test/sitemap.xml",
+        "--require-robots-sitemap", "https://example.test/absent.xml",
+    )
+    assert (code, stderr) == (1, "")
+    assert result["reason"] == "sitemap_declaration_missing"
+    assert result["expected_sha256"] == result["observed_sha256"]
+    assert result["missing_sitemap_urls"] == ["https://example.test/absent.xml"]
+
+    plain_code = main([
+        str(reviewed), str(build),
+        "--require-robots-sitemap", "https://example.test/absent.xml",
+    ])
+    output = capsys.readouterr().out
+    assert plain_code == 1
+    assert "Sitemap" in output and "https://example.test/absent.xml" in output
+
+
+@pytest.mark.parametrize("values", [
+    ["https://example.test/sitemap.xml", "https://example.test/sitemap.xml"],
+    ["file:///sitemap.xml"],
+    ["https://example.test/a.xml"] * 17,
+])
+def test_standalone_required_sitemap_invalid_options_return_json_error(
+    tmp_path, capsys, values,
+):
+    reviewed, build = _fixture(tmp_path)
+    flags = [item for value in values for item in ("--require-robots-sitemap", value)]
+    code, result, stderr = _run(capsys, reviewed, build, *flags)
+    assert (code, stderr, result["status"]) == (2, "", "error")
+
+
+def test_standalone_single_required_sitemap_keeps_legacy_json_shape(
+    tmp_path, capsys,
+):
+    reviewed, build = _fixture(tmp_path)
+    code, result, stderr = _run(
+        capsys, reviewed, build,
+        "--require-robots-sitemap", "https://example.test/sitemap.xml",
+    )
+    assert (code, stderr, result["status"]) == (0, "", "pass")
+    assert result["required_sitemap_url"] == "https://example.test/sitemap.xml"
+    assert "required_sitemap_urls" not in result
+    assert "missing_sitemap_urls" not in result
