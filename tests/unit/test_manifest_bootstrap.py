@@ -773,6 +773,125 @@ def test_cli_reviewed_language_map_is_offline_and_fail_closed(tmp_path, monkeypa
         assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_reviewed_hreflang_clusters_generate_exact_reciprocal_urls(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "en" / "index.html")
+    _html(build / "sl" / "index.html")
+    _html(build / "about.html")
+    expected = {
+        "en": "https://example.com/docs/en/",
+        "sl": "https://example.com/docs/slovenian/",
+        "x-default": "https://example.com/docs/en/",
+    }
+    for page in ("en/index.html", "sl/index.html"):
+        links = "".join(
+            f'<link rel="alternate" hreflang="{lang}" href="{url}">'
+            for lang, url in expected.items()
+        )
+        (build / page).write_text(
+            f"<html><head><title>Example</title>{links}</head></html>",
+            encoding="utf-8",
+        )
+    manifest = generate_manifest(
+        build, "https://example.com/docs/",
+        route_overrides={"sl/index.html": "slovenian/"},
+        hreflang_clusters=[{
+            "en": "en/index.html",
+            "sl": "sl/index.html",
+            "x-default": "en/index.html",
+        }],
+    )
+    assert [page["contract"].get("hreflang") for page in manifest["pages"]] == [
+        None, expected, expected,
+    ]
+    report = verify_manifest(
+        manifest, build, require_full_coverage=True,
+        check_hreflang_reciprocity=True, check_hreflang_clusters=True,
+    )
+    assert report["status"] == "pass"
+    (build / "sl/index.html").write_text(
+        '<html><head><title>Example</title></head></html>', encoding="utf-8",
+    )
+    report = verify_manifest(manifest, build, require_full_coverage=True)
+    assert report["status"] == "fail"
+
+
+@pytest.mark.parametrize("clusters", [
+    [{"en": "en/index.html"}],
+    [{"en": "en/index.html", "sl": "missing/index.html"}],
+    [{"en": "../en/index.html", "sl": "sl/index.html"}],
+    [{"en": "en/index.html", "EN": "sl/index.html"}],
+    [{"en": "en/index.html", "sl": "en/index.html"}],
+    [{"en": "en/index.html", "sl": "sl/index.html"}, {
+        "fr": "en/index.html", "de": "sl/index.html",
+    }],
+    [{"en": "en/index.html", "sl": 3}],
+    [{"en": "en/index.html", "en GB": "sl/index.html"}],
+])
+def test_reviewed_hreflang_clusters_reject_incomplete_or_ambiguous_inputs(tmp_path, clusters):
+    _html(tmp_path / "en/index.html")
+    _html(tmp_path / "sl/index.html")
+    with pytest.raises(ValueError):
+        generate_manifest(
+            tmp_path, "https://example.com/", hreflang_clusters=clusters,
+        )
+
+
+def test_reviewed_hreflang_clusters_reject_opt_in_skip_overlap(tmp_path):
+    _html(tmp_path / "en/index.html")
+    _html(tmp_path / "sl/index.html")
+    with pytest.raises(ValueError, match="skipp|skip"):
+        generate_manifest(
+            tmp_path, "https://example.com/",
+            skip_opt_ins_for=("sl/index.html",),
+            hreflang_clusters=[{"en": "en/index.html", "sl": "sl/index.html"}],
+        )
+
+
+def test_cli_reviewed_hreflang_map_is_offline_and_fail_closed(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    _html(build / "en/index.html")
+    _html(build / "sl/index.html")
+    for language in ("en", "sl"):
+        links = "".join(
+            f'<link rel="alternate" hreflang="{lang}" '
+            f'href="https://example.com/{lang}/">'
+            for lang in ("en", "sl")
+        )
+        (build / language / "index.html").write_text(
+            f"<html><head><title>Example</title>{links}</head></html>",
+            encoding="utf-8",
+        )
+    mapping = tmp_path / "hreflang.json"
+    output = tmp_path / "manifest.json"
+    args = [str(build), "https://example.com/", "--hreflang-map", str(mapping),
+            "--check-built", "--output", str(output)]
+    mapping.write_text(
+        '{"version":1,"clusters":[{"en":"en/index.html","sl":"sl/index.html"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main(args) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+    expected = {"en": "https://example.com/en/", "sl": "https://example.com/sl/"}
+    assert all(
+        page["contract"]["hreflang"] == expected
+        for page in json.loads(output.read_text(encoding="utf-8"))["pages"]
+    )
+    output.unlink()
+    for bad in (
+        '{"version":1,"clusters":[{"en":"en/index.html","en":"sl/index.html"}]}',
+        '{"version":true,"clusters":[{"en":"en/index.html","sl":"sl/index.html"}]}',
+        '{"version":1,"clusters":[{"en":"en/index.html","sl":"absent.html"}]}',
+        '{"version":1,"clusters":[]}',
+        '{',
+    ):
+        mapping.write_text(bad, encoding="utf-8")
+        assert main(args) == 2
+        assert not output.exists()
+        assert "Invalid input:" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("generator,path,route", [
     ("astro", "en/index.html", "english/"),
     ("vite", "pricing/index.html", "plans/"),
