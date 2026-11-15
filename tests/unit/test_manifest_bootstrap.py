@@ -346,6 +346,60 @@ def test_cli_image_alt_bootstrap_check_built_is_offline_and_preserves_report(tmp
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_bootstrap_language_attribute_presence_for_multilingual_builds(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "en/index.html")
+    _html(build / "sl/index.html")
+    (build / "en/index.html").write_text(
+        '<html lang="en-GB"><head><title>English</title></head></html>', encoding="utf-8",
+    )
+    (build / "sl/index.html").write_text(
+        '<html lang="sl"><head><title>Slovensko</title></head></html>', encoding="utf-8",
+    )
+    default = generate_manifest(build, "https://example.com/")
+    assert all("html_lang_present" not in p["contract"] for p in default["pages"])
+    strict = generate_manifest(build, "https://example.com/", expect_lang_attribute=True)
+    assert all(p["contract"]["html_lang_present"] is True for p in strict["pages"])
+    assert verify_manifest(strict, build, require_full_coverage=True)["status"] == "pass"
+
+    (build / "sl/index.html").write_text(
+        '<html lang=""><head><title>Slovensko</title></head></html>', encoding="utf-8",
+    )
+    report = verify_manifest(strict, build)
+    assert report["status"] == "fail"
+    assert report["pages"][1]["issues"][0]["code"] == "html_lang_presence"
+
+    excepted = generate_manifest(
+        build, "https://example.com/", expect_lang_attribute=True,
+        skip_opt_ins_for=("sl/index.html",),
+    )
+    assert excepted["pages"][0]["contract"]["html_lang_present"] is True
+    assert "html_lang_present" not in excepted["pages"][1]["contract"]
+    assert verify_manifest(excepted, build)["status"] == "pass"
+
+
+def test_bootstrap_language_attribute_cli_check_built_is_offline(tmp_path, monkeypatch, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--expect-lang-attribute", "--check-built"]
+    manifest_path = tmp_path / "manifest.json"
+    assert main(args + ["--output", str(manifest_path)]) == 1
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["pages"][0]["contract"][
+        "html_lang_present"
+    ] is True
+    assert "html_lang_presence" in capsys.readouterr().err
+    (build / "index.html").write_text(
+        '<html lang="en"><head><title>Example</title></head></html>', encoding="utf-8",
+    )
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["pages"][0]["contract"][
+        "html_lang_present"
+    ] is True
+    assert main(args + ["--output", str(manifest_path)]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 def test_skip_opt_ins_for_reviewed_exception_keeps_full_coverage(tmp_path):
     build = tmp_path / "dist"
     _html(build / "index.html")
