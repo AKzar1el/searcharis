@@ -1203,6 +1203,15 @@ in JSON and is included in human, JUnit, Markdown and SARIF failures. Without
 this flag the existing two-check output is unchanged. No URLs are fetched,
 and matched static bytes do not prove what production serves or how Googlebot
 interprets the policy.
+An optional `--require-robots-sitemap https://example.com/sitemap.xml` alongside
+`--reviewed-robots` additionally checks that the approved local policy explicitly
+declares that exact public Sitemap URL. A matching built file without this
+declaration fails the release with a distinct `robots_sitemap_declaration_missing`
+SARIF/JUnit finding; existing no-flag reports are unchanged. The field name is
+case-insensitive, the URL value is case-sensitive, and commented-out directives
+do not count. The expected URL must be a valid absolute fragment-free HTTP(S)
+URL. This is a local, opt-in discovery assertion, not sitemap HTTP delivery,
+indexing verification, or a complete robots.txt parser.
 
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
