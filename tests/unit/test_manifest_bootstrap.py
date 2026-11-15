@@ -290,6 +290,62 @@ def test_cli_opt_in_description_is_json_and_offline(tmp_path, monkeypatch, capsy
     assert manifest["pages"][0]["contract"]["description_present"] is True
 
 
+def test_opt_in_image_alt_uses_existing_contract_and_reviewed_exceptions(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "404.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><img src="hero.png"></body></html>',
+        encoding="utf-8",
+    )
+    default = generate_manifest(build, "https://example.com/")
+    assert all("img_missing_alt_max" not in p["contract"] for p in default["pages"])
+    assert verify_manifest(default, build)["status"] == "pass"
+
+    strict = generate_manifest(build, "https://example.com/", expect_image_alt=True)
+    assert all(p["contract"]["img_missing_alt_max"] == 0 for p in strict["pages"])
+    report = verify_manifest(strict, build)
+    assert report["status"] == "fail"
+    assert report["pages"][1]["issues"][0]["code"] == "img_missing_alt_max"
+
+    # An intentionally decorative image may use an empty alt attribute.
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><img src="hero.png" alt=""></body></html>',
+        encoding="utf-8",
+    )
+    assert verify_manifest(strict, build)["status"] == "pass"
+    exempted = generate_manifest(
+        build, "https://example.com/", expect_image_alt=True,
+        skip_opt_ins_for=("404.html",),
+    )
+    assert "img_missing_alt_max" not in exempted["pages"][0]["contract"]
+    assert exempted["pages"][1]["contract"]["img_missing_alt_max"] == 0
+
+
+def test_cli_image_alt_bootstrap_check_built_is_offline_and_preserves_report(tmp_path, monkeypatch, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><img src="bad.png"></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    first = tmp_path / "first.json"
+    args = [str(build), "https://example.com/", "--expect-image-alt", "--check-built"]
+    assert main(args + ["--output", str(first)]) == 1
+    assert json.loads(first.read_text())["pages"][0]["contract"]["img_missing_alt_max"] == 0
+    assert "img_missing_alt_max" in capsys.readouterr().err
+
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><img src="ok.png" alt="Graphic"></body></html>',
+        encoding="utf-8",
+    )
+    assert main(args + ["--output", str(tmp_path / "second.json")]) == 0
+    assert "PASS" in capsys.readouterr().err
+    assert main(args + ["--output", str(first)]) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 def test_skip_opt_ins_for_reviewed_exception_keeps_full_coverage(tmp_path):
     build = tmp_path / "dist"
     _html(build / "index.html")

@@ -98,7 +98,8 @@ def read_route_map(path: Path) -> dict[str, str]:
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
-    expect_description: bool = False, skip_opt_ins_for: tuple[str, ...] = (),
+    expect_description: bool = False, expect_image_alt: bool = False,
+    skip_opt_ins_for: tuple[str, ...] = (),
     expect_noindex_for: tuple[str, ...] = (),
     route_overrides: dict[str, str] | None = None,
 ) -> dict:
@@ -129,7 +130,7 @@ def generate_manifest(
         raise ValueError("No HTML pages found in the supplied build directory")
 
     if skip_opt_ins_for and not (
-        expect_self_canonical or expect_indexable or expect_description
+        expect_self_canonical or expect_indexable or expect_description or expect_image_alt
     ):
         raise ValueError("Cannot skip optional assertions when none are requested")
     skipped: set[str] = set()
@@ -179,6 +180,8 @@ def generate_manifest(
                 contract["indexable"] = True
             if expect_description:
                 contract["description_present"] = True
+            if expect_image_alt:
+                contract["img_missing_alt_max"] = 0
         # An explicit negative assertion survives a skip of positive opt-ins.
         if path in noindex_paths:
             contract["indexable"] = False
@@ -219,6 +222,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Opt in to requiring non-empty head meta descriptions in every built page",
     )
     parser.add_argument(
+        "--expect-image-alt",
+        action="store_true",
+        help="Opt in to requiring an alt attribute on every built HTML image (empty alt is valid)",
+    )
+    parser.add_argument(
         "--skip-opt-ins-for", metavar="BUILD_PATH", action="append", default=[],
         help="Keep this exact built HTML path in coverage, but omit optional assertions "
              "for it (repeatable; title is still required)",
@@ -243,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
             expect_description=args.expect_description,
+            expect_image_alt=args.expect_image_alt,
             skip_opt_ins_for=tuple(args.skip_opt_ins_for),
             expect_noindex_for=tuple(args.expect_noindex_for),
             route_overrides=read_route_map(args.route_map) if args.route_map else None,
