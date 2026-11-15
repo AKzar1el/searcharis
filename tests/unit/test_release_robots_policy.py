@@ -217,3 +217,76 @@ def test_required_sitemap_option_requires_reviewed_robots(inputs):
     with pytest.raises(SystemExit) as error:
         _run(inputs, "--require-robots-sitemap", "https://example.test/sitemap.xml")
     assert error.value.code == 2
+
+
+def test_repeated_sitemap_requirements_cannot_silently_discard_first(inputs, capsys):
+    policy = inputs[3]
+    policy.write_bytes(b"User-agent: *\nSitemap: https://example.test/second.xml\n")
+    (inputs[1] / "robots.txt").write_bytes(policy.read_bytes())
+    assert _run(
+        inputs, "--reviewed-robots", policy,
+        "--require-robots-sitemap", "https://example.test/first.xml",
+        "--require-robots-sitemap", "https://example.test/second.xml", "--json",
+    ) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["site"]["status"] == report["sitemap"]["status"] == "pass"
+    assert report["robots"]["reason"] == "sitemap_declaration_missing"
+    assert report["robots"]["missing_sitemap_urls"] == ["https://example.test/first.xml"]
+
+
+def test_repeated_sitemap_requirements_accept_all_and_report_reviewed_set(inputs, capsys):
+    policy = inputs[3]
+    policy.write_bytes(
+        b"User-agent: *\nSitemap: https://example.test/first.xml\n"
+        b"sItEmAp: https://example.test/second.xml # note\n"
+    )
+    (inputs[1] / "robots.txt").write_bytes(policy.read_bytes())
+    assert _run(
+        inputs, "--reviewed-robots", policy,
+        "--require-robots-sitemap", "https://example.test/first.xml",
+        "--require-robots-sitemap", "https://example.test/second.xml", "--json",
+    ) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "pass"
+    assert report["robots"]["required_sitemap_urls"] == [
+        "https://example.test/first.xml", "https://example.test/second.xml",
+    ]
+    assert report["robots"]["missing_sitemap_urls"] == []
+
+
+def test_multiple_missing_sitemaps_are_actionable_in_every_output(inputs, tmp_path, capsys):
+    urls = ("https://example.test/a.xml", "https://example.test/b.xml")
+    outputs = [tmp_path / "multi.json", tmp_path / "multi.xml",
+               tmp_path / "multi.md", tmp_path / "multi.sarif"]
+    assert _run(
+        inputs, "--reviewed-robots", inputs[3],
+        "--require-robots-sitemap", urls[0],
+        "--require-robots-sitemap", urls[1],
+        "--json-file", outputs[0], "--junit-file", outputs[1],
+        "--markdown-file", outputs[2], "--sarif-file", outputs[3],
+    ) == 1
+    robot = json.loads(outputs[0].read_text(encoding="utf-8"))["robots"]
+    assert robot["missing_sitemap_urls"] == list(urls)
+    assert all(url in outputs[2].read_text(encoding="utf-8") for url in urls)
+    suite = ET.parse(outputs[1]).getroot()
+    assert all(url in suite.find("testcase/failure").text for url in urls)
+    sarif = json.loads(outputs[3].read_text(encoding="utf-8"))
+    assert all(url in sarif["runs"][0]["results"][0]["message"]["text"] for url in urls)
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("requirements", [
+    ("https://example.test/a.xml", "https://example.test/a.xml"),
+    ("https://example.test/a.xml", "/relative.xml"),
+    tuple(f"https://example.test/{n}.xml" for n in range(17)),
+])
+def test_unsafe_repeated_sitemap_requirements_do_not_create_reports(
+    inputs, tmp_path, capsys, requirements,
+):
+    output = tmp_path / "must-not-exist.json"
+    args = ["--reviewed-robots", str(inputs[3])]
+    for url in requirements:
+        args.extend(["--require-robots-sitemap", url])
+    assert _run(inputs, *args, "--json-file", output) == 2
+    assert not output.exists()
+    assert "Invalid input" in capsys.readouterr().err

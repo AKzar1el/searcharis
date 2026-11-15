@@ -1213,6 +1213,29 @@ do not count. The expected URL must be a valid absolute fragment-free HTTP(S)
 URL. This is a local, opt-in discovery assertion, not sitemap HTTP delivery,
 indexing verification, or a complete robots.txt parser.
 
+For sites advertising more than one sitemap, repeat `--require-robots-sitemap`
+for each **owner-reviewed** public URL. Previously repeating the flag silently
+discarded every value except the last; now **all** specified declarations must
+appear in the reviewed policy or release CI fails:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
+  --reviewed-robots policies/production-robots.txt \
+  --require-robots-sitemap https://example.com/sitemap.xml \
+  --require-robots-sitemap https://example.com/news-sitemap.xml
+```
+
+One to sixteen distinct absolute HTTP(S) URLs are supported; duplicates,
+unsafe values and more than sixteen requirements are input errors (exit 2)
+before any reports are written. Existing single-URL JSON results keep their
+`required_sitemap_url` field unchanged; multi-URL results additionally include
+`required_sitemap_urls` and `missing_sitemap_urls` with the complete reviewed
+and absent URL lists. Human, JUnit, Markdown and SARIF reports show bounded
+actionable examples of missing declarations. Google documents that robots.txt
+may contain multiple optional `Sitemap:` lines; this flag asserts only what
+the operator explicitly reviewed, and never discovers or fetches URLs:
+https://developers.google.com/crawling/docs/robots-txt/create-robots-txt
+
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
 explicitly reviewed build-to-repository source-file hints; it is valid only

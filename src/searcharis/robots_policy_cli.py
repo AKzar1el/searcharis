@@ -10,12 +10,14 @@ import argparse
 import hashlib
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_canonical_url
 
 _MAX_POLICY_BYTES = 512_000
+_MAX_REQUIRED_SITEMAPS = 16
 
 
 def _read_bounded(path: Path) -> bytes:
@@ -37,13 +39,27 @@ def _declares_sitemap(policy: bytes, required_url: str) -> bool:
 
 
 def verify_reviewed_robots_policy(
-    reviewed_policy: Path, build_dir: Path, *, required_sitemap_url: str | None = None,
+    reviewed_policy: Path, build_dir: Path,
+    *, required_sitemap_url: str | Sequence[str] | None = None,
 ) -> dict:
     """Compare reviewed source policy to the exact build-root robots.txt artifact."""
-    if required_sitemap_url is not None and (
-        len(required_sitemap_url) >= 2048 or not _is_canonical_url(required_sitemap_url)
+    if required_sitemap_url is None:
+        required_urls: tuple[str, ...] = ()
+    elif isinstance(required_sitemap_url, str):
+        required_urls = (required_sitemap_url,)
+    elif isinstance(required_sitemap_url, Sequence):
+        required_urls = tuple(required_sitemap_url)
+    else:
+        raise ValueError("Required robots Sitemap URLs must be a sequence of URL strings")
+    if required_sitemap_url is not None and not 1 <= len(required_urls) <= _MAX_REQUIRED_SITEMAPS:
+        raise ValueError(f"Require 1 to {_MAX_REQUIRED_SITEMAPS} robots Sitemap URLs")
+    if any(
+        not isinstance(url, str) or len(url) >= 2048 or not _is_canonical_url(url)
+        for url in required_urls
     ):
         raise ValueError("Required robots Sitemap URL must be an absolute fragment-free HTTP(S) URL")
+    if len(set(required_urls)) != len(required_urls):
+        raise ValueError("Duplicate required robots Sitemap URL")
     root = build_dir.resolve(strict=True)
     if not root.is_dir():
         raise ValueError(f"Static build root must be a directory: {build_dir}")
@@ -65,10 +81,10 @@ def verify_reviewed_robots_policy(
         hashlib.sha256(_read_bounded(built)).hexdigest() if built is not None else None
     )
     matches = observed_digest == expected_digest
-    sitemap_declared = (
-        required_sitemap_url is None
-        or _declares_sitemap(reviewed_bytes, required_sitemap_url)
-    )
+    missing_sitemaps = [
+        url for url in required_urls if not _declares_sitemap(reviewed_bytes, url)
+    ]
+    sitemap_declared = not missing_sitemaps
     reason = (
         None if matches and sitemap_declared else
         "missing" if observed_digest is None else
@@ -81,8 +97,12 @@ def verify_reviewed_robots_policy(
         "expected_sha256": expected_digest,
         "observed_sha256": observed_digest,
     }
-    if required_sitemap_url is not None:
-        result["required_sitemap_url"] = required_sitemap_url
+    if required_urls:
+        # Keep the one-URL report stable for existing downstream CI consumers.
+        result["required_sitemap_url"] = required_urls[0]
+    if len(required_urls) > 1:
+        result["required_sitemap_urls"] = list(required_urls)
+        result["missing_sitemap_urls"] = missing_sitemaps
     return result
 
 

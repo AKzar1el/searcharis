@@ -143,7 +143,11 @@ def build_release_markdown(
             f"built SHA-256 {_code(robots['observed_sha256'] or 'missing')}",
         ])
         if robots["reason"] == "sitemap_declaration_missing":
-            lines.append(f"- Required Sitemap URL: {_code(robots['required_sitemap_url'])}")
+            missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
+            for url in missing[:3]:
+                lines.append(f"- Required Sitemap URL: {_code(url)}")
+            if len(missing) > 3:
+                lines.append(f"- ... and {len(missing) - 3} more missing Sitemap URLs")
 
     if not passed:
         issue_codes = {
