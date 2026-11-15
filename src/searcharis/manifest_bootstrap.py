@@ -147,6 +147,7 @@ def read_hreflang_map(path: Path) -> list[dict[str, str]]:
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
+    expect_followable: bool = False,
     expect_description: bool = False, expect_image_alt: bool = False,
     expect_lang_attribute: bool = False,
     skip_opt_ins_for: tuple[str, ...] = (),
@@ -183,7 +184,8 @@ def generate_manifest(
 
     if skip_opt_ins_for and not (
         expect_self_canonical or expect_indexable or expect_description
-        or expect_image_alt or expect_lang_attribute or language_overrides is not None
+        or expect_followable or expect_image_alt or expect_lang_attribute
+        or language_overrides is not None
         or hreflang_clusters is not None
     ):
         raise ValueError("Cannot skip optional assertions when none are requested")
@@ -301,6 +303,8 @@ def generate_manifest(
                 contract["canonical"] = url
             if expect_indexable and path not in noindex_paths:
                 contract["indexable"] = True
+            if expect_followable:
+                contract["followable"] = True
             if expect_description:
                 contract["description_present"] = True
             if expect_image_alt:
@@ -349,6 +353,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Opt in to flagging noindex robots/googlebot meta in every built page",
     )
     parser.add_argument(
+        "--expect-followable",
+        action="store_true",
+        help="Opt in to flagging nofollow/none robots/googlebot meta in every built page",
+    )
+    parser.add_argument(
         "--expect-description",
         action="store_true",
         help="Opt in to requiring non-empty head meta descriptions in every built page",
@@ -395,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
             args.build_dir, args.site_base_url,
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
+            expect_followable=args.expect_followable,
             expect_description=args.expect_description,
             expect_image_alt=args.expect_image_alt,
             expect_lang_attribute=args.expect_lang_attribute,

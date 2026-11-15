@@ -625,6 +625,23 @@ access or search-index inclusion. The flag is off by default and can be
 combined with `--expect-self-canonical`; remove or adjust the assertion for
 intentional noindex pages before making the reviewed manifest a CI gate.
 
+To protect reviewed pages from an accidental `nofollow` or `none` robots
+directive that prevents Googlebot from following links in the built HTML,
+opt in to generating a separate followability assertion:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-followable --check-built --output seo-manifest.json
+```
+
+This emits `followable: true` per non-exempt page using the existing offline
+robots/googlebot checker. A `nofollow` or `none` directive in the head or
+body fails; `noindex` alone does not. The flag is off by default, composes
+with `--expect-indexable`, and honors `--skip-opt-ins-for` for deliberately
+restricted pages. This is not a guarantee that Google will crawl links or
+that a deployed page permits following via HTTP headers, robots.txt or other
+controls. No remote URL is fetched.
+
 For pages where your team requires a populated HTML meta description before
 release, opt in to a description-presence assertion:
 
@@ -778,7 +795,8 @@ reviewed gate. The `.invalid` hostname is a fixture identifier; no URL is
 fetched and this demonstration does not establish live-site or customer usage.
 
 If a reviewed built page is intentionally exempt from the optional canonical,
-indexability, description, image-alt, language-attribute or cluster assertions
+indexability, followability, description, image-alt, language-attribute or
+cluster assertions
 (for example a static `404.html`),
 keep it in strict coverage while omitting those opt-ins only for that path:
 
@@ -796,7 +814,8 @@ Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
 opt-ins. The option requires at least one positive global
-`--expect-self-canonical`, `--expect-indexable`, `--expect-description`,
+`--expect-self-canonical`, `--expect-indexable`, `--expect-followable`,
+`--expect-description`,
 `--expect-image-alt`, `--expect-lang-attribute`, `--lang-map` or
 `--hreflang-map` policy. Skipped pages cannot be members of a reviewed
 hreflang cluster.
