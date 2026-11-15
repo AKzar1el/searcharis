@@ -968,6 +968,36 @@ template/raw-text HTML are ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
 
+## Opt-in reviewed internal nofollow links
+
+For an explicitly reviewed static public route set, catch accidental
+`rel="nofollow"` on links between important pages without interpreting
+link markup as a live crawl:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --check-internal-nofollow --json
+```
+
+The same flag works in `release_cli` and `build_compare` (regression-only
+baseline versus candidate). It checks active `<a href>` and navigable image-map
+`<area href>` elements whose destination resolves to **the same or another
+reviewed, same-origin URL**. It respects the first head `<base href>`, URL
+identity aliases and comma- or whitespace-separated case-insensitive `rel`
+tokens, and deduplicates repeated destinations per source page. A marked link
+fails with `internal_link_nofollow` and exit 1; the `internal_nofollow` report
+lists checked links and affected source paths/targets. The default is unchanged.
+
+Links to unreviewed routes (for example, intentionally restricted account
+pages), external origins, non-HTTP URLs and inert HTML are out of scope.
+`sponsored` or `ugc` alone does not trigger this particular gate. Saved report
+comparisons reject differing enabled/disabled policies (exit 2), and a new
+restricted link is a regression when both policies are enabled. This is a
+static policy check, **not proof of crawl, indexing, rank, or link equity**.
+Google treats link `rel` values as hints: see its
+[outbound link documentation](https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links).
+No supplied URL is fetched.
+
 ## Opt-in critical-page inbound link assertions
 
 For important landing pages, the combined offline HTML+sitemap release gate can
@@ -1312,18 +1342,20 @@ Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
 
-Optional `--check-reviewed-navigation` and `--check-reviewed-fragments`
+Optional `--check-reviewed-navigation`, `--check-reviewed-fragments`, and
+`--check-internal-nofollow`
 also work with `build_compare`. They compare the **same opt-in checks on
 both** builds and block only newly introduced same-origin links outside the
 reviewed manifest, or new links to missing/ambiguous fragment IDs in reviewed
-local HTML. Pre-existing broken links do not block the candidate. These flags
+local HTML, or new nofollow marks on links to reviewed internal pages.
+Pre-existing broken links do not block the candidate. These flags
 use the same static-only semantics as the corresponding site/release gates;
 they do not fetch URLs, test live routing or inspect JavaScript-created IDs.
 Outside-manifest fragment destinations cannot be verified. For example:
 
 ```sh
 uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
-  --check-reviewed-navigation --check-reviewed-fragments \
+  --check-reviewed-navigation --check-reviewed-fragments --check-internal-nofollow \
   --json-file seo-navigation-regressions.json
 ```
 

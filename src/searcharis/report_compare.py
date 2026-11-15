@@ -23,6 +23,7 @@ _MAX_HUMAN_DETAILS = 20
 _CHECKS = ("canonical_consistency", "hreflang_clusters", "hreflang_reciprocity")
 _REVIEWED_CHECKS = (
     ("reviewed_navigation", "checked_links", ("unreviewed_targets",)),
+    ("internal_nofollow", "checked_links", ("nofollow_targets",)),
     ("reviewed_fragments", "checked_fragments",
      ("missing_targets", "ambiguous_targets", "unverified_targets")),
 )
@@ -189,6 +190,30 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
                 for item in targets
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
+
+    nofollow_issues = [
+        (page["path"], issue["actual"])
+        for page in pages for issue in page["issues"]
+        if issue["code"] == "internal_link_nofollow"
+    ]
+    if any(not isinstance(target, str) for _, target in nofollow_issues):
+        raise ValueError(f"{name}: invalid internal_nofollow issue target")
+    if "internal_nofollow" in report:
+        data = report["internal_nofollow"]
+        entries = [(item["path"], item["target"]) for item in data["nofollow_targets"]]
+        if (
+            sorted(entries) != sorted(nofollow_issues)
+            or len(entries) > data["checked_links"]
+            or len(set(entries)) != len(entries)
+            or any(
+                not _is_http_url(target)
+                or _page_url_identity(target) not in url_identities
+                for _, target in entries
+            )
+        ):
+            raise ValueError(f"{name}: inconsistent internal_nofollow findings")
+    elif nofollow_issues:
+        raise ValueError(f"{name}: internal_nofollow issues without enabled policy")
 
     for check in _UNIQUE_CHECKS:
         if check in report and report[check] is not True:

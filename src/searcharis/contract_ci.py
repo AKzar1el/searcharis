@@ -42,11 +42,14 @@ _MAX_JSONLD_NESTING = 256
 class _SEOParser(HTMLParser):
     def __init__(
         self, *, collect_anchors: bool = False, collect_fragment_ids: bool = False,
+        collect_anchor_nofollow: bool = False,
     ) -> None:
         super().__init__(convert_charrefs=True)
         self.collect_anchors = collect_anchors
         self.collect_fragment_ids = collect_fragment_ids
+        self.collect_anchor_nofollow = collect_anchor_nofollow
         self.anchors: list[str] = []
+        self.nofollow_anchors: list[str] = []
         self.fragment_ids: set[str] = set()
         self.duplicate_fragment_ids: set[str] = set()
         self.has_html = False
@@ -171,7 +174,12 @@ class _SEOParser(HTMLParser):
             # map are not navigable, and template contents were skipped above.
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
-            self.anchors.append((values["href"] or "").strip())
+            href = (values["href"] or "").strip()
+            self.anchors.append(href)
+            if self.collect_anchor_nofollow and "nofollow" in re.split(
+                r"[\s,]+", (values.get("rel") or "").lower(),
+            ):
+                self.nofollow_anchors.append(href)
         if tag == "html":
             if not self.html_tag_seen and not self.has_head and not self.body_seen:
                 # Only the root start tag may supply the declared document language.
@@ -615,6 +623,7 @@ def verify_contract(
     include_hreflang: bool = False,
     include_canonical: bool = False,
     include_anchors: bool = False,
+    include_anchor_nofollow: bool = False,
     include_fragment_ids: bool = False,
     include_title: bool = False,
     include_description: bool = False,
@@ -623,6 +632,7 @@ def verify_contract(
     spec = _check_contract(contract)
     page = _SEOParser(
         collect_anchors=include_anchors, collect_fragment_ids=include_fragment_ids,
+        collect_anchor_nofollow=include_anchor_nofollow,
     )
     page.feed(html)
     page.close()
@@ -891,6 +901,8 @@ def verify_contract(
     if include_anchors:
         # Only the offline site checker interprets these relative destinations.
         result["observed_anchors"] = {"base_url": base_url, "hrefs": page.anchors}
+        if include_anchor_nofollow:
+            result["observed_anchors"]["nofollow_hrefs"] = page.nofollow_anchors
         if include_fragment_ids:
             result["observed_anchors"]["ids"] = sorted(page.fragment_ids)
             result["observed_anchors"]["duplicate_ids"] = sorted(page.duplicate_fragment_ids)

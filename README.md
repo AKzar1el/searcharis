@@ -131,6 +131,9 @@ ambiguous targets such as duplicate active IDs or named anchors. It does not
 fetch links, inspect unreviewed routes or change the default SEO gate. The
 reviewed navigation and fragment gates also inspect image-map `<area href>`
 hotspots inside active `<map>` elements.
+The optional `--check-internal-nofollow` also checks links to reviewed
+same-origin pages for accidental `rel="nofollow"` (not a live crawl), in
+`site_cli`, `release_cli` and `build_compare`.
 For critical landing pages, the combined `release_cli` also supports
 repeatable `--require-inbound-link services/index.html`: it fails when no
 other reviewed same-origin built page links to that explicitly selected

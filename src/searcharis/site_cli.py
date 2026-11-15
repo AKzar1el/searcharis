@@ -57,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if same-origin HTML navigation targets are absent from the reviewed manifest",
     )
     parser.add_argument(
+        "--check-internal-nofollow", action="store_true",
+        help="Fail if links to reviewed same-origin pages carry rel=nofollow (opt-in)",
+    )
+    parser.add_argument(
         "--check-reviewed-fragments", action="store_true",
         help="Fail if links to reviewed same-origin pages use missing HTML fragment IDs",
     )
@@ -101,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
+            check_internal_nofollow=args.check_internal_nofollow,
             check_reviewed_fragments=args.check_reviewed_fragments,
             check_unique_titles=args.check_unique_titles,
             check_unique_descriptions=args.check_unique_descriptions,
@@ -191,6 +196,12 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  Navigation: {navigation['checked_links']} distinct local links checked, "
                 f"{len(navigation['unreviewed_targets'])} unreviewed targets"
+            )
+        if args.check_internal_nofollow:
+            links = report["internal_nofollow"]
+            print(
+                f"  Internal nofollow: {links['checked_links']} local links checked, "
+                f"{len(links['nofollow_targets'])} restricted targets"
             )
         if args.check_reviewed_fragments:
             fragments = report["reviewed_fragments"]

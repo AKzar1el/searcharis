@@ -81,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if same-origin HTML navigation links target URLs absent from the manifest",
     )
     parser.add_argument(
+        "--check-internal-nofollow", action="store_true",
+        help="Fail if links to reviewed same-origin pages carry rel=nofollow (opt-in)",
+    )
+    parser.add_argument(
         "--check-reviewed-fragments", action="store_true",
         help="Fail if reviewed same-origin HTML navigation fragments have no target ID",
     )
@@ -140,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
+            check_internal_nofollow=args.check_internal_nofollow,
             check_reviewed_fragments=args.check_reviewed_fragments,
             check_unique_titles=args.check_unique_titles,
             check_unique_descriptions=args.check_unique_descriptions,
