@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlsplit
@@ -95,6 +96,30 @@ def read_route_map(path: Path) -> dict[str, str]:
     return routes
 
 
+def read_language_map(path: Path) -> dict[str, str]:
+    """Read an explicit build-path to language mapping without duplicate keys."""
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate language-map JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(_read_limited(path), object_pairs_hook=unique_keys)
+    except RecursionError as error:
+        raise ValueError("Language-map JSON exceeds supported nesting depth") from error
+    if not isinstance(payload, dict) or set(payload) != {"version", "languages"}:
+        raise ValueError("Language map requires exactly 'version' and 'languages'")
+    if type(payload["version"]) is not int or payload["version"] != 1:
+        raise ValueError("Unsupported language-map version (expected integer 1)")
+    languages = payload["languages"]
+    if not isinstance(languages, dict) or not 1 <= len(languages) <= _MAX_PAGES:
+        raise ValueError(f"Language-map 'languages' must contain 1 to {_MAX_PAGES} entries")
+    return languages
+
+
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
@@ -103,6 +128,7 @@ def generate_manifest(
     skip_opt_ins_for: tuple[str, ...] = (),
     expect_noindex_for: tuple[str, ...] = (),
     route_overrides: dict[str, str] | None = None,
+    language_overrides: dict[str, str] | None = None,
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
@@ -132,7 +158,7 @@ def generate_manifest(
 
     if skip_opt_ins_for and not (
         expect_self_canonical or expect_indexable or expect_description
-        or expect_image_alt or expect_lang_attribute
+        or expect_image_alt or expect_lang_attribute or language_overrides is not None
     ):
         raise ValueError("Cannot skip optional assertions when none are requested")
     skipped: set[str] = set()
@@ -166,6 +192,29 @@ def generate_manifest(
                 raise ValueError(f"unknown route-map build path: {path}")
             reviewed_routes[path] = _reviewed_route(route)
 
+    reviewed_languages: dict[str, str] = {}
+    if language_overrides is not None:
+        if not isinstance(language_overrides, dict) or not language_overrides:
+            raise ValueError("Language overrides require a nonempty path-to-language mapping")
+        if len(language_overrides) > _MAX_PAGES:
+            raise ValueError(f"Language overrides exceed {_MAX_PAGES} pages")
+        for requested, language in language_overrides.items():
+            path = _manifest_path(requested)
+            if path not in available:
+                raise ValueError(f"unknown language-map build path: {path}")
+            if path in skipped:
+                raise ValueError(f"language-map path cannot also be skipped: {path}")
+            if (
+                not isinstance(language, str)
+                or len(language) > 63
+                or not re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", language)
+            ):
+                raise ValueError(f"Invalid language-map tag for build path: {path}")
+            reviewed_languages[path] = language
+        missing = sorted(available - skipped - reviewed_languages.keys())
+        if missing:
+            raise ValueError(f"language map missing reviewed build path: {missing[0]}")
+
     seen_urls: set[str] = set()
     pages = []
     for path in sorted(paths):
@@ -184,7 +233,9 @@ def generate_manifest(
                 contract["description_present"] = True
             if expect_image_alt:
                 contract["img_missing_alt_max"] = 0
-            if expect_lang_attribute:
+            if path in reviewed_languages:
+                contract["html_lang"] = reviewed_languages[path]
+            elif expect_lang_attribute:
                 contract["html_lang_present"] = True
         # An explicit negative assertion survives a skip of positive opt-ins.
         if path in noindex_paths:
@@ -250,6 +301,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Apply reviewed build-path to public-route overrides from a local JSON file",
     )
     parser.add_argument(
+        "--lang-map", type=Path, metavar="JSON_FILE",
+        help="Require exact reviewed HTML languages for every non-exempt built page",
+    )
+    parser.add_argument(
         "--check-built", action="store_true",
         help="Also verify generated SEO assertions against local HTML, exiting 1 on mismatch",
     )
@@ -265,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_opt_ins_for=tuple(args.skip_opt_ins_for),
             expect_noindex_for=tuple(args.expect_noindex_for),
             route_overrides=read_route_map(args.route_map) if args.route_map else None,
+            language_overrides=read_language_map(args.lang_map) if args.lang_map else None,
         )
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.

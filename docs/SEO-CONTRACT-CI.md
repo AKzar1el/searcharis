@@ -672,6 +672,36 @@ review and add the existing exact `html_lang` contract field. This opt-in is
 off by default, composes with other flags and exact-path exceptions, and does
 not fetch URLs or prove that search engines detected the intended locale.
 
+To generate those exact reviewed language assertions without hand-editing each
+page, create `languages.json` with **build-relative HTML paths**, not public
+URLs or automatically inferred locale names:
+
+```json
+{
+  "version": 1,
+  "languages": {"en/index.html": "en-GB", "sl/index.html": "sl"}
+}
+```
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --lang-map languages.json --check-built --output seo-manifest.json
+```
+
+`--lang-map` emits the existing exact `html_lang` assertion for every
+non-exempt built page. A page advertising the wrong language fails offline
+verification even when its `lang` attribute is present. The map must cover
+every built HTML path unless explicitly excluded using
+`--skip-opt-ins-for 404.html`; unknown, unsafe or duplicate JSON paths,
+missing coverage, and invalid ASCII language-subtag spellings fail with input
+exit 2 before output creation. Do not also include skipped paths in the map.
+The mapping composes with `--route-map` for reviewed public URL rewrites;
+language keys always refer to actual built HTML file paths. If
+`--expect-lang-attribute` is also enabled, the exact map takes precedence
+for mapped pages. Review each language value before committing the generated
+manifest: this is a bounded syntax check, not full BCP 47 validation, actual
+HTTP language negotiation, or a claim about SEO traffic or indexing.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
 indexability, description, image-alt or language-attribute assertions
 (for example a static `404.html`),
