@@ -106,8 +106,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Also require build-root robots.txt to match this reviewed local policy file",
     )
     parser.add_argument(
-        "--require-robots-sitemap", metavar="URL",
-        help="Require the reviewed robots.txt to declare this exact absolute Sitemap URL",
+        "--require-robots-sitemap", metavar="URL", action="append",
+        help="Require a reviewed robots.txt Sitemap URL (repeatable, up to 16)",
     )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
@@ -291,8 +291,12 @@ def main(argv: list[str] | None = None) -> int:
             if robots["status"] == "pass":
                 print("PASS robots.txt: matches reviewed local policy")
             elif robots["reason"] == "sitemap_declaration_missing":
-                print("FAIL robots.txt: reviewed policy omits required Sitemap URL "
-                      f"{_preview(robots['required_sitemap_url'])}")
+                missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
+                for url in missing[:3]:
+                    print("FAIL robots.txt: reviewed policy omits required Sitemap URL "
+                          f"{_preview(url)}")
+                if len(missing) > 3:
+                    print(f"  ... and {len(missing) - 3} more; use --json for all")
             else:
                 print(
                     f"FAIL robots.txt {robots['reason']}: reviewed SHA-256 "

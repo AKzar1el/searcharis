@@ -156,12 +156,16 @@ def build_release_junit(site: dict, sitemap: dict, robots: dict | None = None) -
 
     if robots is not None and robots["status"] == "fail":
         sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
+        missing_urls = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]) if sitemap_missing else []
+        missing_message = ", ".join(_bounded(url) for url in missing_urls[:3])
+        if len(missing_urls) > 3:
+            missing_message += f" (and {len(missing_urls) - 3} more missing Sitemap URLs)"
         failures.append((
             "robots.txt :: robots_sitemap_declaration_missing" if sitemap_missing
             else "robots.txt :: robots_policy_drift",
             "Reviewed robots.txt lacks required Sitemap URL" if sitemap_missing
             else "Built robots.txt differs from reviewed local policy",
-            f"Expected Sitemap URL: {_bounded(robots['required_sitemap_url'])}"
+            f"Expected Sitemap URL: {missing_message}"
             if sitemap_missing else
             f"Reason: {_bounded(robots['reason'])}; "
             f"reviewed SHA-256: {robots['expected_sha256']}; "

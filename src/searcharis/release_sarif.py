@@ -75,19 +75,25 @@ def build_release_sarif(
             robots["observed_sha256"],
         ]
         if sitemap_missing:
-            identity_values.append(robots["required_sitemap_url"])
+            identity_values.extend(robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]))
         identity = json.dumps(
             identity_values, separators=(",", ":"),
         )
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        message = (
-            "Reviewed robots.txt omits required Sitemap URL: "
-            + json.dumps(robots["required_sitemap_url"], ensure_ascii=True)[:480]
-            if sitemap_missing else
-            f"Built robots.txt {robots['reason']}; "
-            f"reviewed SHA-256 {robots['expected_sha256']}; "
-            f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
-        )
+        if sitemap_missing:
+            missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
+            examples = ", ".join(
+                json.dumps(url, ensure_ascii=True)[:480] for url in missing[:3]
+            )
+            message = f"Reviewed robots.txt omits required Sitemap URL(s): {examples}"
+            if len(missing) > 3:
+                message += f" (and {len(missing) - 3} more; see JSON report)"
+        else:
+            message = (
+                f"Built robots.txt {robots['reason']}; "
+                f"reviewed SHA-256 {robots['expected_sha256']}; "
+                f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
+            )
         findings.append({
             "ruleId": rule_id,
             "level": "error",
