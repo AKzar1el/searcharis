@@ -161,6 +161,39 @@ def test_index_fails_on_missing_or_case_mismatched_local_file(tmp_path):
         verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
 
 
+def test_index_input_path_must_match_actual_filename_case(tmp_path):
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    actual_index = _index(tmp_path, "https://example.test/sitemap-0.xml")
+    actual_index.rename(tmp_path / "Sitemap-Index.xml")
+
+    # An NTFS lookup may resolve this misspelled path, whereas Linux CI and
+    # case-sensitive static hosts will not serve the same artifact name.
+    with pytest.raises((OSError, ValueError)):
+        verify_sitemap_manifest(
+            _manifest(), [], sitemap_index_path=tmp_path / "sitemap-index.xml",
+        )
+
+
+def test_index_cli_wrong_case_input_never_writes_json_report(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest()), encoding="utf-8")
+    build = tmp_path / "dist"
+    build.mkdir()
+    _shard(build, "sitemap-0.xml", "https://example.test/")
+    _index(build, "https://example.test/sitemap-0.xml").rename(
+        build / "Sitemap-Index.xml"
+    )
+    report_dir = tmp_path / "ci-reports"
+    report_dir.mkdir()
+    report = report_dir / "report.json"
+    assert sitemap_main([
+        str(manifest), "--sitemap-index", str(build / "sitemap-index.xml"),
+        "--json-file", str(report),
+    ]) == 2
+    assert not report.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 def test_index_rejects_ambiguous_explicit_shards(tmp_path):
     shard = _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
     index = _index(tmp_path, "https://example.test/sitemap-0.xml")
