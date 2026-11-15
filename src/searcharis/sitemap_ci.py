@@ -38,6 +38,10 @@ def _local_index_shards(index_path: Path) -> tuple[tuple[Path, ...], tuple]:
     if index_path.is_symlink() or not index_path.is_file():
         raise ValueError("Sitemap index must be a regular local file")
     parent = index_path.parent.resolve(strict=True)
+    # NTFS may open a differently cased path successfully, but Linux build
+    # runners and static hosts require the actual index filename's casing.
+    if index_path.name not in {entry.name for entry in parent.iterdir()}:
+        raise ValueError("Sitemap index path must match the exact-case local filename")
     with index_path.open("rb") as stream:
         data = stream.read(_MAX_SITEMAP_BYTES + 1)
     if len(data) > _MAX_SITEMAP_BYTES:

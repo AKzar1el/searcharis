@@ -1846,7 +1846,9 @@ The index must contain 1-16 standard-namespaced `<sitemap><loc>` entries
 whose public URLs share a scheme, effective host/port and URL directory.
 Only literal `.xml` or `.xml.gz` basenames are supported. For each index
 entry, Searcharis opens the **exact-case same-named file beside the local
-index**, using existing per-file and aggregate byte/URL limits. Missing files,
+index**, using existing per-file and aggregate byte/URL limits. The supplied
+`--sitemap-index` path must also match the index file's actual filename case,
+including on case-insensitive Windows filesystems. Missing files,
 case mismatches, symlinks, duplicate filenames (including case aliases),
 cross-site/directory URLs, encoded or traversal paths, DTDs, invalid UTF-8,
 query or fragment delimiters (including a trailing empty `?`), and unsupported
