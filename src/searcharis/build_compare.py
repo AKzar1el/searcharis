@@ -78,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate newly duplicated descriptions across reviewed indexable same-origin pages",
     )
     parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Gate new missing inbound links to this reviewed critical HTML path (repeatable)",
+    )
+    parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block only newly unlisted HTML without blocking existing gaps",
     )
@@ -146,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             "check_reviewed_fragments": args.check_reviewed_fragments,
             "check_unique_titles": args.check_unique_titles,
             "check_unique_descriptions": args.check_unique_descriptions,
+            "required_inbound_paths": tuple(args.require_inbound_link),
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)

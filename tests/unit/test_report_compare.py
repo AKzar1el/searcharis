@@ -152,6 +152,71 @@ def test_archived_reports_reject_mismatched_reviewed_link_checks(
         compare_reports(baseline, candidate)
 
 
+@pytest.mark.parametrize("enabled_in_baseline", [True, False])
+def test_archived_reports_reject_mismatched_required_inbound_policy(enabled_in_baseline):
+    clean = _report([("index.html", []), ("services/index.html", [])])
+    with_inbound = _report([("index.html", []), ("services/index.html", [])])
+    with_inbound["reviewed_inbound"] = {
+        "required_paths": ["services/index.html"],
+        "linked_paths": ["services/index.html"],
+        "missing_paths": [],
+    }
+    assert compare_reports(with_inbound, with_inbound)["status"] == "pass"
+    baseline, candidate = (with_inbound, clean) if enabled_in_baseline else (clean, with_inbound)
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(baseline, candidate)
+
+
+def test_archived_reports_reject_changed_required_inbound_paths():
+    before = _report([("index.html", []), ("services/index.html", [])])
+    after = _report([("index.html", []), ("services/index.html", [])])
+    before["reviewed_inbound"] = {
+        "required_paths": ["services/index.html"],
+        "linked_paths": ["services/index.html"],
+        "missing_paths": [],
+    }
+    after["reviewed_inbound"] = {
+        "required_paths": ["index.html"],
+        "linked_paths": ["index.html"],
+        "missing_paths": [],
+    }
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(before, after)
+
+
+@pytest.mark.parametrize("bad_inbound", [
+    {"required_paths": [], "linked_paths": [], "missing_paths": []},
+    {"required_paths": ["missing.html"], "linked_paths": [], "missing_paths": ["missing.html"]},
+    {"required_paths": ["index.html"], "linked_paths": [], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": ["index.html"], "missing_paths": ["index.html"]},
+    {"required_paths": ["index.html", "index.html"], "linked_paths": ["index.html"], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": ["not-listed.html"], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": [], "missing_paths": ["index.html"]},
+])
+def test_archived_reports_reject_malformed_inbound_summary(bad_inbound):
+    report = _report([("index.html", [])])
+    report["reviewed_inbound"] = bad_inbound
+    with pytest.raises(ValueError, match="invalid reviewed_inbound"):
+        compare_reports(report, report)
+
+
+def test_archived_cli_inbound_option_mismatch_exits_two(tmp_path, capsys):
+    before = _report([("index.html", [])])
+    after = _report([("index.html", [])])
+    before["reviewed_inbound"] = {
+        "required_paths": ["index.html"],
+        "linked_paths": ["index.html"],
+        "missing_paths": [],
+    }
+    baseline_path, candidate_path = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    baseline_path.write_text(json.dumps(before), encoding="utf-8")
+    candidate_path.write_text(json.dumps(after), encoding="utf-8")
+    assert main([str(baseline_path), str(candidate_path), "--json"]) == 2
+    response = json.loads(capsys.readouterr().out)
+    assert response["status"] == "error"
+    assert "different check options" in response["error"]
+
+
 @pytest.mark.parametrize("field, bad_summary", [
     ("reviewed_navigation", {"checked_links": -1, "unreviewed_targets": []}),
     ("reviewed_fragments", {"checked_fragments": "not-a-count", "missing_targets": [],

@@ -33,7 +33,7 @@ def _int(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
+def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     if not isinstance(report, dict):
         raise ValueError(f"{name}: report must be a JSON object")
     try:
@@ -194,11 +194,43 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         if check in report and report[check] is not True:
             raise ValueError(f"{name}: invalid {check} provenance")
 
+    # Opt-in critical-page inbound policy is a selected set of paths, not
+    # merely a boolean: changing the targets can silently weaken a CI gate.
+    inbound_paths: tuple[str, ...] = ()
+    if "reviewed_inbound" in report:
+        inbound = report["reviewed_inbound"]
+        if not isinstance(inbound, dict):
+            raise ValueError(f"{name}: invalid reviewed_inbound data")
+        required = inbound.get("required_paths")
+        linked = inbound.get("linked_paths")
+        missing = inbound.get("missing_paths")
+        lists = (required, linked, missing)
+        if (
+            any(not isinstance(items, list) for items in lists)
+            or not required
+            or any(
+                not isinstance(path, str) or path not in listed_paths
+                for items in lists for path in items
+            )
+            or any(len(set(items)) != len(items) for items in lists)
+            or set(linked) & set(missing)
+            or set(linked) | set(missing) != set(required)
+        ):
+            raise ValueError(f"{name}: invalid reviewed_inbound data")
+        actual_missing = {
+            page["path"] for page in pages
+            if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
+        }
+        if set(missing) != actual_missing:
+            raise ValueError(f"{name}: invalid reviewed_inbound missing-page findings")
+        inbound_paths = tuple(sorted(required))
+
     options = (
         strict,
         *(check in report for check in _CHECKS),
         *(check in report for check, _, _ in _REVIEWED_CHECKS),
         *(check in report for check in _UNIQUE_CHECKS),
+        inbound_paths,
     )
     return report, options
 
@@ -263,7 +295,8 @@ def compare_reports(
     if before_options != after_options:
         raise ValueError(
             "Reports use different check options; regenerate both with identical "
-            "coverage, canonical, hreflang, reviewed navigation/fragment and uniqueness flags"
+            "coverage, canonical, hreflang, reviewed navigation/fragment, uniqueness "
+            "and --require-inbound-link paths"
         )
     if fail_on_new_unverified_targets and not any(before_options[1:1 + len(_CHECKS)]):
         raise ValueError(
