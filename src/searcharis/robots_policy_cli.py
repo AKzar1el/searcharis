@@ -113,10 +113,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("reviewed_policy", type=Path, help="Reviewed robots.txt outside the build")
     parser.add_argument("build_dir", type=Path, help="Local static build with root robots.txt")
     parser.add_argument("--json", action="store_true", help="Emit a structured report")
+    parser.add_argument(
+        "--require-robots-sitemap", action="append", metavar="URL",
+        help="Require a reviewed Sitemap URL (repeatable, up to 16; no URL fetch)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        report = verify_reviewed_robots_policy(args.reviewed_policy, args.build_dir)
+        report = verify_reviewed_robots_policy(
+            args.reviewed_policy, args.build_dir,
+            required_sitemap_url=args.require_robots_sitemap,
+        )
     except (OSError, ValueError) as error:
         if args.json:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
@@ -128,6 +135,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif report["status"] == "pass":
         print(f"PASS robots.txt matches reviewed SHA-256 {report['expected_sha256'][:12]}")
+    elif report["reason"] == "sitemap_declaration_missing":
+        missing = report.get("missing_sitemap_urls") or [report["required_sitemap_url"]]
+        samples = ", ".join(
+            human_input_error(ValueError(url), limit=96) for url in missing[:2]
+        )
+        rest = f" (+{len(missing) - 2} more)" if len(missing) > 2 else ""
+        print(f"FAIL robots.txt missing reviewed Sitemap declaration(s): {samples}{rest}")
     else:
         observed = report["observed_sha256"]
         actual = observed[:12] if observed else "missing"

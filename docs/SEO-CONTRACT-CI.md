@@ -1236,6 +1236,22 @@ may contain multiple optional `Sitemap:` lines; this flag asserts only what
 the operator explicitly reviewed, and never discovers or fetches URLs:
 https://developers.google.com/crawling/docs/robots-txt/create-robots-txt
 
+For teams that only need a reviewed `robots.txt` gate, the standalone
+`searcharis.robots_policy_cli` accepts the same repeatable option without
+requiring an HTML manifest or local XML sitemap files:
+
+```sh
+uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist \
+  --require-robots-sitemap https://example.com/sitemap.xml \
+  --require-robots-sitemap https://example.com/news-sitemap.xml --json
+```
+
+It reuses the combined gate's exact-byte policy check and 1-16 distinct URL
+validation. Missing explicitly reviewed Sitemap declarations fail with exit 1,
+invalid URLs or duplicates fail with exit 2, and existing calls without this
+option keep their original output. It never fetches the declared URLs or
+establishes production HTTP/crawler behavior.
+
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
 explicitly reviewed build-to-repository source-file hints; it is valid only
