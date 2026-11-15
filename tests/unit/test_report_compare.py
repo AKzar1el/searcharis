@@ -666,6 +666,47 @@ def test_comparison_rejects_canonical_target_alias_falsely_marked_unverified(ali
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("invalid_target", [
+    "",
+    "/relative/path",
+    "mailto:help@example.test",
+    "https:///missing-host",
+    "https://elsewhere.test/fragment#section",
+    "https://elsewhere.test/blank space",
+    "https://some%2ehost.test/",
+    "https://user@elsewhere.test/",
+])
+def test_comparison_rejects_invalid_archived_unverified_canonical_url(invalid_target):
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": invalid_target,
+    }]
+    with pytest.raises(ValueError, match="invalid canonical_consistency unverified targets"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
+def test_comparison_accepts_valid_archived_external_canonical_url():
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXTERNAL.test:443/%7Eguide?view=%2F",
+    }]
+    assert compare_reports(report, report, fail_on_new_unverified_targets=True)["status"] == "pass"
+
+
+def test_archived_cli_rejects_invalid_unverified_canonical_with_json_error(tmp_path, capsys):
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "javascript:alert(1)",
+    }]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+
+
 def test_archived_hreflang_target_alias_retains_exact_url_matching():
     report = _report(
         [("en/index.html", []), ("de/index.html", [])],
