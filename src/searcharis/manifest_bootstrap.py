@@ -120,6 +120,30 @@ def read_language_map(path: Path) -> dict[str, str]:
     return languages
 
 
+def read_hreflang_map(path: Path) -> list[dict[str, str]]:
+    """Read reviewed groups of built pages, never infer locale URLs from filenames."""
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate hreflang-map JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(_read_limited(path), object_pairs_hook=unique_keys)
+    except RecursionError as error:
+        raise ValueError("Hreflang-map JSON exceeds supported nesting depth") from error
+    if not isinstance(payload, dict) or set(payload) != {"version", "clusters"}:
+        raise ValueError("Hreflang map requires exactly 'version' and 'clusters'")
+    if type(payload["version"]) is not int or payload["version"] != 1:
+        raise ValueError("Unsupported hreflang-map version (expected integer 1)")
+    clusters = payload["clusters"]
+    if not isinstance(clusters, list) or not 1 <= len(clusters) <= _MAX_PAGES:
+        raise ValueError(f"Hreflang-map clusters must contain 1 to {_MAX_PAGES} groups")
+    return clusters
+
+
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     expect_self_canonical: bool = False, expect_indexable: bool = False,
@@ -129,6 +153,7 @@ def generate_manifest(
     expect_noindex_for: tuple[str, ...] = (),
     route_overrides: dict[str, str] | None = None,
     language_overrides: dict[str, str] | None = None,
+    hreflang_clusters: list[dict[str, str]] | None = None,
 ) -> dict:
     """Inventory static HTML as candidate URL contracts, without reading HTML."""
     base = _base_url(base_url)
@@ -159,6 +184,7 @@ def generate_manifest(
     if skip_opt_ins_for and not (
         expect_self_canonical or expect_indexable or expect_description
         or expect_image_alt or expect_lang_attribute or language_overrides is not None
+        or hreflang_clusters is not None
     ):
         raise ValueError("Cannot skip optional assertions when none are requested")
     skipped: set[str] = set()
@@ -215,14 +241,60 @@ def generate_manifest(
         if missing:
             raise ValueError(f"language map missing reviewed build path: {missing[0]}")
 
+    reviewed_clusters: dict[str, dict[str, str]] = {}
+    if hreflang_clusters is not None:
+        if (
+            not isinstance(hreflang_clusters, list)
+            or not 1 <= len(hreflang_clusters) <= _MAX_PAGES
+        ):
+            raise ValueError("Hreflang clusters require a nonempty bounded list")
+        for cluster in hreflang_clusters:
+            if not isinstance(cluster, dict) or not 2 <= len(cluster) <= 64:
+                raise ValueError("Each hreflang cluster requires 2 to 64 language entries")
+            languages: set[str] = set()
+            cluster_paths: dict[str, str] = {}
+            locale_paths: set[str] = set()
+            for language, requested in cluster.items():
+                if (
+                    not isinstance(language, str)
+                    or len(language) > 63
+                    or not re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", language)
+                ):
+                    raise ValueError(f"Invalid hreflang cluster language: {language!r}")
+                normalized = language.lower()
+                if normalized in languages:
+                    raise ValueError(f"Duplicate hreflang language: {language!r}")
+                languages.add(normalized)
+                path = _manifest_path(requested)
+                if path not in available:
+                    raise ValueError(f"Unknown hreflang build path: {path}")
+                if path in skipped:
+                    raise ValueError(f"Hreflang path cannot also be skipped: {path}")
+                if normalized != "x-default":
+                    if path in locale_paths:
+                        raise ValueError(f"Multiple hreflang languages share a page: {path}")
+                    locale_paths.add(path)
+                cluster_paths[language] = path
+            if len(locale_paths) < 2:
+                raise ValueError("Hreflang cluster needs at least two distinct locale pages")
+            for path in set(cluster_paths.values()):
+                if path in reviewed_clusters:
+                    raise ValueError(f"Build path appears in multiple hreflang clusters: {path}")
+                reviewed_clusters[path] = cluster_paths
+
     seen_urls: set[str] = set()
-    pages = []
+    public_urls: dict[str, str] = {}
     for path in sorted(paths):
         route = reviewed_routes.get(path, _route_for(path))
         url = urljoin(base, quote(route, safe="/-._~"))
         if url in seen_urls:
             raise ValueError(f"Multiple build HTML pages map to the same URL: {url}")
         seen_urls.add(url)
+        public_urls[path] = url
+
+    pages = []
+    for path in sorted(paths):
+        url = public_urls[path]
         contract = {"url": url, "title_present": True}
         if path not in skipped:
             if expect_self_canonical:
@@ -237,6 +309,11 @@ def generate_manifest(
                 contract["html_lang"] = reviewed_languages[path]
             elif expect_lang_attribute:
                 contract["html_lang_present"] = True
+            if path in reviewed_clusters:
+                contract["hreflang"] = {
+                    language: public_urls[target_path]
+                    for language, target_path in reviewed_clusters[path].items()
+                }
         # An explicit negative assertion survives a skip of positive opt-ins.
         if path in noindex_paths:
             contract["indexable"] = False
@@ -305,6 +382,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Require exact reviewed HTML languages for every non-exempt built page",
     )
     parser.add_argument(
+        "--hreflang-map", type=Path, metavar="JSON_FILE",
+        help="Require reviewed reciprocal alternate URLs for explicitly grouped built pages",
+    )
+    parser.add_argument(
         "--check-built", action="store_true",
         help="Also verify generated SEO assertions against local HTML, exiting 1 on mismatch",
     )
@@ -321,6 +402,7 @@ def main(argv: list[str] | None = None) -> int:
             expect_noindex_for=tuple(args.expect_noindex_for),
             route_overrides=read_route_map(args.route_map) if args.route_map else None,
             language_overrides=read_language_map(args.lang_map) if args.lang_map else None,
+            hreflang_clusters=read_hreflang_map(args.hreflang_map) if args.hreflang_map else None,
         )
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.

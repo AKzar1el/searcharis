@@ -702,8 +702,50 @@ for mapped pages. Review each language value before committing the generated
 manifest: this is a bounded syntax check, not full BCP 47 validation, actual
 HTTP language negotiation, or a claim about SEO traffic or indexing.
 
+For sites with translated pages, a separate **reviewed hreflang cluster map**
+can generate each page's expected reciprocal alternate URLs instead of
+hand-editing every manifest contract. Put only **build-relative HTML paths**
+in `hreflang.json`; the bootstrap resolves URLs from the supplied base URL
+and any explicit `--route-map` overrides:
+
+```json
+{
+  "version": 1,
+  "clusters": [
+    {
+      "en": "en/index.html",
+      "sl": "sl/index.html",
+      "x-default": "en/index.html"
+    },
+    {"en": "en/about/index.html", "sl": "sl/o-nas/index.html"}
+  ]
+}
+```
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --hreflang-map hreflang.json --check-built --output seo-manifest.json
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --check-hreflang-reciprocity \
+  --check-hreflang-clusters
+```
+
+This opt-in adds the existing exact `hreflang` contract to every grouped
+page, checking its built HTML against reviewed destinations. Unrelated pages
+remain covered by the starter title assertion without an inferred locale.
+Each cluster must contain at least two distinct locale pages, with unique
+language labels (case-insensitive) and no build path belonging to multiple
+clusters. An optional `x-default` may point to an existing locale page.
+Unknown or unsafe paths, overlapping opt-in exclusions, malformed or duplicate
+JSON keys, and conflicting group membership fail as input errors (exit 2)
+before any output file is created. `--lang-map` and `--route-map` can be
+combined with it, but their owners must review the labels and public URLs
+for consistency. No hreflang values are scraped, inferred from filenames or
+fetched remotely. This is an offline assertion on static HTML, not proof of
+deployed locale routing, reciprocal HTTP behavior, indexing or SEO uplift.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
-indexability, description, image-alt or language-attribute assertions
+indexability, description, image-alt, language-attribute or cluster assertions
 (for example a static `404.html`),
 keep it in strict coverage while omitting those opt-ins only for that path:
 
@@ -720,9 +762,11 @@ uv run python -m searcharis.site_cli seo-manifest.json dist \
 Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
-opt-ins. The option requires at least one positive global `--expect-self-canonical`,
-`--expect-indexable`, `--expect-description`, `--expect-image-alt`,
-or `--expect-lang-attribute` flag.
+opt-ins. The option requires at least one positive global
+`--expect-self-canonical`, `--expect-indexable`, `--expect-description`,
+`--expect-image-alt`, `--expect-lang-attribute`, `--lang-map` or
+`--hreflang-map` policy. Skipped pages cannot be members of a reviewed
+hreflang cluster.
 Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
