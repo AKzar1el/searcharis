@@ -209,7 +209,14 @@ def _read_sitemaps(
         if path in seen_files:
             raise ValueError(f"Duplicate sitemap file: {path}")
         seen_files.add(path)
-        shard, actual_bytes = _read_sitemap(path, _MAX_TOTAL_SITEMAP_BYTES - total_bytes)
+        try:
+            shard, actual_bytes = _read_sitemap(path, _MAX_TOTAL_SITEMAP_BYTES - total_bytes)
+        except (OSError, UnicodeError, ValueError) as error:
+            if index_site is None:
+                raise
+            # An index can name 16 files; identify the failing local shard
+            # without guessing which XML line caused the problem.
+            raise ValueError(f"Invalid indexed sitemap {path.name!r}: {error}") from error
         total_bytes += actual_bytes
         if index_site is not None and any(key[:3] != index_site for key in shard):
             raise ValueError("Indexed sitemap URL site differs from local shard page URLs")

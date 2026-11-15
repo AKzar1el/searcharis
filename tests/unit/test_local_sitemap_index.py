@@ -74,6 +74,35 @@ def test_index_discovers_noindex_regression_in_second_shard(tmp_path):
     assert report["present_excluded"] == ["https://example.test/draft"]
 
 
+@pytest.mark.parametrize("filename", ["sitemap-1.xml", "sitemap-1.xml.gz"])
+def test_index_invalid_second_shard_identifies_local_filename(tmp_path, filename):
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    broken = _shard(tmp_path, filename, "https://example.test/about")
+    malformed = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    if filename.endswith(".gz"):
+        broken.write_bytes(gzip.compress(malformed, mtime=0))
+    else:
+        broken.write_bytes(malformed)
+    index = _index(tmp_path, "https://example.test/sitemap-0.xml",
+                   f"https://example.test/{filename}")
+    with pytest.raises(ValueError, match=filename.replace(".", r"\.")):
+        verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
+
+
+def test_index_cli_json_error_names_malformed_shard(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest()), encoding="utf-8")
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    bad = _shard(tmp_path, "sitemap-1.xml", "https://example.test/about")
+    bad.write_text("<urlset", encoding="utf-8")
+    index = _index(tmp_path, "https://example.test/sitemap-0.xml",
+                   "https://example.test/sitemap-1.xml")
+    assert sitemap_main([str(manifest), "--sitemap-index", str(index), "--json"]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "sitemap-1.xml" in report["error"]
+
+
 @pytest.mark.parametrize("indexed_url", [
     "https://wrong.test/sitemap-0.xml",
     "http://example.test/sitemap-0.xml",
@@ -237,3 +266,10 @@ def test_legacy_explicit_shard_behavior_unchanged(tmp_path):
     shard = _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
     report = verify_sitemap_manifest(_manifest(), [shard])
     assert report["status"] == "pass"
+
+
+def test_explicit_malformed_shard_keeps_existing_error(tmp_path):
+    shard = tmp_path / "sitemap-0.xml"
+    shard.write_text("<urlset", encoding="utf-8")
+    with pytest.raises(ValueError, match="^Invalid sitemap XML$"):
+        verify_sitemap_manifest(_manifest(), [shard])

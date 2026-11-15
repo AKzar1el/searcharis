@@ -1862,6 +1862,10 @@ query or fragment delimiters (including a trailing empty `?`), and unsupported
 XML are input errors (exit 2). Review your build directory
 and public sitemap URLs before enabling the gate. There is **no network
 fetch**, remote index expansion, URL-to-filesystem traversal, or deployment.
+When an indexed shard fails to parse or read, input errors name its local
+filename so a multi-shard CI failure can be investigated without guessing an
+XML source line. As with other local file errors, underlying exceptions may
+also contain the supplied local path.
 
 Choose **either** `--sitemap-index FILE` **or** the established explicit
 positional local XML/XML.gz shard files, never both. The default report
