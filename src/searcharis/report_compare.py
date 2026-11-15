@@ -13,7 +13,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
-from searcharis.contract_ci import _is_http_url
+from searcharis.contract_ci import _is_canonical_url, _is_http_url
 from searcharis.site_ci import _page_url_identity
 from searcharis.site_junit import build_comparison_junit
 from searcharis.site_sarif import build_comparison_sarif
@@ -158,6 +158,10 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             or not isinstance(item.get("path"), str)
             or item["path"] not in listed_paths
             or not isinstance(item.get("target"), str)
+            # The canonical checker records only syntactically valid,
+            # fragment-free HTTP(S) targets as outside-manifest links.
+            or (check == "canonical_consistency"
+                and not _is_canonical_url(item["target"]))
             or item["target"] in urls
             or (check == "canonical_consistency"
                 and _page_url_identity(item["target"]) in url_identities)

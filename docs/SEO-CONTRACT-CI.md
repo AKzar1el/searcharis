@@ -1378,6 +1378,13 @@ opt in at comparison time:
 uv run python -m searcharis.report_compare baseline.json candidate.json --fail-on-new-unverified-targets
 ```
 
+Archived `canonical_consistency.unverified_targets` must contain valid,
+fragment-free HTTP(S) URLs, matching what the offline canonical checker can
+emit. Corrupted saved targets (including relative URLs, non-HTTP schemes or
+fragment-bearing canonical destinations) are input errors (exit **2**), not
+inherited failures that can silently compare as PASS. Hreflang's existing
+outside-manifest target matching remains unchanged. No URL is fetched.
+
 This returns **1** when a candidate introduces a previously absent unverified
 target or another identical occurrence from an enabled canonical or hreflang
 cross-page check. Repeated identical outside-manifest hreflang declarations
