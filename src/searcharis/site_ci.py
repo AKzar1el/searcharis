@@ -117,6 +117,7 @@ def verify_manifest(
     check_canonical_consistency: bool = False,
     check_reviewed_navigation: bool = False,
     check_reviewed_fragments: bool = False,
+    check_internal_nofollow: bool = False,
     check_unique_titles: bool = False,
     check_unique_descriptions: bool = False,
     required_inbound_paths: tuple[str, ...] = (),
@@ -158,8 +159,9 @@ def verify_manifest(
             include_canonical=check_canonical_consistency,
             include_anchors=(
                 check_reviewed_navigation or check_reviewed_fragments
-                or bool(required_inbound_paths)
+                or check_internal_nofollow or bool(required_inbound_paths)
             ),
+            include_anchor_nofollow=check_internal_nofollow,
             include_fragment_ids=check_reviewed_fragments,
             include_title=check_unique_titles,
             include_description=check_unique_descriptions,
@@ -172,7 +174,8 @@ def verify_manifest(
             observed_links[report["checked_url"]] = report.pop("observed_hreflang")
         if check_canonical_consistency:
             observed_canonicals[report["checked_url"]] = report.pop("observed_canonical")
-        if check_reviewed_navigation or check_reviewed_fragments or required_inbound_paths:
+        if (check_reviewed_navigation or check_reviewed_fragments
+                or check_internal_nofollow or required_inbound_paths):
             observed_anchors[report["checked_url"]] = report.pop("observed_anchors")
         if check_unique_titles:
             observed_titles[report["checked_url"]] = report.pop("observed_title")
@@ -333,6 +336,50 @@ def verify_manifest(
         navigation_summary = {
             "checked_links": checked_links,
             "unreviewed_targets": sorted(unreviewed, key=lambda item: (item["path"], item["target"])),
+        }
+
+    nofollow_summary = None
+    if check_internal_nofollow:
+        reviewed_urls = {_page_url_identity(page["checked_url"]) for page in reports}
+        checked_links = 0
+        flagged: list[dict[str, str]] = []
+
+        def internal_targets(base: str, hrefs: list[str], origin: tuple) -> dict[tuple, str]:
+            targets: dict[tuple, str] = {}
+            for href in hrefs:
+                try:
+                    resolved = urljoin(base, href)
+                    if not _is_http_url(resolved):
+                        continue
+                    target = urlsplit(resolved)._replace(fragment="").geturl()
+                    identity = _page_url_identity(target)
+                except ValueError:
+                    continue
+                if identity[:3] == origin and identity in reviewed_urls:
+                    targets[identity] = min(target, targets.get(identity, target))
+            return targets
+
+        for report in reports:
+            source_url = report["checked_url"]
+            source_origin = _page_url_identity(source_url)[:3]
+            anchors = observed_anchors[source_url]
+            checked_links += len(internal_targets(
+                anchors["base_url"], anchors["hrefs"], source_origin,
+            ))
+            for target in sorted(internal_targets(
+                anchors["base_url"], anchors["nofollow_hrefs"], source_origin,
+            ).values()):
+                report["issues"].append({
+                    "code": "internal_link_nofollow",
+                    "expected": "reviewed same-origin links without rel=nofollow",
+                    "actual": target,
+                })
+                flagged.append({"path": report["path"], "target": target})
+            if report["issues"]:
+                report["status"] = "fail"
+        nofollow_summary = {
+            "checked_links": checked_links,
+            "nofollow_targets": sorted(flagged, key=lambda item: (item["path"], item["target"])),
         }
 
     fragment_summary = None
@@ -637,6 +684,8 @@ def verify_manifest(
         result["canonical_consistency"] = canonical_summary
     if navigation_summary is not None:
         result["reviewed_navigation"] = navigation_summary
+    if nofollow_summary is not None:
+        result["internal_nofollow"] = nofollow_summary
     if inbound_summary is not None:
         result["reviewed_inbound"] = inbound_summary
     if fragment_summary is not None:

@@ -20,6 +20,8 @@ _HTML_ACTIONS = (
     ("description_duplicate", "Write page-specific meta descriptions for reviewed indexable pages."),
     ("navigation_target_unreviewed",
      "Correct stale navigation links or review the complete route manifest."),
+    ("internal_link_nofollow",
+     "Review and remove unintended rel=nofollow on internal navigation links."),
     ("navigation_fragment_missing",
      "Correct the fragment or add its matching HTML target."),
     ("navigation_fragment_ambiguous",
