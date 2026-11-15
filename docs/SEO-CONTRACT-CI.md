@@ -1873,6 +1873,39 @@ schema and indexability pass/fail interpretation remain unchanged. This
 checks build artifacts, not whether a public server serves them or a search
 engine discovers or indexes any page.
 
+### Gate only new sitemap regressions between local static builds
+
+When a trusted baseline sitemap already has known missing or excluded URLs,
+the standalone index checker will fail that baseline. The opt-in offline
+`sitemap_compare` command instead uses the same reviewed manifest to flag
+only **new** sitemap indexability problems introduced by a candidate build:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --json
+```
+
+Exit **0** means no new blockers (even when the baseline and candidate retain
+inherited findings); **1** means a newly missing reviewed indexable URL or a
+newly included reviewed noindex URL; **2** means invalid local input. Add
+`--reject-noncanonical-urls` and/or `--reject-unreviewed-urls` to also gate
+newly introduced findings in those optional categories. Complete structured
+JSON includes `new`, `inherited` and `resolved` URL lists and counts;
+default text output caps new-issue details at 20 URLs for readable CI logs.
+Equivalent URL identities do not become new regressions merely because their
+percent encoding or hostname casing changed.
+
+Both inputs must be independent non-overlapping local build directories
+containing index XML and adjacent XML/XML.gz shards. Their public index site
+must match; detectable cross-build hard links, invalid XML, missing or
+wrong-case files, and unsupported index URLs fail as input errors. The command
+reads **no HTML**, does not compare `robots.txt`, does not save artifacts,
+and never fetches public URLs. Review the baseline's provenance and the
+manifest before trusting a no-regression result: a passing diff is not proof
+that existing defects are acceptable, that files were deployed or indexed, or
+that users adopted this workflow.
+
 ## Archived SEO report SARIF for separate CI stages
 
 The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0

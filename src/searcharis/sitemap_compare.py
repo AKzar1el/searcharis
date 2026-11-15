@@ -1,0 +1,151 @@
+"""Gate only newly introduced sitemap regressions between two local index builds.
+
+Both snapshots and the reviewed manifest are local inputs. Public URLs in XML
+are identifiers only: the comparator never fetches or resolves them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from searcharis.cli_error_display import human_input_error
+from searcharis.site_ci import _page_url_identity, read_manifest
+from searcharis.sitemap_ci import _local_index_shards, verify_sitemap_manifest
+
+_DEFAULT_CATEGORIES = ("missing_required", "present_excluded")
+_MAX_HUMAN_URLS = 20
+
+
+def _check_independent_snapshots(
+    baseline_index: Path, candidate_index: Path,
+) -> None:
+    """Reject directory aliasing and shared NTFS/POSIX file identities."""
+    baseline_root = baseline_index.parent.resolve(strict=True)
+    candidate_root = candidate_index.parent.resolve(strict=True)
+    if (
+        baseline_root == candidate_root
+        or baseline_root.is_relative_to(candidate_root)
+        or candidate_root.is_relative_to(baseline_root)
+    ):
+        raise ValueError("Baseline and candidate need non-overlapping sitemap directories")
+
+    baseline_shards, baseline_site = _local_index_shards(baseline_index)
+    candidate_shards, candidate_site = _local_index_shards(candidate_index)
+    if baseline_site != candidate_site:
+        raise ValueError("Baseline and candidate sitemap indexes must refer to the same site")
+
+    baseline_ids: set[tuple[int, int]] = set()
+    for path in (baseline_index, *baseline_shards):
+        info = path.stat()
+        if info.st_ino:
+            baseline_ids.add((info.st_dev, info.st_ino))
+    for path in (candidate_index, *candidate_shards):
+        info = path.stat()
+        if info.st_ino and (info.st_dev, info.st_ino) in baseline_ids:
+            raise ValueError("Baseline and candidate share a hard-linked sitemap artifact")
+
+
+def compare_sitemap_reports(baseline: dict, candidate: dict) -> dict:
+    """Compare verified reports using exact reviewed URL identities."""
+    categories = tuple(
+        category for category in (
+            *_DEFAULT_CATEGORIES, "present_noncanonical", "unreviewed_urls",
+        ) if category in baseline and category in candidate
+    )
+    sections: dict[str, dict[str, list[str]]] = {
+        "new": {}, "inherited": {}, "resolved": {},
+    }
+    for category in categories:
+        # Equivalent URL spellings must not become a new regression merely
+        # because a generator changes percent-encoding or host casing.
+        old = {_page_url_identity(url): url for url in baseline[category]}
+        current = {_page_url_identity(url): url for url in candidate[category]}
+        sections["new"][category] = sorted(
+            url for identity, url in current.items() if identity not in old
+        )
+        sections["inherited"][category] = sorted(
+            url for identity, url in current.items() if identity in old
+        )
+        sections["resolved"][category] = sorted(
+            url for identity, url in old.items() if identity not in current
+        )
+
+    counts = {name: sum(len(urls) for urls in value.values())
+              for name, value in sections.items()}
+    return {
+        "status": "regression" if counts["new"] else "pass",
+        "summary": {
+            **counts,
+            "baseline_sitemap_urls": baseline["summary"]["sitemap_urls"],
+            "candidate_sitemap_urls": candidate["summary"]["sitemap_urls"],
+        },
+        **sections,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Gate new offline sitemap-index regressions, tolerating inherited debt",
+    )
+    parser.add_argument("manifest", type=Path, help="Reviewed SEO page manifest")
+    parser.add_argument("baseline_index", type=Path, help="Trusted local sitemap index XML")
+    parser.add_argument("candidate_index", type=Path, help="Candidate local sitemap index XML")
+    parser.add_argument(
+        "--reject-noncanonical-urls", action="store_true",
+        help="Gate newly introduced reviewed noncanonical sitemap URLs",
+    )
+    parser.add_argument(
+        "--reject-unreviewed-urls", action="store_true",
+        help="Gate newly introduced sitemap URLs absent from reviewed manifest",
+    )
+    parser.add_argument("--json", action="store_true", help="Print full comparison as JSON")
+    args = parser.parse_args(argv)
+
+    try:
+        _check_independent_snapshots(args.baseline_index, args.candidate_index)
+        manifest = read_manifest(args.manifest)
+        checks = {
+            "reject_noncanonical_urls": args.reject_noncanonical_urls,
+            "reject_unreviewed_urls": args.reject_unreviewed_urls,
+        }
+        baseline = verify_sitemap_manifest(
+            manifest, [], sitemap_index_path=args.baseline_index, **checks,
+        )
+        candidate = verify_sitemap_manifest(
+            manifest, [], sitemap_index_path=args.candidate_index, **checks,
+        )
+        result = compare_sitemap_reports(baseline, candidate)
+    except (OSError, ValueError, UnicodeError, RecursionError) as error:
+        if args.json:
+            print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
+        else:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        summary = result["summary"]
+        print(
+            f"{result['status'].upper()} {summary['new']} new, "
+            f"{summary['inherited']} inherited, {summary['resolved']} resolved sitemap findings"
+        )
+        printed = 0
+        for category, urls in result["new"].items():
+            for url in urls:
+                if printed >= _MAX_HUMAN_URLS:
+                    break
+                # repr makes control characters visible rather than injecting CI lines.
+                label = repr(url)
+                print(f"  {category}: {label[:137] + '...' if len(label) > 140 else label}")
+                printed += 1
+        if summary["new"] > printed:
+            print(f"  ... and {summary['new'] - printed} more; use --json for all findings")
+    return 1 if result["status"] == "regression" else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
