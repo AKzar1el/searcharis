@@ -84,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileExistsError(f"JSON report already exists: {path}")
             if not path.parent.is_dir():
                 raise ValueError(f"JSON report parent must be an existing directory: {path.parent}")
+            # Reports must not mutate the local site artifacts being verified.
+            sources = [args.sitemap_index] if args.sitemap_index else args.sitemaps
+            if any(
+                path.resolve().is_relative_to(source.parent.resolve(strict=True))
+                for source in sources
+            ):
+                raise ValueError("JSON report must be outside the supplied sitemap directory")
             # Exclusive creation prevents a concurrent CI job from replacing an artifact.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
                 output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
