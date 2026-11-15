@@ -274,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         if args.output is not None:
+            if args.output.resolve().is_relative_to(args.build_dir.resolve()):
+                raise ValueError("Starter manifest output must be outside the build directory")
             with args.output.open("x", encoding="utf-8", newline="\n") as output:
                 output.write(payload)
     except (OSError, UnicodeError, ValueError) as error:

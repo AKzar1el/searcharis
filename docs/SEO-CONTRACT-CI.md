@@ -588,7 +588,11 @@ joining collapses them for subpages but can retain them for `index.html`,
 producing inconsistent public URL candidates. Supply the intended single-slash
 prefix explicitly rather than relying on normalization.
 `--output` writes UTF-8 without a BOM and refuses to overwrite an existing
-file; omit it to print JSON on stdout.
+file or write inside the supplied build directory (including resolved path
+aliases). Keep the reviewed manifest outside immutable build artifacts; a
+new `.html` output inside the build would otherwise become an unreviewed page
+on the next CI run. Invalid output locations return exit 2 without creating a
+file. Omit `--output` to print JSON on stdout.
 
 If your site deliberately uses **self-referencing canonical tags** on each
 static page, opt in to generating canonical assertions too:
