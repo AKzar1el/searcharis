@@ -816,6 +816,34 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --require-inbound-link pricing/index.html --json
 ```
 
+The standalone HTML checker also accepts the same repeatable
+`--require-inbound-link PAGE_PATH` option without requiring a sitemap:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --require-inbound-link services/index.html --json
+```
+
+For separately archived baseline and candidate site reports, use the **same
+critical-page path list** for each capture before running `report_compare`.
+The offline comparator rejects missing or changed inbound-link policies as
+incompatible input (exit **2**), even when both HTML builds pass. It rejects
+malformed inbound summaries rather than silently treating them as PASS.
+Previously archived site reports without this opt-in check remain comparable
+to other reports that also omit it.
+
+For a **one-command baseline-versus-candidate** check, the same option is
+available in `build_compare`:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --require-inbound-link services/index.html --json
+```
+
+This checks the selected page in both local builds, blocking only newly missing
+peer links while retaining inherited failures as non-blocking. The baseline
+must be a trusted, separately built artifact. The flag remains off by default.
+
 Each `--require-inbound-link` value is an exact relative **manifest artifact
 path**, not a live URL. Unknown, unsafe, wrong-case or repeated paths are input
 errors (exit **2**). A selected page with no qualifying inbound link gets a

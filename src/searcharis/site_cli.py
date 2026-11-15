@@ -68,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-unique-descriptions", action="store_true",
         help="Fail on duplicate descriptions across reviewed same-origin indexable pages",
     )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
+    )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
     output.add_argument(
@@ -100,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             check_reviewed_fragments=args.check_reviewed_fragments,
             check_unique_titles=args.check_unique_titles,
             check_unique_descriptions=args.check_unique_descriptions,
+            required_inbound_paths=tuple(args.require_inbound_link),
         )
         sources = (
             read_source_map(args.sarif_source_map, report, source_root=Path.cwd())
@@ -193,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"  Fragments: {fragments['checked_fragments']} reviewed targets checked, "
                 f"{len(fragments['missing_targets'])} missing IDs, "
                 f"{len(fragments['unverified_targets'])} outside-manifest targets"
+            )
+        if args.require_inbound_link:
+            inbound = report["reviewed_inbound"]
+            print(
+                f"  Inbound links: {len(inbound['linked_paths'])}/"
+                f"{len(inbound['required_paths'])} critical pages linked from a reviewed peer"
             )
     return 0 if report["status"] == "pass" else 1
 
