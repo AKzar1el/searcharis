@@ -112,7 +112,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("reviewed_policy", type=Path, help="Reviewed robots.txt outside the build")
     parser.add_argument("build_dir", type=Path, help="Local static build with root robots.txt")
-    parser.add_argument("--json", action="store_true", help="Emit a structured report")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Emit a structured report")
+    output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete JSON to a new UTF-8 file instead of stdout; never overwrite",
+    )
     parser.add_argument(
         "--require-robots-sitemap", action="append", metavar="URL",
         help="Require a reviewed Sitemap URL (repeatable, up to 16; no URL fetch)",
@@ -131,7 +136,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.json_file:
+        try:
+            path = args.json_file
+            if path.exists() or path.is_symlink():
+                raise FileExistsError(f"JSON report already exists: {path}")
+            if not path.parent.is_dir():
+                raise ValueError(f"JSON report parent must be an existing directory: {path.parent}")
+            if path.resolve().is_relative_to(args.build_dir.resolve(strict=True)):
+                raise ValueError("JSON report must be outside the static build")
+            # Exclusive creation prevents concurrent CI jobs from overwriting a report.
+            with path.open("x", encoding="utf-8", newline="\n") as artifact:
+                artifact.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif report["status"] == "pass":
         print(f"PASS robots.txt matches reviewed SHA-256 {report['expected_sha256'][:12]}")

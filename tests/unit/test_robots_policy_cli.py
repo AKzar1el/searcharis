@@ -200,3 +200,107 @@ def test_standalone_single_required_sitemap_keeps_legacy_json_shape(
     assert result["required_sitemap_url"] == "https://example.test/sitemap.xml"
     assert "required_sitemap_urls" not in result
     assert "missing_sitemap_urls" not in result
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def test_standalone_robots_json_file_is_complete_utf8_offline_artifact(
+    tmp_path, capsys, monkeypatch, blocked,
+):
+    reviewed, build = _fixture(tmp_path)
+    if blocked:
+        (build / "robots.txt").write_bytes(b"User-agent: *\nDisallow: /\n")
+    output = tmp_path / "reports.json"
+
+    def deny_socket(*args, **kwargs):
+        raise AssertionError("Writing the offline robots CI report must not open sockets")
+
+    monkeypatch.setattr(socket, "socket", deny_socket)
+    expected_code, expected, _ = _run(capsys, reviewed, build)
+    code = main([str(reviewed), str(build), "--json-file", str(output)])
+    stream = capsys.readouterr()
+
+    assert code == expected_code == (1 if blocked else 0)
+    assert stream.out == stream.err == ""
+    raw = output.read_bytes()
+    assert raw.startswith(b"{") and raw.endswith(b"\n")
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert json.loads(raw.decode("utf-8")) == expected
+
+
+@pytest.mark.parametrize("problem", [
+    "existing", "missing_parent", "inside_build", "reviewed_source",
+])
+def test_standalone_robots_json_file_refuses_unsafe_destination(
+    tmp_path, capsys, problem,
+):
+    reviewed, build = _fixture(tmp_path)
+    output = {
+        "existing": tmp_path / "existing.json",
+        "missing_parent": tmp_path / "missing" / "result.json",
+        "inside_build": build / "report.json",
+        "reviewed_source": reviewed,
+    }[problem]
+    if problem == "existing":
+        output.write_bytes(b"KEEP\n")
+    before_policy = reviewed.read_bytes()
+    before_build = (build / "robots.txt").read_bytes()
+
+    code = main([str(reviewed), str(build), "--json-file", str(output)])
+    stream = capsys.readouterr()
+    assert code == 2
+    assert stream.out == ""
+    assert "Invalid input:" in stream.err
+    assert reviewed.read_bytes() == before_policy
+    assert (build / "robots.txt").read_bytes() == before_build
+    if problem == "existing":
+        assert output.read_bytes() == b"KEEP\n"
+    elif problem != "reviewed_source":
+        assert not output.exists()
+
+
+def test_standalone_robots_json_file_not_written_when_input_invalid(
+    tmp_path, capsys,
+):
+    _, build = _fixture(tmp_path)
+    output = tmp_path / "invalid.json"
+    code = main([
+        str(tmp_path / "absent.txt"), str(build),
+        "--json-file", str(output),
+    ])
+    stream = capsys.readouterr()
+    assert code == 2
+    assert stream.out == ""
+    assert "Invalid input:" in stream.err
+    assert not output.exists()
+
+
+def test_standalone_robots_json_file_and_stdout_json_are_exclusive(
+    tmp_path,
+):
+    reviewed, build = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main([
+            str(reviewed), str(build),
+            "--json", "--json-file", str(tmp_path / "result.json"),
+        ])
+    assert exc.value.code == 2
+
+
+def test_standalone_robots_json_file_preserves_missing_sitemap_details(
+    tmp_path, capsys,
+):
+    reviewed, build = _fixture(tmp_path)
+    output = tmp_path / "robots-report.json"
+    code = main([
+        str(reviewed), str(build),
+        "--require-robots-sitemap", "https://example.test/sitemap.xml",
+        "--require-robots-sitemap", "https://example.test/absent.xml",
+        "--json-file", str(output),
+    ])
+    stream = capsys.readouterr()
+    assert code == 1
+    assert stream.out == stream.err == ""
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["status"] == "fail"
+    assert report["reason"] == "sitemap_declaration_missing"
+    assert report["missing_sitemap_urls"] == ["https://example.test/absent.xml"]

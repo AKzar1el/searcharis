@@ -1252,6 +1252,15 @@ invalid URLs or duplicates fail with exit 2, and existing calls without this
 option keep their original output. It never fetches the declared URLs or
 establishes production HTTP/crawler behavior.
 
+For a portable archived CI artifact, use `--json-file reports/robots.json`
+instead of `--json` with the standalone command. It writes the same complete
+PASS/FAIL result as UTF-8 JSON with a trailing newline, including any requested
+Sitemap declarations, and preserves exit 0/1. The parent directory must
+already exist, the destination must be new and outside the static build,
+and invalid policy or unsafe output paths return exit 2 without writing an
+artifact. It never replaces a prior report. This avoids platform-specific
+stdout redirection encodings, including PowerShell 5.1's UTF-16 default.
+
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
 explicitly reviewed build-to-repository source-file hints; it is valid only
