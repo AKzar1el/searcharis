@@ -1849,7 +1849,8 @@ entry, Searcharis opens the **exact-case same-named file beside the local
 index**, using existing per-file and aggregate byte/URL limits. Missing files,
 case mismatches, symlinks, duplicate filenames (including case aliases),
 cross-site/directory URLs, encoded or traversal paths, DTDs, invalid UTF-8,
-and unsupported XML are input errors (exit 2). Review your build directory
+query or fragment delimiters (including a trailing empty `?`), and unsupported
+XML are input errors (exit 2). Review your build directory
 and public sitemap URLs before enabling the gate. There is **no network
 fetch**, remote index expansion, URL-to-filesystem traversal, or deployment.
 
