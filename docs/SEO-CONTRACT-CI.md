@@ -744,6 +744,39 @@ for consistency. No hreflang values are scraped, inferred from filenames or
 fetched remotely. This is an offline assertion on static HTML, not proof of
 deployed locale routing, reciprocal HTTP behavior, indexing or SEO uplift.
 
+**Runnable Astro-style first-use smoke test.** The repository includes a
+two-language static build and matching reviewed
+[`language-map.json`](../examples/seo-contract/generator-fixtures/astro/language-map.json)
+and [`hreflang-map.json`](../examples/seo-contract/generator-fixtures/astro/hreflang-map.json).
+From the repository root, generate and verify a candidate manifest without
+writing into the immutable build:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap \
+  examples/seo-contract/generator-fixtures/astro/artifacts \
+  https://fixtures.invalid/ \
+  --lang-map examples/seo-contract/generator-fixtures/astro/language-map.json \
+  --hreflang-map examples/seo-contract/generator-fixtures/astro/hreflang-map.json \
+  --expect-self-canonical --expect-indexable --check-built \
+  --output seo-starter-reviewed.json
+uv run python -m searcharis.site_cli \
+  seo-starter-reviewed.json \
+  examples/seo-contract/generator-fixtures/astro/artifacts \
+  --require-full-coverage --check-hreflang-reciprocity \
+  --check-hreflang-clusters
+```
+
+The first command writes a create-only UTF-8 candidate manifest **outside**
+the immutable build and prints `PASS 2/2` to stderr (exit 0). Review the
+generated JSON before committing it to your own CI. The second command
+verifies reviewed manifest coverage and reciprocal locale clusters.
+Rerunning the first command with the same existing output path returns input
+error 2 rather than overwriting your review. A test in
+`tests/integration/test_static_generator_fixtures.py` exercises this complete
+offline flow and confirms a wrong Slovenian root `lang` fails the saved
+reviewed gate. The `.invalid` hostname is a fixture identifier; no URL is
+fetched and this demonstration does not establish live-site or customer usage.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
 indexability, description, image-alt, language-attribute or cluster assertions
 (for example a static `404.html`),

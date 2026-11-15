@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "clusters": [
+    {
+      "en": "en/index.html",
+      "sl": "sl/index.html",
+      "x-default": "en/index.html"
+    }
+  ]
+}
