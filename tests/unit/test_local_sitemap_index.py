@@ -107,6 +107,22 @@ def test_index_empty_query_fails_cli_before_creating_json_report(tmp_path, capsy
     assert "query or fragment" in capsys.readouterr().err
 
 
+def test_index_cli_json_file_cannot_modify_index_build_dir(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest()), encoding="utf-8")
+    build = tmp_path / "dist"
+    build.mkdir()
+    _shard(build, "sitemap-0.xml", "https://example.test/")
+    index = _index(build, "https://example.test/sitemap-0.xml")
+    report = build / "report.json"
+
+    assert sitemap_main([
+        str(manifest), "--sitemap-index", str(index), "--json-file", str(report),
+    ]) == 2
+    assert not report.exists()
+    assert "outside the supplied sitemap directory" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("locations,expected", [
     ([], "1 to"),
     (["https://other.test/sitemap-0.xml", "https://example.test/sitemap-1.xml"], "same"),
