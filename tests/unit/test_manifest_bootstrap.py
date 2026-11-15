@@ -267,6 +267,75 @@ def test_cli_opt_in_indexability_guard_is_json_and_offline(tmp_path, monkeypatch
     assert manifest["pages"][0]["contract"]["indexable"] is True
 
 
+def test_followability_bootstrap_is_explicit_and_composes_with_indexability(tmp_path):
+    _html(tmp_path / "index.html")
+    basic = generate_manifest(tmp_path, "https://example.com/")
+    assert "followable" not in basic["pages"][0]["contract"]
+
+    strict = generate_manifest(
+        tmp_path, "https://example.com/",
+        expect_followable=True, expect_indexable=True,
+    )
+    assert strict["pages"][0]["contract"]["followable"] is True
+    assert strict["pages"][0]["contract"]["indexable"] is True
+    assert verify_manifest(strict, tmp_path)["status"] == "pass"
+
+
+@pytest.mark.parametrize("placement", ("head", "body"))
+@pytest.mark.parametrize("restriction", ("nofollow", "none"))
+def test_followability_bootstrap_rejects_accidental_robots_nofollow(
+    tmp_path, placement, restriction,
+):
+    page = tmp_path / "index.html"
+    _html(page)
+    strict = generate_manifest(tmp_path, "https://example.com/", expect_followable=True)
+    meta = f'<meta name="googlebot" content="{restriction}">'
+    head = meta if placement == "head" else ""
+    body = meta if placement == "body" else ""
+    page.write_text(f"<html><head><title>Example</title>{head}</head><body>{body}</body></html>")
+    report = verify_manifest(strict, tmp_path)
+    assert report["status"] == "fail"
+    assert report["pages"][0]["issues"][0]["code"] == "followability_meta"
+    assert verify_manifest(generate_manifest(tmp_path, "https://example.com/"), tmp_path)["status"] == "pass"
+
+
+def test_followability_bootstrap_retains_indexability_independence_and_reviewed_skip(tmp_path):
+    _html(tmp_path / "index.html")
+    _html(tmp_path / "404.html")
+    (tmp_path / "404.html").write_text(
+        '<html><head><title>Not Found</title><meta name="robots" content="none"></head></html>'
+    )
+    (tmp_path / "index.html").write_text(
+        '<html><head><title>Example</title><meta name="robots" content="noindex"></head></html>'
+    )
+    strict = generate_manifest(
+        tmp_path, "https://example.com/", expect_followable=True,
+        skip_opt_ins_for=("404.html",), expect_noindex_for=("404.html",),
+    )
+    contracts = {page["path"]: page["contract"] for page in strict["pages"]}
+    assert "followable" not in contracts["404.html"]
+    assert contracts["404.html"]["indexable"] is False
+    assert contracts["index.html"]["followable"] is True
+    assert verify_manifest(strict, tmp_path)["status"] == "pass"
+
+
+def test_followability_cli_checks_built_html_without_network(tmp_path, capsys, monkeypatch):
+    page = tmp_path / "index.html"
+    _html(page)
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(tmp_path), "https://example.com/", "--expect-followable", "--check-built"]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["pages"][0]["contract"]["followable"] is True
+    page.write_text(
+        '<html><head><title>Example</title><meta name="robots" content="nofollow">'
+        '</head></html>'
+    )
+    assert main(args) == 1
+    captured = capsys.readouterr()
+    assert "followability_meta" in captured.err
+    assert json.loads(captured.out)["pages"][0]["contract"]["followable"] is True
+
+
 def test_opt_in_description_presence_is_explicit_and_composable(tmp_path):
     _html(tmp_path / "index.html")
     basic = generate_manifest(tmp_path, "https://example.com/")
