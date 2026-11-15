@@ -68,7 +68,9 @@ def _local_index_shards(index_path: Path) -> tuple[tuple[Path, ...], tuple]:
             raise ValueError("Each indexed sitemap needs exactly one simple loc")
         location = locations[0].text or ""
         parsed = urlsplit(location)
-        if parsed.query or parsed.fragment:
+        # urlsplit drops empty trailing ?/# delimiters; these still violate
+        # the literal, query-free local shard mapping.
+        if "?" in location or "#" in location:
             raise ValueError("Indexed sitemap URL must not contain a query or fragment")
         if location != location.strip() or len(location) >= 2048 or not _is_canonical_url(location):
             raise ValueError(f"Invalid sitemap index loc URL: {location!r}")

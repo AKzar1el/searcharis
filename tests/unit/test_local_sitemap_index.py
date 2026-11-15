@@ -85,6 +85,28 @@ def test_index_url_site_must_match_shard_pages(tmp_path, indexed_url):
         verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
 
 
+def test_index_rejects_empty_query_delimiter_on_shard_url(tmp_path):
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    index = _index(tmp_path, "https://example.test/sitemap-0.xml?")
+    with pytest.raises(ValueError, match="query or fragment"):
+        verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
+
+
+def test_index_empty_query_fails_cli_before_creating_json_report(tmp_path, capsys):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest()), encoding="utf-8")
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    index = _index(tmp_path, "https://example.test/sitemap-0.xml?")
+    report_path = tmp_path / "result.json"
+    code = sitemap_main([
+        str(manifest), "--sitemap-index", str(index),
+        "--json-file", str(report_path),
+    ])
+    assert code == 2
+    assert not report_path.exists()
+    assert "query or fragment" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("locations,expected", [
     ([], "1 to"),
     (["https://other.test/sitemap-0.xml", "https://example.test/sitemap-1.xml"], "same"),
