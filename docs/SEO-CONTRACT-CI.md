@@ -1828,6 +1828,37 @@ Searcharis tests do not install or invoke either compiler. Integrators must
 supply their own compiled output and route contracts; dynamic SPA content
 is outside the offline parser's scope.
 
+### Local sitemap-index discovery (Astro-style static builds)
+
+Astro's sitemap integration commonly produces `dist/sitemap-index.xml` and
+`dist/sitemap-0.xml` (sometimes additional numbered XML shards). Instead of
+manually listing every shard, opt in to local index discovery:
+
+```sh
+uv run python -m searcharis.sitemap_cli manifest.json \
+  --sitemap-index dist/sitemap-index.xml --json
+uv run python -m searcharis.release_cli manifest.json dist \
+  --sitemap-index dist/sitemap-index.xml --require-full-coverage \
+  --json-file release-report.json
+```
+
+The index must contain 1-16 standard-namespaced `<sitemap><loc>` entries
+whose public URLs share a scheme, effective host/port and URL directory.
+Only literal `.xml` or `.xml.gz` basenames are supported. For each index
+entry, Searcharis opens the **exact-case same-named file beside the local
+index**, using existing per-file and aggregate byte/URL limits. Missing files,
+case mismatches, symlinks, duplicate filenames (including case aliases),
+cross-site/directory URLs, encoded or traversal paths, DTDs, invalid UTF-8,
+and unsupported XML are input errors (exit 2). Review your build directory
+and public sitemap URLs before enabling the gate. There is **no network
+fetch**, remote index expansion, URL-to-filesystem traversal, or deployment.
+
+Choose **either** `--sitemap-index FILE` **or** the established explicit
+positional local XML/XML.gz shard files, never both. The default report
+schema and indexability pass/fail interpretation remain unchanged. This
+checks build artifacts, not whether a public server serves them or a search
+engine discovers or indexes any page.
+
 ## Archived SEO report SARIF for separate CI stages
 
 The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0
