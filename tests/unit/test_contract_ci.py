@@ -2209,6 +2209,42 @@ def test_html_language_contract_cli_json(tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
+    ("html_open", "expected", "passes"),
+    [
+        ('<html lang="en">', True, True),
+        ('<html lang="sl-SI">', True, True),
+        ('<html lang="">', True, False),
+        ('<html lang="  ">', True, False),
+        ("<html>", True, False),
+        ("<html>", False, True),
+        ('<html lang="en">', False, False),
+        ('<html lang="">', False, False),
+    ],
+)
+def test_html_language_presence_is_opt_in_and_fail_closed(html_open, expected, passes):
+    html = f"<!doctype html>{html_open}<head><title>Page</title></head></html>"
+    contract = {"url": URL, "html_lang_present": expected}
+    report = verify_contract(contract, html)
+    assert (report["status"] == "pass") is passes
+    if not passes:
+        assert report["issues"][0]["code"] == "html_lang_presence"
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "true", [], {}])
+def test_html_language_presence_rejects_non_boolean_contract_values(invalid):
+    with pytest.raises(ValueError, match="html_lang_present"):
+        verify_contract({"url": URL, "html_lang_present": invalid}, "<html lang='en'>")
+
+
+def test_html_language_presence_does_not_accept_inert_template_markup():
+    html = '<html><head><template><html lang="sl"></html></template></head></html>'
+    report = verify_contract({"url": URL, "html_lang_present": True}, html)
+    assert report["issues"] == [
+        {"code": "html_lang_presence", "expected": True, "actual": None},
+    ]
+
+
+@pytest.mark.parametrize(
     ("images", "limit", "missing"),
     [
         ('<img src="/hero.webp">', 0, 1),

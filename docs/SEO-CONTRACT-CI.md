@@ -74,6 +74,7 @@ how valid contracts or manifests are read.
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
+| `html_lang_present` | Require a non-blank root HTML `lang` attribute (`true`), or require it to be absent (`false`); blank values satisfy neither |
 | `canonical` | Require exactly one matching canonical link, without a URL fragment |
 | `canonical_present` | Require exactly one valid fragment-free canonical URL (`true`) or no active canonical destination (`false`) |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
@@ -652,8 +653,24 @@ at runtime, or whether Google will index the page. The flag is off by default,
 composes with other opt-ins, and honors explicit `--skip-opt-ins-for` exceptions.
 Review the manifest before using it as a CI baseline. Image URLs are not fetched.
 
+For multilingual static sites, require every reviewed built page to declare a
+non-blank root `<html lang>` without assuming all pages share one locale:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-lang-attribute --check-built --output seo-manifest.json
+```
+
+This emits `html_lang_present: true` for each page. Missing or blank root
+attributes fail the offline checker; locale-specific values such as `en-GB`
+and `sl` both pass. To enforce the *correct* language per route, separately
+review and add the existing exact `html_lang` contract field. This opt-in is
+off by default, composes with other flags and exact-path exceptions, and does
+not fetch URLs or prove that search engines detected the intended locale.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
-indexability, description and image-alt assertions (for example a static `404.html`),
+indexability, description, image-alt or language-attribute assertions
+(for example a static `404.html`),
 keep it in strict coverage while omitting those opt-ins only for that path:
 
 ```sh
@@ -670,7 +687,8 @@ Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
 opt-ins. The option requires at least one positive global `--expect-self-canonical`,
-`--expect-indexable`, `--expect-description`, or `--expect-image-alt` flag.
+`--expect-indexable`, `--expect-description`, `--expect-image-alt`,
+or `--expect-lang-attribute` flag.
 Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
