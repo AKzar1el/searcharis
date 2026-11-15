@@ -101,7 +101,12 @@ def main(argv: list[str] | None = None) -> int:
         "--reject-unreviewed-urls", action="store_true",
         help="Gate newly introduced sitemap URLs absent from reviewed manifest",
     )
-    parser.add_argument("--json", action="store_true", help="Print full comparison as JSON")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print full comparison as JSON")
+    output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete JSON to a new UTF-8 file outside both builds",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -125,7 +130,38 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.json_file:
+        path = args.json_file
+        created = False
+        try:
+            if path.exists() or path.is_symlink():
+                raise FileExistsError(f"JSON comparison already exists: {path}")
+            if not path.parent.is_dir():
+                raise ValueError(f"JSON comparison parent must be an existing directory: {path.parent}")
+            # Comparing compiled site artifacts must never add a report to either build.
+            output_path = path.resolve()
+            if any(
+                output_path.is_relative_to(index.parent.resolve(strict=True))
+                for index in (args.baseline_index, args.candidate_index)
+            ):
+                raise ValueError("JSON comparison must be outside both sitemap directories")
+            with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                created = True
+                output_file.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            if created:
+                try:
+                    path.unlink()
+                except OSError as cleanup_error:
+                    print(
+                        f"Invalid input: {human_input_error(error)}; "
+                        f"partial report cleanup failed: {human_input_error(cleanup_error)}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+    elif args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         summary = result["summary"]

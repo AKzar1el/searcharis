@@ -205,3 +205,115 @@ def test_human_output_bounds_url_details(tmp_path, capsys):
     human = capsys.readouterr().out
     assert "REGRESSION" in human
     assert "https://example.test/draft" in human
+
+
+@pytest.mark.parametrize("has_regression,exit_code", [(False, 0), (True, 1)])
+def test_json_file_exports_complete_comparison_without_stdout(
+    tmp_path, capsys, has_regression, exit_code,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    urls = ["https://example.test/"]
+    if has_regression:
+        urls.append("https://example.test/draft")
+    candidate = _snapshot(tmp_path, "candidate", *urls)
+    artifact = tmp_path / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == exit_code
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert artifact.read_bytes().endswith(b"\n")
+    report = json.loads(artifact.read_text(encoding="utf-8"))
+    assert report["status"] == ("regression" if has_regression else "pass")
+    assert report["summary"]["new"] == int(has_regression)
+    assert report["new"]["present_excluded"] == (
+        ["https://example.test/draft"] if has_regression else []
+    )
+
+
+def test_json_file_refuses_existing_destination_without_overwrite(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / "comparison.json"
+    artifact.write_bytes(b"important existing data")
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == 2
+    assert artifact.read_bytes() == b"important existing data"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("root", ["baseline", "candidate"])
+def test_json_file_never_mutates_either_build_root(tmp_path, capsys, root):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    directory = tmp_path / root / "reports"
+    directory.mkdir()
+    artifact = directory / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == 2
+    assert not artifact.exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_json_file_input_error_does_not_create_artifact(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    (candidate.parent / "sitemap-0.xml").write_text("<urlset", encoding="utf-8")
+    artifact = tmp_path / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == 2
+    assert not artifact.exists()
+    assert "sitemap-0.xml" in capsys.readouterr().err
+
+
+def test_json_file_requires_existing_parent_directory(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / "absent" / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == 2
+    assert not artifact.exists()
+    assert "existing directory" in capsys.readouterr().err
+
+
+def test_json_file_cleans_up_new_artifact_after_serialization_error(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / "comparison.json"
+    real_dumps = json.dumps
+
+    def failed_dump(value, *args, **kwargs):
+        if isinstance(value, dict) and "new" in value:
+            raise OSError("simulated output failure")
+        return real_dumps(value, *args, **kwargs)
+
+    monkeypatch.setattr("searcharis.sitemap_compare.json.dumps", failed_dump)
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--json-file", str(artifact),
+    ]) == 2
+    assert not artifact.exists()
+    assert "simulated output failure" in capsys.readouterr().err
+
+
+def test_json_file_cannot_be_combined_with_json_stdout(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate),
+            "--json", "--json-file", str(tmp_path / "comparison.json"),
+        ])

@@ -1896,12 +1896,20 @@ default text output caps new-issue details at 20 URLs for readable CI logs.
 Equivalent URL identities do not become new regressions merely because their
 percent encoding or hostname casing changed.
 
+For a portable CI artifact, use `--json-file reports/sitemap-comparison.json`
+instead of `--json`. It emits the full `new`/`inherited`/`resolved` comparison
+as a create-only UTF-8 JSON file, including when the candidate has regressions
+(exit 1); it never overwrites an existing file. The report parent must already
+exist, and its destination must resolve **outside both static-build directories**
+to prevent modifying either supplied artifact tree. Input and output errors
+return exit 2 without creating or replacing a comparison artifact.
+
 Both inputs must be independent non-overlapping local build directories
 containing index XML and adjacent XML/XML.gz shards. Their public index site
 must match; detectable cross-build hard links, invalid XML, missing or
 wrong-case files, and unsupported index URLs fail as input errors. The command
-reads **no HTML**, does not compare `robots.txt`, does not save artifacts,
-and never fetches public URLs. Review the baseline's provenance and the
+reads **no HTML**, does not compare `robots.txt`, and never fetches public
+URLs. Review the baseline's provenance and the
 manifest before trusting a no-regression result: a passing diff is not proof
 that existing defects are acceptable, that files were deployed or indexed, or
 that users adopted this workflow.
