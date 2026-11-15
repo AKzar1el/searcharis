@@ -46,8 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("manifest", type=Path, help="Reviewed SEO manifest (version 1)")
     parser.add_argument("build_dir", type=Path, help="Local compiled static HTML directory")
     parser.add_argument(
-        "sitemaps", nargs="+", type=Path,
-        help="Explicit local sitemap XML URL sets (no index resolution or URL fetching)",
+        "sitemaps", nargs="*", type=Path,
+        help="Explicit local sitemap XML URL sets, or use --sitemap-index",
+    )
+    parser.add_argument(
+        "--sitemap-index", type=Path, metavar="PATH",
+        help="Read adjacent indexed local XML/XML.gz shards only, no URL fetching",
     )
     parser.add_argument(
         "--require-full-coverage", action="store_true",
@@ -166,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             require_indexability_coverage=args.require_indexability_coverage,
             reject_noncanonical_urls=args.reject_noncanonical_urls,
             reject_unreviewed_urls=args.reject_unreviewed_urls,
+            sitemap_index_path=args.sitemap_index,
         )
         robots = (
             verify_reviewed_robots_policy(
