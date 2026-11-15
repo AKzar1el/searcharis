@@ -12,6 +12,30 @@ uv run python -m searcharis.release_cli examples/seo-contract/release-demo/manif
 language, canonical and indexability contracts, every built HTML page is
 covered, and the supplied local sitemap lists both required URLs.
 
+### Indexed sitemap first-use example
+
+If your static generator creates `sitemap-index.xml` plus numbered shards
+(as Astro's sitemap integration often does), use the checked-in index example
+instead of enumerating every shard manually:
+
+```sh
+uv run python -m searcharis.release_cli examples/seo-contract/release-demo/manifest.json examples/seo-contract/generator-fixtures/vite/artifacts --sitemap-index examples/seo-contract/release-demo/indexed/sitemap-index.xml --require-full-coverage --require-indexability-coverage --check-canonical-consistency --json
+```
+
+**Expected exit code: 0.** The checker opens both adjacent local shards, never
+fetches their public URLs, and validates both reviewed pages. This uses the
+existing compiled Vite HTML snapshot with an **Astro-style synthetic sitemap
+index** to demonstrate the exact CLI workflow; it is not evidence of a real
+Astro deployment or consumer adoption.
+
+To create CI artifacts in a single run, replace `--json` with
+`--json-file release-indexed.json --junit-file release-indexed.xml` (new,
+distinct paths outside the build and sitemap directories). In an actual
+project, replace the fixture paths with your independently built `dist/`,
+your manually reviewed manifest and `dist/sitemap-index.xml`. Use a CI step
+that preserves the verifier's exit code. Missing reviewed sitemap URLs fail
+with exit 1; missing/invalid index or shard files fail with exit 2.
+
 For a machine-readable CI artifact, replace `--json` with
 `--json-file seo-release.json`. The target filename must not already exist
 and must be outside the build tree. The command writes UTF-8 directly, does
@@ -56,12 +80,13 @@ To see deliberate failures without editing this snapshot, run
 `uv run pytest tests/integration/test_release_gate_demo.py -q`. Those
 acceptance tests copy the compiled build and introduce a pricing-page
 `noindex`, then independently omit the pricing URL from a copied sitemap.
-Both cause exit 1 for the correct failing subsystem, while the other passes.
-The tests also deny outbound socket connections.
+They also copy the indexed sitemap and remove the pricing URL from its second
+shard. All three cause exit 1 for the correct failing subsystem, while the
+other passes. The tests also deny outbound socket connections.
 
 The `fixtures.invalid` URLs are *reviewed example assertions*, not reachable
 sites; the CLI never fetches them. This demo does not validate production
 rewrites, HTTP headers, search indexing, deployment behavior or customer
 adoption. For your own project, compile the site, review actual public
-routes and SEO policy, commit a manifest once, supply all local sitemap
-shards explicitly and run the same gate on every subsequent build.
+routes and SEO policy, commit a manifest once, supply local sitemap shards
+explicitly **or** the local sitemap index, and run the same gate on each build.

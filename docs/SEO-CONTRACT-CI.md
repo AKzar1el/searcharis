@@ -1834,6 +1834,13 @@ Astro's sitemap integration commonly produces `dist/sitemap-index.xml` and
 `dist/sitemap-0.xml` (sometimes additional numbered XML shards). Instead of
 manually listing every shard, opt in to local index discovery:
 
+For a copy-and-run fixture using compiled two-page Vite HTML and a synthetic
+Astro-style sitemap index with two adjacent shards, see the
+[indexed release demo](../examples/seo-contract/release-demo/README.md#indexed-sitemap-first-use-example).
+Its integration tests cover successful verification and CI JSON/JUnit artifacts,
+plus a missing URL in the second shard, with outbound sockets denied. This is
+local workflow evidence, not a test of a deployed Astro website.
+
 ```sh
 uv run python -m searcharis.sitemap_cli manifest.json \
   --sitemap-index dist/sitemap-index.xml --json
