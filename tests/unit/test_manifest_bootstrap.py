@@ -73,6 +73,27 @@ def test_cli_output_file_is_utf8_and_never_overwritten(tmp_path, capsys):
     assert "Invalid input:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "output_relative",
+    ("seo-manifest.json", "new-page.html", "reports/seo-manifest.json", "reports/../alias.html"),
+)
+@pytest.mark.parametrize("check_built", (False, True))
+def test_cli_rejects_output_inside_immutable_build(tmp_path, capsys, output_relative, check_built):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "reports").mkdir()
+    destination = build / output_relative
+    original = (build / "index.html").read_bytes()
+
+    args = [str(build), "https://example.com/", "--output", str(destination)]
+    if check_built:
+        args.append("--check-built")
+    assert main(args) == 2
+    assert not destination.exists()
+    assert (build / "index.html").read_bytes() == original
+    assert "outside the build" in capsys.readouterr().err
+
+
 def test_opt_in_check_built_returns_mismatch_but_prints_reviewable_manifest(tmp_path, capsys):
     build = tmp_path / "dist"
     _html(build / "index.html")
