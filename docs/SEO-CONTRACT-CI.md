@@ -636,8 +636,24 @@ visible page text instead. The flag is disabled by default and combines with
 the canonical/indexability opt-ins. Review intentional exceptions before
 making the generated contract a CI gate.
 
+To catch built HTML images missing an `alt` attribute without hand-editing a
+contract for every route, opt in when generating the starter manifest:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-image-alt --check-built --output seo-manifest.json
+```
+
+This adds `img_missing_alt_max: 0` to each generated page contract, reusing
+the offline image assertion. Images with no `alt` attribute fail; `alt=""` is
+valid for intentionally decorative images. This detects missing attributes
+in supplied built HTML, not whether alt text is useful, whether images load
+at runtime, or whether Google will index the page. The flag is off by default,
+composes with other opt-ins, and honors explicit `--skip-opt-ins-for` exceptions.
+Review the manifest before using it as a CI baseline. Image URLs are not fetched.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
-indexability and description assertions (for example a static `404.html`),
+indexability, description and image-alt assertions (for example a static `404.html`),
 keep it in strict coverage while omitting those opt-ins only for that path:
 
 ```sh
@@ -654,7 +670,7 @@ Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
 opt-ins. The option requires at least one positive global `--expect-self-canonical`,
-`--expect-indexable`, or `--expect-description` flag.
+`--expect-indexable`, `--expect-description`, or `--expect-image-alt` flag.
 Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
