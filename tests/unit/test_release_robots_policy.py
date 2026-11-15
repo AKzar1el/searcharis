@@ -118,3 +118,102 @@ def test_drift_is_preserved_in_all_file_report_formats(inputs, tmp_path, capsys)
     sarif = json.loads(names["sarif"].read_text(encoding="utf-8"))
     assert any(r["ruleId"] == "robots_policy_drift" for r in sarif["runs"][0]["results"])
     assert capsys.readouterr().out == ""
+
+
+def test_required_robots_sitemap_declaration_passes_with_reviewed_policy(
+    inputs, capsys, monkeypatch,
+):
+    def no_network(*args, **kwargs):
+        raise AssertionError("sitemap discovery check must remain offline")
+
+    monkeypatch.setattr(socket, "socket", no_network)
+    policy = inputs[3]
+    policy.write_bytes(
+        b"\xef\xbb\xbfUser-agent: *\nAllow: /\n# Sitemap: https://ignored.test/map.xml\n"
+        b"sItEmAp: https://example.test/sitemap.xml # reviewed\n"
+        b"Sitemap: https://example.test/other.xml\n"
+    )
+    (inputs[1] / "robots.txt").write_bytes(policy.read_bytes())
+    assert _run(inputs, "--reviewed-robots", policy, "--require-robots-sitemap",
+                "https://example.test/sitemap.xml", "--json") == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["robots"]["status"] == "pass"
+    assert report["robots"]["required_sitemap_url"] == "https://example.test/sitemap.xml"
+
+
+@pytest.mark.parametrize("declaration", [
+    b"User-agent: *\nAllow: /\n",
+    b"User-agent: *\n# Sitemap: https://example.test/sitemap.xml\n",
+    b"User-agent: *\nSitemap: https://example.test/other.xml\n",
+    b"User-agent: *\nSitemap: http://example.test/sitemap.xml\n",
+    b"User-agent: *\nSitemap: /sitemap.xml\n",
+])
+def test_missing_or_wrong_reviewed_sitemap_blocks_release(inputs, capsys, declaration):
+    policy = inputs[3]
+    policy.write_bytes(declaration)
+    (inputs[1] / "robots.txt").write_bytes(declaration)
+    assert _run(inputs, "--reviewed-robots", policy, "--require-robots-sitemap",
+                "https://example.test/sitemap.xml", "--json") == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "fail"
+    assert report["site"]["status"] == report["sitemap"]["status"] == "pass"
+    assert report["robots"]["status"] == "fail"
+    assert report["robots"]["reason"] == "sitemap_declaration_missing"
+    assert report["robots"]["expected_sha256"] == report["robots"]["observed_sha256"]
+
+
+def test_sitemap_declaration_failure_surfaces_in_junit_markdown_and_sarif(
+    inputs, tmp_path, capsys,
+):
+    outputs = [tmp_path / "result.xml", tmp_path / "result.md", tmp_path / "result.sarif"]
+    assert _run(
+        inputs, "--reviewed-robots", inputs[3], "--require-robots-sitemap",
+        "https://example.test/sitemap.xml", "--junit-file", outputs[0],
+        "--markdown-file", outputs[1], "--sarif-file", outputs[2],
+    ) == 1
+    suite = ET.parse(outputs[0]).getroot()
+    assert suite.attrib["failures"] == "1"
+    assert "sitemap" in suite.find("testcase").attrib["name"].lower()
+    assert "https://example.test/sitemap.xml" in suite.find("testcase/failure").text
+    markdown = outputs[1].read_text(encoding="utf-8")
+    assert "FAIL" in markdown and "https://example.test/sitemap.xml" in markdown
+    sarif = json.loads(outputs[2].read_text(encoding="utf-8"))
+    assert any(
+        result["ruleId"] == "robots_sitemap_declaration_missing"
+        and "https://example.test/sitemap.xml" in result["message"]["text"]
+        for result in sarif["runs"][0]["results"]
+    )
+    assert capsys.readouterr().out == ""
+
+
+def test_missing_sitemap_declaration_human_output_names_expected_url(inputs, capsys):
+    assert _run(inputs, "--reviewed-robots", inputs[3], "--require-robots-sitemap",
+                "https://example.test/sitemap.xml") == 1
+    assert "required Sitemap URL 'https://example.test/sitemap.xml'" in capsys.readouterr().out
+
+
+def test_invalid_reviewed_robots_encoding_is_input_error_when_sitemap_required(inputs, capsys):
+    inputs[3].write_bytes(b"User-agent: *\nSitemap: \xff\n")
+    (inputs[1] / "robots.txt").write_bytes(inputs[3].read_bytes())
+    assert _run(inputs, "--reviewed-robots", inputs[3], "--require-robots-sitemap",
+                "https://example.test/sitemap.xml", "--json") == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+@pytest.mark.parametrize("url", [
+    "/sitemap.xml", "ftp://example.test/sitemap.xml", "https://user@example.test/map.xml",
+    "https://example.test/sitemap.xml#fragment", "https://example.test/a b.xml",
+    "https://example.test/" + "a" * 2048,
+])
+def test_invalid_required_sitemap_is_input_error_without_report(inputs, tmp_path, url, capsys):
+    output = tmp_path / "report.json"
+    assert _run(inputs, "--reviewed-robots", inputs[3], "--require-robots-sitemap",
+                url, "--json-file", output) == 2
+    assert not output.exists()
+    assert "Invalid input" in capsys.readouterr().err
+
+
+def test_required_sitemap_option_requires_reviewed_robots(inputs):
+    with pytest.raises(SystemExit) as error:
+        _run(inputs, "--require-robots-sitemap", "https://example.test/sitemap.xml")
+    assert error.value.code == 2

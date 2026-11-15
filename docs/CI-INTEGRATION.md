@@ -131,3 +131,21 @@ guards against accidentally shipping an unreviewed staging `Disallow: /` but
 does **not** parse robots rules, fetch a site or prove that the deployed
 server exposes these bytes. For a no-network passing/failing demonstration,
 see [reviewed robots policy fixtures](../examples/seo-contract/robots-policy/README.md).
+
+If your deployment relies on robots.txt for sitemap discovery, opt into a
+second, explicit review assertion in the same release command:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --reviewed-robots policies/production-robots.txt \
+  --require-robots-sitemap https://example.com/sitemap.xml --json
+```
+
+This rejects a reviewed policy missing the specified `Sitemap:` directive,
+even when its bytes match the compiled `robots.txt` (exit 1). Directive names
+are case-insensitive and URL values are matched exactly. Multiple directives,
+UTF-8 BOMs and trailing comments are supported; commented-out lines do not
+count. Invalid expected URLs and malformed policy encoding are input errors
+(exit 2). The flag requires `--reviewed-robots`; both are opt-in. It does not
+verify a deployed URL or fetch a sitemap, and a robots.txt Sitemap directive
+is optional in Google's protocol.

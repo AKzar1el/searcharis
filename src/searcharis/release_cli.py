@@ -105,6 +105,10 @@ def main(argv: list[str] | None = None) -> int:
         "--reviewed-robots", type=Path, metavar="POLICY",
         help="Also require build-root robots.txt to match this reviewed local policy file",
     )
+    parser.add_argument(
+        "--require-robots-sitemap", metavar="URL",
+        help="Require the reviewed robots.txt to declare this exact absolute Sitemap URL",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -132,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Reviewed local build-to-source hints for HTML SARIF findings only",
     )
     args = parser.parse_args(argv)
+    if args.require_robots_sitemap is not None and not args.reviewed_robots:
+        parser.error("--require-robots-sitemap requires --reviewed-robots")
     if args.sarif_source_map and not args.sarif_file:
         parser.error("--sarif-source-map requires --sarif-file")
     if (args.json or args.junit) and (
@@ -162,7 +168,10 @@ def main(argv: list[str] | None = None) -> int:
             reject_unreviewed_urls=args.reject_unreviewed_urls,
         )
         robots = (
-            verify_reviewed_robots_policy(args.reviewed_robots, args.build_dir)
+            verify_reviewed_robots_policy(
+                args.reviewed_robots, args.build_dir,
+                required_sitemap_url=args.require_robots_sitemap,
+            )
             if args.reviewed_robots is not None else None
         )
         sources = (
@@ -281,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
             observed = robots["observed_sha256"]
             if robots["status"] == "pass":
                 print("PASS robots.txt: matches reviewed local policy")
+            elif robots["reason"] == "sitemap_declaration_missing":
+                print("FAIL robots.txt: reviewed policy omits required Sitemap URL "
+                      f"{_preview(robots['required_sitemap_url'])}")
             else:
                 print(
                     f"FAIL robots.txt {robots['reason']}: reviewed SHA-256 "

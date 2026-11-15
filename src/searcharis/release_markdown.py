@@ -142,6 +142,8 @@ def build_release_markdown(
             f"reviewed SHA-256 {_code(robots['expected_sha256'])}; "
             f"built SHA-256 {_code(robots['observed_sha256'] or 'missing')}",
         ])
+        if robots["reason"] == "sitemap_declaration_missing":
+            lines.append(f"- Required Sitemap URL: {_code(robots['required_sitemap_url'])}")
 
     if not passed:
         issue_codes = {
@@ -161,6 +163,9 @@ def build_release_markdown(
         )
         if robots is not None and robots["status"] == "fail":
             actions.append(
+                "Add the required Sitemap declaration to the reviewed robots.txt policy "
+                "and rebuild the static site."
+                if robots["reason"] == "sitemap_declaration_missing" else
                 "Review and rebuild root robots.txt against the approved local policy."
             )
         lines.extend(["", "## Suggested reviewer actions", ""])

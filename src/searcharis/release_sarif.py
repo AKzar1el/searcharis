@@ -68,22 +68,30 @@ def build_release_sarif(
             rules.add(rule_id)
 
     if robots is not None and robots["status"] == "fail":
-        rule_id = "robots_policy_drift"
+        sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
+        rule_id = "robots_sitemap_declaration_missing" if sitemap_missing else "robots_policy_drift"
+        identity_values = [
+            "robots", robots["reason"], robots["expected_sha256"],
+            robots["observed_sha256"],
+        ]
+        if sitemap_missing:
+            identity_values.append(robots["required_sitemap_url"])
         identity = json.dumps(
-            ["robots", robots["reason"], robots["expected_sha256"],
-             robots["observed_sha256"]], separators=(",", ":"),
+            identity_values, separators=(",", ":"),
         )
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        message = (
+            "Reviewed robots.txt omits required Sitemap URL: "
+            + json.dumps(robots["required_sitemap_url"], ensure_ascii=True)[:480]
+            if sitemap_missing else
+            f"Built robots.txt {robots['reason']}; "
+            f"reviewed SHA-256 {robots['expected_sha256']}; "
+            f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
+        )
         findings.append({
             "ruleId": rule_id,
             "level": "error",
-            "message": {
-                "text": (
-                    f"Built robots.txt {robots['reason']}; "
-                    f"reviewed SHA-256 {robots['expected_sha256']}; "
-                    f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
-                ),
-            },
+            "message": {"text": message},
             "locations": [{
                 "physicalLocation": {"artifactLocation": {"uri": "robots.txt"}},
             }],

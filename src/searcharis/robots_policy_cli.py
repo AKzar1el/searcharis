@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.contract_ci import _is_canonical_url
 
 _MAX_POLICY_BYTES = 512_000
 
@@ -25,8 +26,24 @@ def _read_bounded(path: Path) -> bytes:
     return data
 
 
-def verify_reviewed_robots_policy(reviewed_policy: Path, build_dir: Path) -> dict:
+def _declares_sitemap(policy: bytes, required_url: str) -> bool:
+    """Find a reviewed Sitemap directive, not a comment or a URL substring."""
+    for line in policy.decode("utf-8-sig").splitlines():
+        active = line.partition("#")[0].strip()
+        name, separator, value = active.partition(":")
+        if separator and name.strip().casefold() == "sitemap" and value.strip() == required_url:
+            return True
+    return False
+
+
+def verify_reviewed_robots_policy(
+    reviewed_policy: Path, build_dir: Path, *, required_sitemap_url: str | None = None,
+) -> dict:
     """Compare reviewed source policy to the exact build-root robots.txt artifact."""
+    if required_sitemap_url is not None and (
+        len(required_sitemap_url) >= 2048 or not _is_canonical_url(required_sitemap_url)
+    ):
+        raise ValueError("Required robots Sitemap URL must be an absolute fragment-free HTTP(S) URL")
     root = build_dir.resolve(strict=True)
     if not root.is_dir():
         raise ValueError(f"Static build root must be a directory: {build_dir}")
@@ -34,7 +51,8 @@ def verify_reviewed_robots_policy(reviewed_policy: Path, build_dir: Path) -> dic
     expected = reviewed_policy.resolve(strict=True)
     if not expected.is_file() or expected.is_relative_to(root):
         raise ValueError("Reviewed robots policy must be a file outside the static build")
-    expected_digest = hashlib.sha256(_read_bounded(expected)).hexdigest()
+    reviewed_bytes = _read_bounded(expected)
+    expected_digest = hashlib.sha256(reviewed_bytes).hexdigest()
 
     # NTFS often resolves Robots.txt as robots.txt, while public HTTP paths
     # and many Linux CI/build hosts are case-sensitive. Require exact casing.
@@ -47,13 +65,25 @@ def verify_reviewed_robots_policy(reviewed_policy: Path, build_dir: Path) -> dic
         hashlib.sha256(_read_bounded(built)).hexdigest() if built is not None else None
     )
     matches = observed_digest == expected_digest
-    return {
-        "status": "pass" if matches else "fail",
+    sitemap_declared = (
+        required_sitemap_url is None
+        or _declares_sitemap(reviewed_bytes, required_sitemap_url)
+    )
+    reason = (
+        None if matches and sitemap_declared else
+        "missing" if observed_digest is None else
+        "changed" if not matches else "sitemap_declaration_missing"
+    )
+    result = {
+        "status": "pass" if matches and sitemap_declared else "fail",
         "artifact": "robots.txt",
-        "reason": None if matches else ("missing" if observed_digest is None else "changed"),
+        "reason": reason,
         "expected_sha256": expected_digest,
         "observed_sha256": observed_digest,
     }
+    if required_sitemap_url is not None:
+        result["required_sitemap_url"] = required_sitemap_url
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
