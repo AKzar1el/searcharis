@@ -114,7 +114,7 @@ def build_comparison_junit(
     ).decode("ascii")
 
 
-def build_release_junit(site: dict, sitemap: dict) -> str:
+def build_release_junit(site: dict, sitemap: dict, robots: dict | None = None) -> str:
     """Serialize blocking HTML and sitemap findings in one offline JUnit suite."""
     failures: list[tuple[str, str, str]] = []
     for page in site["pages"]:
@@ -154,14 +154,29 @@ def build_release_junit(site: dict, sitemap: dict) -> str:
                 f"Sitemap finding: {field}; URL: {_bounded(url)}",
             ))
 
+    if robots is not None and robots["status"] == "fail":
+        failures.append((
+            "robots.txt :: robots_policy_drift",
+            "Built robots.txt differs from reviewed local policy",
+            f"Reason: {_bounded(robots['reason'])}; "
+            f"reviewed SHA-256: {robots['expected_sha256']}; "
+            f"built SHA-256: {robots['observed_sha256'] or 'missing'}",
+        ))
+
     count = len(failures)
     suite = ET.Element(
-        "testsuite", name="Searcharis SEO HTML and sitemap release gate",
+        "testsuite", name=(
+            "Searcharis SEO HTML, sitemap and robots.txt release gate"
+            if robots is not None else "Searcharis SEO HTML and sitemap release gate"
+        ),
         tests=str(count or 1), failures=str(count), errors="0", skipped="0",
     )
     if not count:
         ET.SubElement(suite, "testcase", classname="searcharis.release",
-                      name="html-and-sitemap-passed")
+                      name=(
+                          "html-sitemap-and-robots-passed"
+                          if robots is not None else "html-and-sitemap-passed"
+                      ))
     else:
         for index, (name, message, details) in enumerate(failures, start=1):
             case = ET.SubElement(

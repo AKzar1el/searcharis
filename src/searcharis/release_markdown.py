@@ -48,11 +48,15 @@ def _code(value: object) -> str:
     return f"<code>{escape(rendered, quote=True)}</code>"
 
 
-def build_release_markdown(site: dict, sitemap: dict) -> str:
+def build_release_markdown(
+    site: dict, sitemap: dict, robots: dict | None = None,
+) -> str:
     """Render actionable, bounded findings without claiming live SEO behavior."""
     summary = site["summary"]
     xml = sitemap["summary"]
-    passed = site["status"] == sitemap["status"] == "pass"
+    passed = site["status"] == sitemap["status"] == "pass" and (
+        robots is None or robots["status"] == "pass"
+    )
     lines = [
         "# Searcharis SEO release check",
         "",
@@ -64,6 +68,8 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
         f"{xml['required']} required, {xml['excluded']} excluded, "
         f"{xml['sitemap_urls']} URLs examined",
     ]
+    if robots is not None:
+        lines.append(f"- **Robots policy:** {robots['status'].upper()} - built robots.txt")
 
     coverage = site["coverage"]
     if coverage["unlisted"]:
@@ -129,6 +135,14 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
             f"- ... and {sitemap_count - len(sitemap_items)} more sitemap findings"
         )
 
+    if robots is not None and robots["status"] == "fail":
+        lines.extend([
+            "", "## Blocking robots.txt policy finding", "",
+            f"- Built robots.txt: {_code(robots['reason'])}; "
+            f"reviewed SHA-256 {_code(robots['expected_sha256'])}; "
+            f"built SHA-256 {_code(robots['observed_sha256'] or 'missing')}",
+        ])
+
     if not passed:
         issue_codes = {
             issue["code"]
@@ -145,6 +159,10 @@ def build_release_markdown(site: dict, sitemap: dict) -> str:
         actions.extend(
             hint for key, hint in _SITEMAP_ACTIONS if sitemap.get(key)
         )
+        if robots is not None and robots["status"] == "fail":
+            actions.append(
+                "Review and rebuild root robots.txt against the approved local policy."
+            )
         lines.extend(["", "## Suggested reviewer actions", ""])
         lines.extend(f"- {hint}" for hint in actions[:_MAX_ACTIONS])
         if len(actions) > _MAX_ACTIONS:
