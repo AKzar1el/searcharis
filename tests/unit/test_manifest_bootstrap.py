@@ -691,6 +691,88 @@ def test_invalid_route_map_never_creates_or_overwrites_output(tmp_path, capsys):
     assert "Invalid input:" in capsys.readouterr().err
 
 
+def test_reviewed_language_map_bootstraps_exact_multilingual_contracts(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "en" / "index.html")
+    _html(build / "sl" / "index.html")
+    _html(build / "404.html")
+    for name, lang in (("en", "en-GB"), ("sl", "sl")):
+        (build / name / "index.html").write_text(
+            f'<html lang="{lang}"><head><title>{name}</title></head></html>',
+            encoding="utf-8",
+        )
+    manifest = generate_manifest(
+        build, "https://example.com/", language_overrides={
+            "en/index.html": "en-GB", "sl/index.html": "sl",
+        }, skip_opt_ins_for=("404.html",),
+    )
+    assert [p["contract"].get("html_lang") for p in manifest["pages"]] == [
+        None, "en-GB", "sl",
+    ]
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "pass"
+    (build / "sl" / "index.html").write_text(
+        '<html lang="en"><head><title>sl</title></head></html>', encoding="utf-8",
+    )
+    report = verify_manifest(manifest, build, require_full_coverage=True)
+    assert report["status"] == "fail"
+    assert report["pages"][-1]["issues"][0]["code"] == "html_lang"
+
+
+@pytest.mark.parametrize("language_map", [
+    {"en/index.html": "en"},  # Missing reviewed page requires an explicit skip.
+    {"en/index.html": "en", "sl/index.html": "sl", "other.html": "fr"},
+    {"en/index.html": "en", "sl/index.html": "en GB"},
+    {"en/index.html": "en", "sl/index.html": ""},
+    {"en/index.html": "en", "sl/index.html": 42},
+    {"en/index.html": "en", "sl/index.html": "en--GB"},
+    {"../en/index.html": "en", "sl/index.html": "sl"},
+])
+def test_reviewed_language_map_rejects_unsafe_or_incomplete_policy(tmp_path, language_map):
+    _html(tmp_path / "en" / "index.html")
+    _html(tmp_path / "sl" / "index.html")
+    with pytest.raises(ValueError, match="language|lang|unknown|Unsafe"):
+        generate_manifest(
+            tmp_path, "https://example.com/", language_overrides=language_map,
+        )
+
+
+def test_cli_reviewed_language_map_is_offline_and_fail_closed(tmp_path, monkeypatch, capsys):
+    build = tmp_path / "dist"
+    _html(build / "en" / "index.html")
+    _html(build / "sl" / "index.html")
+    for language in ("en", "sl"):
+        (build / language / "index.html").write_text(
+            f'<html lang="{language}"><head><title>Example</title></head></html>',
+            encoding="utf-8",
+        )
+    language_file = tmp_path / "languages.json"
+    destination = tmp_path / "manifest.json"
+    language_file.write_text(
+        '{"version":1,"languages":{"en/index.html":"en","sl/index.html":"sl"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--lang-map", str(language_file),
+            "--check-built", "--output", str(destination)]
+    assert main(args) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+    manifest = json.loads(destination.read_text(encoding="utf-8"))
+    assert [page["contract"]["html_lang"] for page in manifest["pages"]] == ["en", "sl"]
+    destination.unlink()
+    for bad in (
+        '{"version":1,"languages":{"en/index.html":"en","en/index.html":"fr"}}',
+        '{"version":true,"languages":{"en/index.html":"en","sl/index.html":"sl"}}',
+        '{"version":1,"languages":{"en/index.html":"en"}}',
+        '{"version":1,"languages":{"en/index.html":"en","sl/index.html":"en GB"}}',
+        '{"version":1,"languages":{}}',
+        '{',
+    ):
+        language_file.write_text(bad, encoding="utf-8")
+        assert main(args) == 2
+        assert not destination.exists()
+        assert "Invalid input:" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("generator,path,route", [
     ("astro", "en/index.html", "english/"),
     ("vite", "pricing/index.html", "plans/"),
