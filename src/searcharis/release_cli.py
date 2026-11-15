@@ -1,4 +1,4 @@
-"""One opt-in local release gate for built HTML and reviewed XML sitemap intent.
+"""One opt-in local release gate for HTML, sitemap and optional robots.txt policy.
 
 No contract URL is fetched: only the supplied build files, manifest and local
 XML URL sets are read. This does not replace either independent checker.
@@ -14,6 +14,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.release_markdown import build_release_markdown
 from searcharis.release_sarif import build_release_sarif
+from searcharis.robots_policy_cli import verify_reviewed_robots_policy
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_release_junit
 from searcharis.site_source_map import read_source_map
@@ -40,7 +41,7 @@ def _bounded_human_lines(groups: tuple[list[str], ...]) -> tuple[list[str], int]
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Check built HTML and explicit local sitemap URL sets in one offline CI gate",
+        description="Check built HTML, local sitemaps and optional robots.txt in one offline CI gate",
     )
     parser.add_argument("manifest", type=Path, help="Reviewed SEO manifest (version 1)")
     parser.add_argument("build_dir", type=Path, help="Local compiled static HTML directory")
@@ -100,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
         help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
     )
+    parser.add_argument(
+        "--reviewed-robots", type=Path, metavar="POLICY",
+        help="Also require build-root robots.txt to match this reviewed local policy file",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     parser.add_argument(
@@ -156,6 +161,10 @@ def main(argv: list[str] | None = None) -> int:
             reject_noncanonical_urls=args.reject_noncanonical_urls,
             reject_unreviewed_urls=args.reject_unreviewed_urls,
         )
+        robots = (
+            verify_reviewed_robots_policy(args.reviewed_robots, args.build_dir)
+            if args.reviewed_robots is not None else None
+        )
         sources = (
             read_source_map(args.sarif_source_map, site, source_root=Path.cwd())
             if args.sarif_source_map else {}
@@ -167,23 +176,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    status = "pass" if site["status"] == sitemap["status"] == "pass" else "fail"
+    status = (
+        "pass" if site["status"] == sitemap["status"] == "pass"
+        and (robots is None or robots["status"] == "pass") else "fail"
+    )
+    report = {"status": status, "site": site, "sitemap": sitemap}
+    if robots is not None:
+        report["robots"] = robots
     if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((args.json_file, "JSON", json.dumps(
-                {"status": status, "site": site, "sitemap": sitemap},
-                indent=2, sort_keys=True,
+                report, indent=2, sort_keys=True,
             )))
         if args.junit_file:
-            reports.append((args.junit_file, "JUnit", build_release_junit(site, sitemap)))
+            reports.append((args.junit_file, "JUnit", build_release_junit(site, sitemap, robots)))
         if args.markdown_file:
             reports.append((args.markdown_file, "Markdown", build_release_markdown(
-                site, sitemap,
+                site, sitemap, robots,
             )))
         if args.sarif_file:
             reports.append((args.sarif_file, "SARIF", json.dumps(
-                build_release_sarif(site, sitemap, args.manifest, sources=sources),
+                build_release_sarif(
+                    site, sitemap, args.manifest, sources=sources, robots=robots,
+                ),
                 indent=2, sort_keys=True,
             )))
         try:
@@ -212,12 +228,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
             return 2
     elif args.junit:
-        print(build_release_junit(site, sitemap))
+        print(build_release_junit(site, sitemap, robots))
     elif args.json:
-        serialized = json.dumps(
-            {"status": status, "site": site, "sitemap": sitemap},
-            indent=2, sort_keys=True,
-        )
+        serialized = json.dumps(report, indent=2, sort_keys=True)
         print(serialized)
     else:
         pages = site["summary"]
@@ -264,6 +277,16 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         if hidden_sitemap:
             print(f"  ... and {hidden_sitemap} more sitemap findings; use --json for all")
+        if robots is not None:
+            observed = robots["observed_sha256"]
+            if robots["status"] == "pass":
+                print("PASS robots.txt: matches reviewed local policy")
+            else:
+                print(
+                    f"FAIL robots.txt {robots['reason']}: reviewed SHA-256 "
+                    f"{robots['expected_sha256'][:12]}, "
+                    f"built SHA-256 {observed[:12] if observed else 'missing'}"
+                )
     return 0 if status == "pass" else 1
 
 

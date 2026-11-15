@@ -1193,6 +1193,17 @@ failure is not an atomic multi-file transaction. Stdout `--json` and
 `--junit` remain mutually exclusive with file report modes. Exit 0 still means
 both gates pass, 1 means a blocking mismatch, and 2 means an input/output error.
 
+For a reviewed immutable `robots.txt` artifact, add
+`--reviewed-robots policies/production-robots.txt` to this combined release
+command. The reviewed source must be outside `dist`; its bytes are compared
+with the exactly lowercase `dist/robots.txt` after the build. A missing or
+changed built file fails the release (exit 1); an invalid, oversized or unsafe
+source is an input error (exit 2). The optional third `robots` result appears
+in JSON and is included in human, JUnit, Markdown and SARIF failures. Without
+this flag the existing two-check output is unchanged. No URLs are fetched,
+and matched static bytes do not prove what production serves or how Googlebot
+interprets the policy.
+
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
 explicitly reviewed build-to-repository source-file hints; it is valid only

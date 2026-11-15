@@ -1,4 +1,4 @@
-"""Deterministic SARIF for one offline HTML and sitemap release verification.
+"""Deterministic SARIF for one offline HTML, sitemap and optional robots release gate.
 
 Sitemap findings anchor to the reviewed manifest as a whole, not an inferred
 offending XML line. The serializer performs no filesystem or network I/O.
@@ -32,6 +32,7 @@ def _manifest_uri(manifest: Path) -> str:
 
 def build_release_sarif(
     site: dict, sitemap: dict, manifest: Path, *, sources: dict[str, str] | None = None,
+    robots: dict | None = None,
 ) -> dict:
     """Combine existing site SARIF with all gated local sitemap URL findings."""
     report = build_sarif_report(site, sources=sources)
@@ -65,6 +66,30 @@ def build_release_sarif(
                 "partialFingerprints": {"searcharis/issue/v1": digest},
             })
             rules.add(rule_id)
+
+    if robots is not None and robots["status"] == "fail":
+        rule_id = "robots_policy_drift"
+        identity = json.dumps(
+            ["robots", robots["reason"], robots["expected_sha256"],
+             robots["observed_sha256"]], separators=(",", ":"),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        findings.append({
+            "ruleId": rule_id,
+            "level": "error",
+            "message": {
+                "text": (
+                    f"Built robots.txt {robots['reason']}; "
+                    f"reviewed SHA-256 {robots['expected_sha256']}; "
+                    f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
+                ),
+            },
+            "locations": [{
+                "physicalLocation": {"artifactLocation": {"uri": "robots.txt"}},
+            }],
+            "partialFingerprints": {"searcharis/issue/v1": digest},
+        })
+        rules.add(rule_id)
 
     run["tool"]["driver"]["rules"] = [
         {"id": code, "shortDescription": {"text": code.replace("_", " ")}}
