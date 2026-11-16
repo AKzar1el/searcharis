@@ -4,6 +4,7 @@ import json
 import os
 import socket
 from html import escape
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -317,3 +318,119 @@ def test_json_file_cannot_be_combined_with_json_stdout(tmp_path):
             str(manifest), str(baseline), str(candidate),
             "--json", "--json-file", str(tmp_path / "comparison.json"),
         ])
+
+
+def test_junit_stdout_tolerates_inherited_debt(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    assert main([str(manifest), str(baseline), str(candidate), "--junit"]) == 0
+    output = capsys.readouterr()
+    assert output.err == ""
+    suite = ET.fromstring(output.out)
+    assert suite.attrib["failures"] == "0"
+    assert suite.attrib["tests"] == "1"
+    assert suite.find("testcase/failure") is None
+
+
+def test_junit_stdout_reports_only_new_blocking_urls(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/", "https://example.test/about")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/", "https://example.test/draft")
+    assert main([str(manifest), str(baseline), str(candidate), "--junit"]) == 1
+    suite = ET.fromstring(capsys.readouterr().out)
+    assert suite.attrib["failures"] == "2"
+    failures = suite.findall("testcase/failure")
+    assert len(failures) == 2
+    assert any("missing_required" in failure.text and "about" in failure.text for failure in failures)
+    assert any("present_excluded" in failure.text and "draft" in failure.text for failure in failures)
+
+
+def test_junit_opt_in_unreviewed_url_is_xml_escaped_and_blocking(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    extra = "https://example.test/new?from=one&other=two"
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/", extra)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--reject-unreviewed-urls", "--junit",
+    ]) == 1
+    output = capsys.readouterr().out
+    assert "&amp;" in output
+    suite = ET.fromstring(output)
+    assert suite.attrib["failures"] == "1"
+    assert extra in suite.find("testcase/failure").text
+
+
+@pytest.mark.parametrize("regression,code", [(False, 0), (True, 1)])
+def test_junit_file_creates_portable_xml_without_stdout(tmp_path, capsys, regression, code):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    urls = ["https://example.test/"]
+    if regression:
+        urls.append("https://example.test/draft")
+    candidate = _snapshot(tmp_path, "candidate", *urls)
+    artifact = tmp_path / "sitemap-comparison.xml"
+    assert main([str(manifest), str(baseline), str(candidate), "--junit-file", str(artifact)]) == code
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    assert artifact.read_bytes().startswith(b"<?xml")
+    suite = ET.parse(artifact).getroot()
+    assert suite.attrib["failures"] == str(int(regression))
+    assert suite.attrib["tests"] == "1"
+
+
+def test_junit_file_refuses_existing_destination(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / "comparison.xml"
+    artifact.write_bytes(b"existing results")
+    assert main([str(manifest), str(baseline), str(candidate), "--junit-file", str(artifact)]) == 2
+    assert artifact.read_bytes() == b"existing results"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("directory", ["baseline", "candidate"])
+def test_junit_file_cannot_modify_build_inputs(tmp_path, capsys, directory):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / directory / "comparison.xml"
+    assert main([str(manifest), str(baseline), str(candidate), "--junit-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_junit_file_invalid_xml_input_creates_no_artifact(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    (candidate.parent / "sitemap-0.xml").write_text("<urlset", encoding="utf-8")
+    artifact = tmp_path / "comparison.xml"
+    assert main([str(manifest), str(baseline), str(candidate), "--junit-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert "sitemap-0.xml" in capsys.readouterr().err
+
+
+def test_junit_file_removes_new_partial_artifact_on_serialization_error(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    artifact = tmp_path / "comparison.xml"
+
+    def broken_junit(_comparison):
+        raise OSError("injected XML write failure")
+
+    monkeypatch.setattr("searcharis.sitemap_compare.build_sitemap_comparison_junit", broken_junit, raising=False)
+    assert main([str(manifest), str(baseline), str(candidate), "--junit-file", str(artifact)]) == 2
+    assert not artifact.exists()
+    assert "injected XML write failure" in capsys.readouterr().err
+
+
+def test_junit_file_is_exclusive_with_json_stdout(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([str(manifest), str(baseline), str(candidate), "--json", "--junit-file", str(tmp_path / "comparison.xml")])

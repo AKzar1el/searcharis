@@ -13,6 +13,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.site_ci import _page_url_identity, read_manifest
+from searcharis.site_junit import build_sitemap_comparison_junit
 from searcharis.sitemap_ci import _local_index_shards, verify_sitemap_manifest
 
 _DEFAULT_CATEGORIES = ("missing_required", "present_excluded")
@@ -107,6 +108,14 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Write complete JSON to a new UTF-8 file outside both builds",
     )
+    output.add_argument(
+        "--junit", action="store_true",
+        help="Print JUnit XML for only newly blocking sitemap regressions",
+    )
+    output.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write regression-only JUnit XML to a new file outside both builds",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -130,24 +139,31 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file:
-        path = args.json_file
+    if args.json_file or args.junit_file:
+        path = args.json_file or args.junit_file
+        label = "JSON" if args.json_file else "JUnit"
         created = False
         try:
             if path.exists() or path.is_symlink():
-                raise FileExistsError(f"JSON comparison already exists: {path}")
+                raise FileExistsError(f"{label} comparison already exists: {path}")
             if not path.parent.is_dir():
-                raise ValueError(f"JSON comparison parent must be an existing directory: {path.parent}")
+                raise ValueError(
+                    f"{label} comparison parent must be an existing directory: {path.parent}"
+                )
             # Comparing compiled site artifacts must never add a report to either build.
             output_path = path.resolve()
             if any(
                 output_path.is_relative_to(index.parent.resolve(strict=True))
                 for index in (args.baseline_index, args.candidate_index)
             ):
-                raise ValueError("JSON comparison must be outside both sitemap directories")
+                raise ValueError(f"{label} comparison must be outside both sitemap directories")
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
                 created = True
-                output_file.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+                payload = (
+                    json.dumps(result, indent=2, sort_keys=True) if args.json_file
+                    else build_sitemap_comparison_junit(result)
+                )
+                output_file.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             if created:
                 try:
@@ -163,6 +179,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     elif args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.junit:
+        print(build_sitemap_comparison_junit(result))
     else:
         summary = result["summary"]
         print(
