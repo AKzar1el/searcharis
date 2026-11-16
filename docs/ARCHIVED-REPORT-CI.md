@@ -15,7 +15,10 @@ From the Searcharis repository, with Python 3.11+ and `uv` available:
 mkdir -p reports
 uv run python -m searcharis.report_compare \
   artifacts/baseline.json artifacts/candidate.json \
-  --markdown-file reports/seo-review.md
+  --markdown-file reports/seo-review.md \
+  --json-file reports/seo-comparison.json \
+  --junit-file reports/seo-regressions.xml \
+  --sarif-file reports/seo-regressions.sarif
 ```
 
 The `artifacts/` paths are example inputs, not bundled fixtures. Supply actual
@@ -33,9 +36,22 @@ folder or invalid input is never silently overwritten. It emits no report to
 stdout in file mode. If a write is interrupted, discard any partial report.
 
 For a complete, machine-readable diff, choose `--json` or the separate
-`--json-file reports/seo-comparison.json` mode. The archived comparator's
-`--json`, `--json-file` and `--markdown-file` modes are mutually exclusive;
-run separate comparisons when both review and machine artifacts are needed.
+`--json-file reports/seo-comparison.json` mode. File outputs can be emitted
+together in one pass; only the `--json` stdout mode is incompatible with
+file outputs. The JUnit XML and SARIF 2.1.0 outputs contain new blocking
+regressions rather than inherited baseline issues.
+Saved baseline and candidate reports must also use the same reviewed
+navigation and reviewed fragment check settings. A mismatch is an input
+error (exit 2), even when both reports happen to contain zero issues.
+Regenerate both reports with matching `site_cli` options before comparing.
+Archived `checked_url` values must be syntactically valid absolute HTTP(S)
+URLs without credentials, ambiguous authorities or whitespace. Corrupt
+saved URLs are input errors (exit 2), not clean comparisons; historical
+fragment spellings remain comparable for compatibility with older reports.
+For the opt-in `--fail-on-new-unverified-targets` gate, equivalent canonical
+outside-target URL spellings (host casing, default ports, dot segments and
+unreserved escapes) are treated as inherited, not as new targets. Distinct
+canonical URLs still block; hreflang target matching remains exact.
 Markdown intentionally limits detailed findings so unexpected page content
 cannot flood a CI summary, and escapes HTML in untrusted input.
 

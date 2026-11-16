@@ -6,8 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
+from searcharis.build_compare import main as build_compare_main
 from searcharis.release_cli import main as release_main
 from searcharis.site_ci import verify_manifest
+from searcharis.site_cli import main as site_main
 
 
 def _site(tmp_path, *, home_links="", services_links="", docs_links=""):
@@ -146,3 +148,75 @@ def test_release_cli_preserves_sitemap_result_and_never_fetches_urls(tmp_path, c
     assert json.loads(json_file.read_text(encoding="utf-8"))["status"] == "fail"
     assert "reviewed_inbound_link_missing" in junit_file.read_text(encoding="utf-8")
     assert "reviewed_inbound_link_missing" in markdown_file.read_text(encoding="utf-8")
+
+
+def test_standalone_site_cli_exposes_reviewed_inbound_checks_offline(tmp_path, capsys):
+    build, manifest = _site(
+        tmp_path, home_links='<a href="/services/">Services</a>',
+    )
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    with patch.object(socket.socket, "connect", side_effect=AssertionError("network attempted")):
+        assert site_main([
+            str(manifest_file), str(build), "--require-inbound-link",
+            "services/index.html", "--json",
+        ]) == 0
+        passing = json.loads(capsys.readouterr().out)
+        assert passing["reviewed_inbound"]["required_paths"] == ["services/index.html"]
+        assert passing["reviewed_inbound"]["linked_paths"] == ["services/index.html"]
+
+        assert site_main([
+            str(manifest_file), str(build), "--require-inbound-link",
+            "docs/index.html", "--json",
+        ]) == 1
+        failing = json.loads(capsys.readouterr().out)
+        assert failing["reviewed_inbound"]["missing_paths"] == ["docs/index.html"]
+        assert "reviewed_inbound_link_missing" in [
+            issue["code"] for page in failing["pages"] for issue in page["issues"]
+        ]
+
+        assert site_main([
+            str(manifest_file), str(build), "--require-inbound-link",
+            "not-reviewed.html", "--json",
+        ]) == 2
+        assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+def test_one_command_build_compare_gates_only_new_inbound_regressions(tmp_path, capsys):
+    baseline, manifest = _site(
+        tmp_path / "baseline", home_links='<a href="/services/">Services</a>',
+    )
+    candidate, _ = _site(tmp_path / "candidate")
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    args = [str(manifest_file), str(baseline), str(candidate)]
+    with patch.object(socket.socket, "connect", side_effect=AssertionError("network attempted")):
+        assert build_compare_main([*args, "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["summary"]["new_issues"] == 0
+        assert build_compare_main([
+            *args, "--require-inbound-link", "services/index.html", "--json",
+        ]) == 1
+        delta = json.loads(capsys.readouterr().out)
+        assert delta["summary"]["new_issues"] == 1
+        assert delta["new_issues"][0]["issue"]["code"] == "reviewed_inbound_link_missing"
+
+        # The same missing link in both trusted snapshots is inherited debt,
+        # not a reason to fail a regression-only adoption gate.
+        home = baseline / "index.html"
+        home.write_text(
+            home.read_text(encoding="utf-8").replace(
+                '<a href="/services/">Services</a>', "",
+            ),
+            encoding="utf-8",
+        )
+        assert build_compare_main([
+            *args, "--require-inbound-link", "services/index.html", "--json",
+        ]) == 0
+        inherited = json.loads(capsys.readouterr().out)
+        assert inherited["summary"]["existing_issues"] == 1
+        assert inherited["summary"]["new_issues"] == 0
+
+        assert build_compare_main([
+            *args, "--require-inbound-link", "not-in-manifest.html", "--json",
+        ]) == 2
+        assert json.loads(capsys.readouterr().out)["status"] == "error"

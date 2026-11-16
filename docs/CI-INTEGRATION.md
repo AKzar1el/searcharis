@@ -102,3 +102,50 @@ human-readable CI artifact without rebuilding or fetching URLs.
 For reproducible Astro-style multilingual and Vite-style static multipage
 examples, see the [offline generator fixtures](../examples/seo-contract/generator-fixtures/README.md).
 The checked-in snapshots are illustrative; always test your own actual build.
+
+## Optional reviewed `robots.txt` release safety
+
+Before publishing a static build, compare its root `robots.txt` against a
+source-controlled production policy that a reviewer deliberately approved:
+
+```sh
+uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist --json
+```
+
+Run this after generating `dist`, alongside the existing HTML and sitemap
+checks, and preserve its exit status in CI. Exit 0 means the bytes match, 1
+means the built policy differs or is missing, and 2 means invalid input.
+Alternatively, combine all three checks in one local release gate:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-full-coverage --reviewed-robots policies/production-robots.txt --json
+```
+
+When selected, robots.txt drift blocks the combined exit status even when
+HTML and sitemap pass. Structured JSON adds a `robots` result; JUnit, Markdown,
+SARIF and default human output also retain the blocking finding. Without this
+opt-in flag, the existing two-check report format and behavior are unchanged.
+The approved reference must be outside the immutable build directory. This
+guards against accidentally shipping an unreviewed staging `Disallow: /` but
+does **not** parse robots rules, fetch a site or prove that the deployed
+server exposes these bytes. For a no-network passing/failing demonstration,
+see [reviewed robots policy fixtures](../examples/seo-contract/robots-policy/README.md).
+
+If your deployment relies on robots.txt for sitemap discovery, opt into a
+second, explicit review assertion in the same release command:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --reviewed-robots policies/production-robots.txt \
+  --require-robots-sitemap https://example.com/sitemap.xml --json
+```
+
+This rejects a reviewed policy missing the specified `Sitemap:` directive,
+even when its bytes match the compiled `robots.txt` (exit 1). Directive names
+are case-insensitive and URL values are matched exactly. Multiple directives,
+UTF-8 BOMs and trailing comments are supported; commented-out lines do not
+count. Invalid expected URLs and malformed policy encoding are input errors
+(exit 2). The flag requires `--reviewed-robots`; both are opt-in. It does not
+verify a deployed URL or fetch a sitemap, and a robots.txt Sitemap directive
+is optional in Google's protocol.

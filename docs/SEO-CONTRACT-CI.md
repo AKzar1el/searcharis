@@ -74,6 +74,7 @@ how valid contracts or manifests are read.
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
+| `html_lang_present` | Require a non-blank root HTML `lang` attribute (`true`), or require it to be absent (`false`); blank values satisfy neither |
 | `canonical` | Require exactly one matching canonical link, without a URL fragment |
 | `canonical_present` | Require exactly one valid fragment-free canonical URL (`true`) or no active canonical destination (`false`) |
 | `indexable` | Require HTML robots/googlebot meta to permit or deny indexing |
@@ -587,7 +588,11 @@ joining collapses them for subpages but can retain them for `index.html`,
 producing inconsistent public URL candidates. Supply the intended single-slash
 prefix explicitly rather than relying on normalization.
 `--output` writes UTF-8 without a BOM and refuses to overwrite an existing
-file; omit it to print JSON on stdout.
+file or write inside the supplied build directory (including resolved path
+aliases). Keep the reviewed manifest outside immutable build artifacts; a
+new `.html` output inside the build would otherwise become an unreviewed page
+on the next CI run. Invalid output locations return exit 2 without creating a
+file. Omit `--output` to print JSON on stdout.
 
 If your site deliberately uses **self-referencing canonical tags** on each
 static page, opt in to generating canonical assertions too:
@@ -620,6 +625,23 @@ access or search-index inclusion. The flag is off by default and can be
 combined with `--expect-self-canonical`; remove or adjust the assertion for
 intentional noindex pages before making the reviewed manifest a CI gate.
 
+To protect reviewed pages from an accidental `nofollow` or `none` robots
+directive that prevents Googlebot from following links in the built HTML,
+opt in to generating a separate followability assertion:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-followable --check-built --output seo-manifest.json
+```
+
+This emits `followable: true` per non-exempt page using the existing offline
+robots/googlebot checker. A `nofollow` or `none` directive in the head or
+body fails; `noindex` alone does not. The flag is off by default, composes
+with `--expect-indexable`, and honors `--skip-opt-ins-for` for deliberately
+restricted pages. This is not a guarantee that Google will crawl links or
+that a deployed page permits following via HTTP headers, robots.txt or other
+controls. No remote URL is fetched.
+
 For pages where your team requires a populated HTML meta description before
 release, opt in to a description-presence assertion:
 
@@ -636,8 +658,146 @@ visible page text instead. The flag is disabled by default and combines with
 the canonical/indexability opt-ins. Review intentional exceptions before
 making the generated contract a CI gate.
 
+To catch built HTML images missing an `alt` attribute without hand-editing a
+contract for every route, opt in when generating the starter manifest:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-image-alt --check-built --output seo-manifest.json
+```
+
+This adds `img_missing_alt_max: 0` to each generated page contract, reusing
+the offline image assertion. Images with no `alt` attribute fail; `alt=""` is
+valid for intentionally decorative images. This detects missing attributes
+in supplied built HTML, not whether alt text is useful, whether images load
+at runtime, or whether Google will index the page. The flag is off by default,
+composes with other opt-ins, and honors explicit `--skip-opt-ins-for` exceptions.
+Review the manifest before using it as a CI baseline. Image URLs are not fetched.
+
+For multilingual static sites, require every reviewed built page to declare a
+non-blank root `<html lang>` without assuming all pages share one locale:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --expect-lang-attribute --check-built --output seo-manifest.json
+```
+
+This emits `html_lang_present: true` for each page. Missing or blank root
+attributes fail the offline checker; locale-specific values such as `en-GB`
+and `sl` both pass. To enforce the *correct* language per route, separately
+review and add the existing exact `html_lang` contract field. This opt-in is
+off by default, composes with other flags and exact-path exceptions, and does
+not fetch URLs or prove that search engines detected the intended locale.
+
+To generate those exact reviewed language assertions without hand-editing each
+page, create `languages.json` with **build-relative HTML paths**, not public
+URLs or automatically inferred locale names:
+
+```json
+{
+  "version": 1,
+  "languages": {"en/index.html": "en-GB", "sl/index.html": "sl"}
+}
+```
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --lang-map languages.json --check-built --output seo-manifest.json
+```
+
+`--lang-map` emits the existing exact `html_lang` assertion for every
+non-exempt built page. A page advertising the wrong language fails offline
+verification even when its `lang` attribute is present. The map must cover
+every built HTML path unless explicitly excluded using
+`--skip-opt-ins-for 404.html`; unknown, unsafe or duplicate JSON paths,
+missing coverage, and invalid ASCII language-subtag spellings fail with input
+exit 2 before output creation. Do not also include skipped paths in the map.
+The mapping composes with `--route-map` for reviewed public URL rewrites;
+language keys always refer to actual built HTML file paths. If
+`--expect-lang-attribute` is also enabled, the exact map takes precedence
+for mapped pages. Review each language value before committing the generated
+manifest: this is a bounded syntax check, not full BCP 47 validation, actual
+HTTP language negotiation, or a claim about SEO traffic or indexing.
+
+For sites with translated pages, a separate **reviewed hreflang cluster map**
+can generate each page's expected reciprocal alternate URLs instead of
+hand-editing every manifest contract. Put only **build-relative HTML paths**
+in `hreflang.json`; the bootstrap resolves URLs from the supplied base URL
+and any explicit `--route-map` overrides:
+
+```json
+{
+  "version": 1,
+  "clusters": [
+    {
+      "en": "en/index.html",
+      "sl": "sl/index.html",
+      "x-default": "en/index.html"
+    },
+    {"en": "en/about/index.html", "sl": "sl/o-nas/index.html"}
+  ]
+}
+```
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --hreflang-map hreflang.json --check-built --output seo-manifest.json
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --check-hreflang-reciprocity \
+  --check-hreflang-clusters
+```
+
+This opt-in adds the existing exact `hreflang` contract to every grouped
+page, checking its built HTML against reviewed destinations. Unrelated pages
+remain covered by the starter title assertion without an inferred locale.
+Each cluster must contain at least two distinct locale pages, with unique
+language labels (case-insensitive) and no build path belonging to multiple
+clusters. An optional `x-default` may point to an existing locale page.
+Unknown or unsafe paths, overlapping opt-in exclusions, malformed or duplicate
+JSON keys, and conflicting group membership fail as input errors (exit 2)
+before any output file is created. `--lang-map` and `--route-map` can be
+combined with it, but their owners must review the labels and public URLs
+for consistency. No hreflang values are scraped, inferred from filenames or
+fetched remotely. This is an offline assertion on static HTML, not proof of
+deployed locale routing, reciprocal HTTP behavior, indexing or SEO uplift.
+
+**Runnable Astro-style first-use smoke test.** The repository includes a
+two-language static build and matching reviewed
+[`language-map.json`](../examples/seo-contract/generator-fixtures/astro/language-map.json)
+and [`hreflang-map.json`](../examples/seo-contract/generator-fixtures/astro/hreflang-map.json).
+From the repository root, generate and verify a candidate manifest without
+writing into the immutable build:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap \
+  examples/seo-contract/generator-fixtures/astro/artifacts \
+  https://fixtures.invalid/ \
+  --lang-map examples/seo-contract/generator-fixtures/astro/language-map.json \
+  --hreflang-map examples/seo-contract/generator-fixtures/astro/hreflang-map.json \
+  --expect-self-canonical --expect-indexable --check-built \
+  --output seo-starter-reviewed.json
+uv run python -m searcharis.site_cli \
+  seo-starter-reviewed.json \
+  examples/seo-contract/generator-fixtures/astro/artifacts \
+  --require-full-coverage --check-hreflang-reciprocity \
+  --check-hreflang-clusters
+```
+
+The first command writes a create-only UTF-8 candidate manifest **outside**
+the immutable build and prints `PASS 2/2` to stderr (exit 0). Review the
+generated JSON before committing it to your own CI. The second command
+verifies reviewed manifest coverage and reciprocal locale clusters.
+Rerunning the first command with the same existing output path returns input
+error 2 rather than overwriting your review. A test in
+`tests/integration/test_static_generator_fixtures.py` exercises this complete
+offline flow and confirms a wrong Slovenian root `lang` fails the saved
+reviewed gate. The `.invalid` hostname is a fixture identifier; no URL is
+fetched and this demonstration does not establish live-site or customer usage.
+
 If a reviewed built page is intentionally exempt from the optional canonical,
-indexability and description assertions (for example a static `404.html`),
+indexability, followability, description, image-alt, language-attribute or
+cluster assertions
+(for example a static `404.html`),
 keep it in strict coverage while omitting those opt-ins only for that path:
 
 ```sh
@@ -653,8 +813,12 @@ uv run python -m searcharis.site_cli seo-manifest.json dist \
 Unknown, unsafe or duplicate exception paths fail as input errors rather than
 silently weakening CI. Every excepted page remains in the manifest and retains
 the default `title_present: true` check; other pages retain all requested
-opt-ins. The option requires at least one positive global `--expect-self-canonical`,
-`--expect-indexable`, or `--expect-description` flag.
+opt-ins. The option requires at least one positive global
+`--expect-self-canonical`, `--expect-indexable`, `--expect-followable`,
+`--expect-description`,
+`--expect-image-alt`, `--expect-lang-attribute`, `--lang-map` or
+`--hreflang-map` policy. Skipped pages cannot be members of a reviewed
+hreflang cluster.
 Review exclusions and expected URLs before committing the manifest. This
 offline HTML checker cannot establish whether an error page actually returns
 an HTTP 404 or 410 rather than a soft-404 HTTP 200 response.
@@ -804,6 +968,36 @@ template/raw-text HTML are ignored. The checker
 never fetches a URL and cannot verify live HTTP responses, JavaScript-rendered
 navigation, redirects, public deployment routes or actual search indexing.
 
+## Opt-in reviewed internal nofollow links
+
+For an explicitly reviewed static public route set, catch accidental
+`rel="nofollow"` on links between important pages without interpreting
+link markup as a live crawl:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --check-internal-nofollow --json
+```
+
+The same flag works in `release_cli` and `build_compare` (regression-only
+baseline versus candidate). It checks active `<a href>` and navigable image-map
+`<area href>` elements whose destination resolves to **the same or another
+reviewed, same-origin URL**. It respects the first head `<base href>`, URL
+identity aliases and comma- or whitespace-separated case-insensitive `rel`
+tokens, and deduplicates repeated destinations per source page. A marked link
+fails with `internal_link_nofollow` and exit 1; the `internal_nofollow` report
+lists checked links and affected source paths/targets. The default is unchanged.
+
+Links to unreviewed routes (for example, intentionally restricted account
+pages), external origins, non-HTTP URLs and inert HTML are out of scope.
+`sponsored` or `ugc` alone does not trigger this particular gate. Saved report
+comparisons reject differing enabled/disabled policies (exit 2), and a new
+restricted link is a regression when both policies are enabled. This is a
+static policy check, **not proof of crawl, indexing, rank, or link equity**.
+Google treats link `rel` values as hints: see its
+[outbound link documentation](https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links).
+No supplied URL is fetched.
+
 ## Opt-in critical-page inbound link assertions
 
 For important landing pages, the combined offline HTML+sitemap release gate can
@@ -815,6 +1009,34 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --require-inbound-link services/index.html \
   --require-inbound-link pricing/index.html --json
 ```
+
+The standalone HTML checker also accepts the same repeatable
+`--require-inbound-link PAGE_PATH` option without requiring a sitemap:
+
+```sh
+uv run python -m searcharis.site_cli manifest.json dist \
+  --require-inbound-link services/index.html --json
+```
+
+For separately archived baseline and candidate site reports, use the **same
+critical-page path list** for each capture before running `report_compare`.
+The offline comparator rejects missing or changed inbound-link policies as
+incompatible input (exit **2**), even when both HTML builds pass. It rejects
+malformed inbound summaries rather than silently treating them as PASS.
+Previously archived site reports without this opt-in check remain comparable
+to other reports that also omit it.
+
+For a **one-command baseline-versus-candidate** check, the same option is
+available in `build_compare`:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --require-inbound-link services/index.html --json
+```
+
+This checks the selected page in both local builds, blocking only newly missing
+peer links while retaining inherited failures as non-blocking. The baseline
+must be a trusted, separately built artifact. The flag remains off by default.
 
 Each `--require-inbound-link` value is an exact relative **manifest artifact
 path**, not a live URL. Unknown, unsafe, wrong-case or repeated paths are input
@@ -877,7 +1099,7 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --check-unique-titles --json
 ```
 
-This **release-gate-only** option compares the first active head `<title>`
+This opt-in option also works in `site_cli` and `build_compare`. It compares the first active head `<title>`
 across reviewed pages on the same scheme, hostname and effective port.
 It decodes HTML entities and collapses whitespace before comparing text
 **case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
@@ -904,7 +1126,7 @@ uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
   --check-unique-descriptions --json
 ```
 
-This release-gate-only option compares the first active
+This opt-in option also works in `site_cli` and `build_compare`. It compares the first active
 `<meta name="description" content="...">` in each document head, after HTML
 entity decoding and whitespace collapsing (case-sensitive). Nonblank
 duplicates produce `description_duplicate` on all affected pages (exit **1**).
@@ -970,6 +1192,74 @@ preflighted before any file is written; an unexpected mid-write filesystem
 failure is not an atomic multi-file transaction. Stdout `--json` and
 `--junit` remain mutually exclusive with file report modes. Exit 0 still means
 both gates pass, 1 means a blocking mismatch, and 2 means an input/output error.
+
+For a reviewed immutable `robots.txt` artifact, add
+`--reviewed-robots policies/production-robots.txt` to this combined release
+command. The reviewed source must be outside `dist`; its bytes are compared
+with the exactly lowercase `dist/robots.txt` after the build. A missing or
+changed built file fails the release (exit 1); an invalid, oversized or unsafe
+source is an input error (exit 2). The optional third `robots` result appears
+in JSON and is included in human, JUnit, Markdown and SARIF failures. Without
+this flag the existing two-check output is unchanged. No URLs are fetched,
+and matched static bytes do not prove what production serves or how Googlebot
+interprets the policy.
+An optional `--require-robots-sitemap https://example.com/sitemap.xml` alongside
+`--reviewed-robots` additionally checks that the approved local policy explicitly
+declares that exact public Sitemap URL. A matching built file without this
+declaration fails the release with a distinct `robots_sitemap_declaration_missing`
+SARIF/JUnit finding; existing no-flag reports are unchanged. The field name is
+case-insensitive, the URL value is case-sensitive, and commented-out directives
+do not count. The expected URL must be a valid absolute fragment-free HTTP(S)
+URL. This is a local, opt-in discovery assertion, not sitemap HTTP delivery,
+indexing verification, or a complete robots.txt parser.
+
+For sites advertising more than one sitemap, repeat `--require-robots-sitemap`
+for each **owner-reviewed** public URL. Previously repeating the flag silently
+discarded every value except the last; now **all** specified declarations must
+appear in the reviewed policy or release CI fails:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
+  --reviewed-robots policies/production-robots.txt \
+  --require-robots-sitemap https://example.com/sitemap.xml \
+  --require-robots-sitemap https://example.com/news-sitemap.xml
+```
+
+One to sixteen distinct absolute HTTP(S) URLs are supported; duplicates,
+unsafe values and more than sixteen requirements are input errors (exit 2)
+before any reports are written. Existing single-URL JSON results keep their
+`required_sitemap_url` field unchanged; multi-URL results additionally include
+`required_sitemap_urls` and `missing_sitemap_urls` with the complete reviewed
+and absent URL lists. Human, JUnit, Markdown and SARIF reports show bounded
+actionable examples of missing declarations. Google documents that robots.txt
+may contain multiple optional `Sitemap:` lines; this flag asserts only what
+the operator explicitly reviewed, and never discovers or fetches URLs:
+https://developers.google.com/crawling/docs/robots-txt/create-robots-txt
+
+For teams that only need a reviewed `robots.txt` gate, the standalone
+`searcharis.robots_policy_cli` accepts the same repeatable option without
+requiring an HTML manifest or local XML sitemap files:
+
+```sh
+uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist \
+  --require-robots-sitemap https://example.com/sitemap.xml \
+  --require-robots-sitemap https://example.com/news-sitemap.xml --json
+```
+
+It reuses the combined gate's exact-byte policy check and 1-16 distinct URL
+validation. Missing explicitly reviewed Sitemap declarations fail with exit 1,
+invalid URLs or duplicates fail with exit 2, and existing calls without this
+option keep their original output. It never fetches the declared URLs or
+establishes production HTTP/crawler behavior.
+
+For a portable archived CI artifact, use `--json-file reports/robots.json`
+instead of `--json` with the standalone command. It writes the same complete
+PASS/FAIL result as UTF-8 JSON with a trailing newline, including any requested
+Sitemap declarations, and preserves exit 0/1. The parent directory must
+already exist, the destination must be new and outside the static build,
+and invalid policy or unsafe output paths return exit 2 without writing an
+artifact. It never replaces a prior report. This avoids platform-specific
+stdout redirection encodings, including PowerShell 5.1's UTF-16 default.
 
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
@@ -1120,18 +1410,20 @@ Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
 
-Optional `--check-reviewed-navigation` and `--check-reviewed-fragments`
+Optional `--check-reviewed-navigation`, `--check-reviewed-fragments`, and
+`--check-internal-nofollow`
 also work with `build_compare`. They compare the **same opt-in checks on
 both** builds and block only newly introduced same-origin links outside the
 reviewed manifest, or new links to missing/ambiguous fragment IDs in reviewed
-local HTML. Pre-existing broken links do not block the candidate. These flags
+local HTML, or new nofollow marks on links to reviewed internal pages.
+Pre-existing broken links do not block the candidate. These flags
 use the same static-only semantics as the corresponding site/release gates;
 they do not fetch URLs, test live routing or inspect JavaScript-created IDs.
 Outside-manifest fragment destinations cannot be verified. For example:
 
 ```sh
 uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
-  --check-reviewed-navigation --check-reviewed-fragments \
+  --check-reviewed-navigation --check-reviewed-fragments --check-internal-nofollow \
   --json-file seo-navigation-regressions.json
 ```
 
@@ -1278,6 +1570,14 @@ For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
 on the candidate build, saving complete UTF-8 JSON reports directly:
 
+The standalone site checker now accepts `--check-unique-titles` and
+`--check-unique-descriptions` without requiring a sitemap. For example, add
+both flags to **each** site_cli invocation below to gate only newly duplicated
+reviewed titles and descriptions. Archived reports record which checks ran,
+so a comparison refuses a baseline/candidate mismatch even when both builds
+have zero duplicate findings (exit **2**). These checks remain disabled by
+default; existing legacy reports without either option remain readable together.
+
 ```sh
 uv run python -m searcharis.site_cli manifest.json baseline-build --json-file baseline.json
 uv run python -m searcharis.site_cli manifest.json candidate-build --json-file candidate.json
@@ -1348,6 +1648,12 @@ exact duplicate paths and duplicate contract URLs are still invalid.
 A route present in the baseline but missing from the candidate fails
 closed, even if that route had no issues. Intentional route removals need an
 approved baseline update. Existing and resolved issues are still reported.
+When comparing legacy reports without contract fingerprints, resource-equivalent
+HTTP(S) spellings across saved runs (such as host casing, default ports or
+unreserved percent escapes) identify the same reviewed page for issue and
+removal matching. Original URLs remain in diagnostics. Different schemes,
+non-default ports, case-sensitive paths and queries remain distinct; newly
+generated fingerprinted reports still require identical reviewed contracts.
 When a team cannot yet require full coverage of its legacy site, it can
 prevent **new unreviewed HTML routes** without blocking known existing gaps:
 
@@ -1372,6 +1678,13 @@ opt in at comparison time:
 ```sh
 uv run python -m searcharis.report_compare baseline.json candidate.json --fail-on-new-unverified-targets
 ```
+
+Archived `canonical_consistency.unverified_targets` must contain valid,
+fragment-free HTTP(S) URLs, matching what the offline canonical checker can
+emit. Corrupted saved targets (including relative URLs, non-HTTP schemes or
+fragment-bearing canonical destinations) are input errors (exit **2**), not
+inherited failures that can silently compare as PASS. Hreflang's existing
+outside-manifest target matching remains unchanged. No URL is fetched.
 
 This returns **1** when a candidate introduces a previously absent unverified
 target or another identical occurrence from an enabled canonical or hreflang
@@ -1523,3 +1836,195 @@ fixture sources with Vite 5.4.21 and are verified by static integration tests.
 Searcharis tests do not install or invoke either compiler. Integrators must
 supply their own compiled output and route contracts; dynamic SPA content
 is outside the offline parser's scope.
+
+### Local sitemap-index discovery (Astro-style static builds)
+
+Astro's sitemap integration commonly produces `dist/sitemap-index.xml` and
+`dist/sitemap-0.xml` (sometimes additional numbered XML shards). Instead of
+manually listing every shard, opt in to local index discovery:
+
+For a copy-and-run fixture using compiled two-page Vite HTML and a synthetic
+Astro-style sitemap index with two adjacent shards, see the
+[indexed release demo](../examples/seo-contract/release-demo/README.md#indexed-sitemap-first-use-example).
+Its integration tests cover successful verification and CI JSON/JUnit artifacts,
+plus a missing URL in the second shard, with outbound sockets denied. This is
+local workflow evidence, not a test of a deployed Astro website.
+
+```sh
+uv run python -m searcharis.sitemap_cli manifest.json \
+  --sitemap-index dist/sitemap-index.xml --json
+uv run python -m searcharis.release_cli manifest.json dist \
+  --sitemap-index dist/sitemap-index.xml --require-full-coverage \
+  --json-file release-report.json
+```
+
+The index must contain 1-16 standard-namespaced `<sitemap><loc>` entries
+whose public URLs share a scheme, effective host/port and URL directory.
+Only literal `.xml` or `.xml.gz` basenames are supported. For each index
+entry, Searcharis opens the **exact-case same-named file beside the local
+index**, using existing per-file and aggregate byte/URL limits. The supplied
+`--sitemap-index` path must also match the index file's actual filename case,
+including on case-insensitive Windows filesystems. Missing files,
+case mismatches, symlinks, duplicate filenames (including case aliases),
+cross-site/directory URLs, encoded or traversal paths, DTDs, invalid UTF-8,
+query or fragment delimiters (including a trailing empty `?`), and unsupported
+XML are input errors (exit 2). Review your build directory
+and public sitemap URLs before enabling the gate. There is **no network
+fetch**, remote index expansion, URL-to-filesystem traversal, or deployment.
+When an indexed shard fails to parse or read, input errors name its local
+filename so a multi-shard CI failure can be investigated without guessing an
+XML source line. As with other local file errors, underlying exceptions may
+also contain the supplied local path.
+
+Choose **either** `--sitemap-index FILE` **or** the established explicit
+positional local XML/XML.gz shard files, never both. The default report
+schema and indexability pass/fail interpretation remain unchanged. This
+checks build artifacts, not whether a public server serves them or a search
+engine discovers or indexes any page.
+
+### Gate only new sitemap regressions between local static builds
+
+When a trusted baseline sitemap already has known missing or excluded URLs,
+the standalone index checker will fail that baseline. The opt-in offline
+`sitemap_compare` command instead uses the same reviewed manifest to flag
+only **new** sitemap indexability problems introduced by a candidate build:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --json
+```
+
+Exit **0** means no new blockers (even when the baseline and candidate retain
+inherited findings); **1** means a newly missing reviewed indexable URL or a
+newly included reviewed noindex URL; **2** means invalid local input. Add
+`--reject-noncanonical-urls` and/or `--reject-unreviewed-urls` to also gate
+newly introduced findings in those optional categories. Complete structured
+JSON includes `new`, `inherited` and `resolved` URL lists and counts;
+default text output caps new-issue details at 20 URLs for readable CI logs.
+Equivalent URL identities do not become new regressions merely because their
+percent encoding or hostname casing changed.
+
+For a portable CI artifact, use `--json-file reports/sitemap-comparison.json`
+instead of `--json`. It emits the full `new`/`inherited`/`resolved` comparison
+as a create-only UTF-8 JSON file, including when the candidate has regressions
+(exit 1); it never overwrites an existing file. The report parent must already
+exist, and its destination must resolve **outside both static-build directories**
+to prevent modifying either supplied artifact tree. Input and output errors
+return exit 2 without creating or replacing a comparison artifact.
+
+CI systems that ingest **JUnit XML** can use `--junit` for stdout or
+`--junit-file reports/sitemap-comparison.xml` for a create-only UTF-8
+artifact. Each **new** gated missing/index-excluded/noncanonical/unreviewed
+URL becomes one failed testcase; inherited or resolved findings do not fail
+the suite. A no-regression comparison emits one passing testcase, even when
+the baseline has known defects. JUnit and JSON output modes are mutually
+exclusive per invocation; run the comparator separately to collect both.
+JUnit files observe the same existing-parent, no-overwrite, outside-both-builds
+and partial-new-artifact cleanup rules as JSON files. Report output does not
+alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
+JUnit suite cannot establish public indexing, deployed URLs or customer usage.
+
+For human reviewers, use `--markdown` to print a bounded Markdown summary or
+`--markdown-file reports/sitemap-review.md` to create a portable UTF-8 artifact:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --reject-unreviewed-urls --markdown-file reports/sitemap-review.md
+```
+
+The summary distinguishes **new blocking**, **inherited nonblocking**, and
+**resolved** sitemap findings, with up to 20 HTML-escaped URL examples and at
+least one example from each populated new-finding category. It gives fixed
+reviewer next steps without treating URL text as instructions. Markdown is
+mutually exclusive with other output formats in one invocation; use a second
+invocation for JSON or JUnit. File output is create-only, requires an existing
+parent, rejects both build directories and attempts cleanup of a new partial
+report on failure. The report is not evidence of live indexing or actual
+deployment and is not automatically uploaded.
+
+Both inputs must be independent non-overlapping local build directories
+containing index XML and adjacent XML/XML.gz shards. Their public index site
+must match; detectable cross-build hard links, invalid XML, missing or
+wrong-case files, and unsupported index URLs fail as input errors. The command
+reads **no HTML**, does not compare `robots.txt`, and never fetches public
+URLs. Review the baseline's provenance and the
+manifest before trusting a no-regression result: a passing diff is not proof
+that existing defects are acceptable, that files were deployed or indexed, or
+that users adopted this workflow.
+
+For static generators that emit **one `sitemap.xml` (or `sitemap.xml.gz`)**
+instead of an index, opt in to the same regression-only check with:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap.xml candidate-dist/sitemap.xml \
+  --single-sitemap --json
+```
+
+This mode uses the existing bounded single-file URL-set parser, including
+XML.gz decompression limits, and preserves the same new/inherited/resolved
+categories, optional gates, outputs and exit codes. It does **not** discover
+other shards; use the default index mode for indexed sites. Both single
+files must have literal XML/XML.gz names in non-overlapping local directories,
+with exact-case filenames, no symlinks or detectable shared hard links.
+The trusted baseline must contain at least one URL to establish public site
+identity; a candidate with URLs must match its scheme, host and effective port.
+An empty candidate is allowed and triggers newly missing reviewed indexable
+URLs, while an empty baseline is an input error rather than an untrusted
+no-regression result. No network requests, source mutations or hosted SEO
+guarantees are involved.
+
+For a **sitemap generator migration** in which one build emits an index and
+the other emits a conventional single XML/XML.gz URL set, select each input's
+format independently:
+
+```sh
+# Indexed baseline -> one-file candidate
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap.xml \
+  --candidate-single-sitemap --json
+
+# One-file baseline -> indexed candidate
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap.xml candidate-dist/sitemap-index.xml \
+  --baseline-single-sitemap --json
+```
+
+The original `--single-sitemap` continues to select single-file parsing for
+**both** inputs, and leaving all format flags out continues to require two
+indexes. The same reviewed manifest, regression-only exit codes, and
+JSON/JUnit/Markdown reports apply across formats. Both build directories must
+remain independent, public sites must match, the trusted baseline must
+identify a site, and all local XML shards stay adjacent to their own index.
+This compares artifacts only; it cannot confirm that a migration was deployed
+or that search engines adopted the new sitemap structure.
+
+## Archived SEO report SARIF for separate CI stages
+
+The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0
+artifact using `--sarif-file PATH` when the trusted baseline and candidate
+reports were generated in separate CI stages. For example, after creating
+`baseline.json` and `candidate.json` with matching site contracts and options:
+
+```sh
+uv run python -m searcharis.report_compare baseline.json candidate.json \
+  --json-file comparison.json --markdown-file comparison.md \
+  --junit-file comparison.xml --sarif-file comparison.sarif
+```
+
+The SARIF contains **only newly blocking regressions**; inherited issues do
+not become alerts. Opt-in `--fail-on-new-unlisted` and
+`--fail-on-new-unverified-targets` also determine SARIF findings. Output
+locations refer to reviewed generated HTML paths at document-level line 1,
+not inferred source-template locations. All four destinations must be distinct,
+non-existing files in existing parent directories and cannot replace input
+reports. They are validated before any is written. If an I/O failure occurs
+after writing begins, the command exits 2 and attempts to delete only the
+new artifacts created in that invocation, including a partially written file.
+If the filesystem denies cleanup, stderr identifies the failed cleanup and
+partial output may remain; this is not an atomic multi-file transaction.
+No network access,
+upload, GitHub permissions, protected workflow change or source mapping is
+performed. Hosted SARIF acceptance and actual adoption remain unverified.

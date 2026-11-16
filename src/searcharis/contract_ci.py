@@ -21,7 +21,8 @@ _ALLOWED = frozenset({
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "og_image_width_equals", "og_image_height_equals", "og_image_type_equals",
     "twitter_image_present", "twitter_image_equals", "twitter_image_alt_present", "twitter_image_alt_equals",
-    "viewport_device_width", "meta_refresh_present", "html_lang", "canonical", "canonical_present",
+    "viewport_device_width", "meta_refresh_present", "html_lang", "html_lang_present",
+    "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
     "img_missing_alt_max", "hreflang", "jsonld_types",
@@ -41,11 +42,14 @@ _MAX_JSONLD_NESTING = 256
 class _SEOParser(HTMLParser):
     def __init__(
         self, *, collect_anchors: bool = False, collect_fragment_ids: bool = False,
+        collect_anchor_nofollow: bool = False,
     ) -> None:
         super().__init__(convert_charrefs=True)
         self.collect_anchors = collect_anchors
         self.collect_fragment_ids = collect_fragment_ids
+        self.collect_anchor_nofollow = collect_anchor_nofollow
         self.anchors: list[str] = []
+        self.nofollow_anchors: list[str] = []
         self.fragment_ids: set[str] = set()
         self.duplicate_fragment_ids: set[str] = set()
         self.has_html = False
@@ -170,7 +174,12 @@ class _SEOParser(HTMLParser):
             # map are not navigable, and template contents were skipped above.
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
-            self.anchors.append((values["href"] or "").strip())
+            href = (values["href"] or "").strip()
+            self.anchors.append(href)
+            if self.collect_anchor_nofollow and "nofollow" in re.split(
+                r"[\s,]+", (values.get("rel") or "").lower(),
+            ):
+                self.nofollow_anchors.append(href)
         if tag == "html":
             if not self.html_tag_seen and not self.has_head and not self.body_seen:
                 # Only the root start tag may supply the declared document language.
@@ -405,7 +414,8 @@ def _check_contract(spec: object) -> dict:
     if len(spec) < 2:
         raise ValueError("Contract must assert at least one SEO property")
     for field in ("title_present", "description_present", "viewport_device_width", "meta_refresh_present",
-                  "canonical_present", "indexable", "followable", "og_image_present", "og_image_alt_present",
+                  "html_lang_present", "canonical_present", "indexable", "followable",
+                  "og_image_present", "og_image_alt_present",
                   "twitter_image_present", "twitter_image_alt_present"):
         if field in spec and not isinstance(spec[field], bool):
             raise ValueError(f"'{field}' must be a boolean")
@@ -613,6 +623,7 @@ def verify_contract(
     include_hreflang: bool = False,
     include_canonical: bool = False,
     include_anchors: bool = False,
+    include_anchor_nofollow: bool = False,
     include_fragment_ids: bool = False,
     include_title: bool = False,
     include_description: bool = False,
@@ -621,6 +632,7 @@ def verify_contract(
     spec = _check_contract(contract)
     page = _SEOParser(
         collect_anchors=include_anchors, collect_fragment_ids=include_fragment_ids,
+        collect_anchor_nofollow=include_anchor_nofollow,
     )
     page.feed(html)
     page.close()
@@ -783,6 +795,13 @@ def verify_contract(
         actual = page.html_lang
         if actual is None or actual.lower() != spec["html_lang"].lower():
             fail("html_lang", spec["html_lang"], actual)
+    if "html_lang_present" in spec:
+        observed = page.html_lang
+        # A blank root language is not a usable declaration; absent means no
+        # attribute at all, so malformed blank values cannot satisfy either policy.
+        matches = bool((observed or "").strip()) if spec["html_lang_present"] else observed is None
+        if not matches:
+            fail("html_lang_presence", spec["html_lang_present"], observed)
     if "canonical" in spec or "canonical_present" in spec:
         observed = [_resolve_canonical_href(base_url, item) for item in page.canonicals]
         if "canonical" in spec and (
@@ -882,6 +901,8 @@ def verify_contract(
     if include_anchors:
         # Only the offline site checker interprets these relative destinations.
         result["observed_anchors"] = {"base_url": base_url, "hrefs": page.anchors}
+        if include_anchor_nofollow:
+            result["observed_anchors"]["nofollow_hrefs"] = page.nofollow_anchors
         if include_fragment_ids:
             result["observed_anchors"]["ids"] = sorted(page.fragment_ids)
             result["observed_anchors"]["duplicate_ids"] = sorted(page.duplicate_fragment_ids)

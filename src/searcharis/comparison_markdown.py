@@ -103,3 +103,59 @@ def build_comparison_markdown(
         "routing, Google indexing, SEO traffic or customer adoption._",
     ])
     return "\n".join(lines)
+
+
+def build_sitemap_comparison_markdown(result: dict) -> str:
+    """Give reviewers a bounded view of new sitemap debt without hiding categories."""
+    summary = result["summary"]
+    lines = [
+        "# Searcharis SEO sitemap comparison",
+        "",
+        f"**Result: {result['status'].upper()}** (supplied local artifacts only)",
+        "",
+        f"- {summary['new']} new sitemap findings (blocking)",
+        f"- {summary['inherited']} inherited sitemap findings (not blocking)",
+        f"- {summary['resolved']} resolved sitemap findings",
+        f"- URLs examined: baseline {summary['baseline_sitemap_urls']}, "
+        f"candidate {summary['candidate_sitemap_urls']}",
+        "",
+        "## New blocking findings",
+        "",
+    ]
+    labels = (
+        ("missing_required", "Missing reviewed indexable URL"),
+        ("present_excluded", "Reviewed noindex URL unexpectedly present"),
+        ("present_noncanonical", "Reviewed noncanonical URL unexpectedly present"),
+        ("unreviewed_urls", "Unreviewed sitemap URL unexpectedly present"),
+    )
+    findings: list[str] = []
+    for index, (category, label) in enumerate(labels):
+        urls = result["new"].get(category, [])
+        # Reserve one example for every later nonempty category, so a large
+        # missing-URL group cannot hide a new noindex or unreviewed URL.
+        reserved = sum(bool(result["new"].get(key)) for key, _ in labels[index + 1:])
+        take = max(0, _MAX_FINDINGS - len(findings) - reserved)
+        findings.extend(
+            f"- {label} ({category}): {_code(url)}" for url in urls[:take]
+        )
+    lines.extend(findings or ["No newly blocking sitemap findings."])
+    if summary["new"] > len(findings):
+        lines.append(
+            f"- ... and {summary['new'] - len(findings)} more new findings; "
+            "rerun with --json for complete URLs"
+        )
+    if summary["new"]:
+        lines.extend([
+            "",
+            "## Reviewer next steps",
+            "",
+            "- Check new findings against the reviewed manifest and candidate sitemap.",
+            "- Fix the candidate build or review the policy before rerunning the gate.",
+            "- Treat inherited findings as baseline debt, not this release's blockers.",
+        ])
+    lines.extend([
+        "",
+        "_Offline sitemap comparison only. No URLs were fetched, and this does "
+        "not verify live indexing, search traffic, or adoption._",
+    ])
+    return "\n".join(lines)

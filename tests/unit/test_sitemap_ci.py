@@ -682,8 +682,12 @@ def test_cli_json_file_writes_complete_utf8_report_without_stdout(
     manifest.write_text(json.dumps(_manifest({
         "url": "https://example.test/page", "indexable": indexable,
     })), encoding="utf-8")
-    sitemap = _sitemap(tmp_path, "https://example.test/page")
-    target = tmp_path / "report.json"
+    build = tmp_path / "dist"
+    build.mkdir()
+    sitemap = _sitemap(build, "https://example.test/page")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    target = artifacts / "report.json"
     code = main([str(manifest), str(sitemap), "--json-file", str(target)])
     assert code == expected_exit
     captured = capsys.readouterr()
@@ -696,6 +700,26 @@ def test_cli_json_file_writes_complete_utf8_report_without_stdout(
     assert report["summary"]["sitemap_urls"] == 1
     assert report["missing_required"] == []
     assert report["present_excluded"] == ([] if indexable else ["https://example.test/page"])
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_cli_json_file_cannot_modify_supplied_sitemap_directory(tmp_path, capsys, nested):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    build = tmp_path / "dist"
+    build.mkdir()
+    sitemap = _sitemap(build, "https://example.test/")
+    output_dir = build / "reports" if nested else build
+    output_dir.mkdir(exist_ok=True)
+    target = output_dir / "sitemap-report.json"
+
+    assert main([str(manifest), str(sitemap), "--json-file", str(target)]) == 2
+    assert not target.exists()
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "outside the supplied sitemap directory" in output.err
 
 
 def test_cli_json_file_never_overwrites_supplied_path_or_existing_artifact(

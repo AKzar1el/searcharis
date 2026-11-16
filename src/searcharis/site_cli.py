@@ -57,8 +57,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if same-origin HTML navigation targets are absent from the reviewed manifest",
     )
     parser.add_argument(
+        "--check-internal-nofollow", action="store_true",
+        help="Fail if links to reviewed same-origin pages carry rel=nofollow (opt-in)",
+    )
+    parser.add_argument(
         "--check-reviewed-fragments", action="store_true",
         help="Fail if links to reviewed same-origin pages use missing HTML fragment IDs",
+    )
+    parser.add_argument(
+        "--check-unique-titles", action="store_true",
+        help="Fail on duplicate titles across reviewed same-origin indexable pages",
+    )
+    parser.add_argument(
+        "--check-unique-descriptions", action="store_true",
+        help="Fail on duplicate descriptions across reviewed same-origin indexable pages",
+    )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Require another reviewed same-origin page to link to this manifest HTML path (repeatable)",
     )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print structured JSON findings")
@@ -93,7 +109,11 @@ def main(argv: list[str] | None = None) -> int:
             check_hreflang_clusters=args.check_hreflang_clusters,
             check_canonical_consistency=args.check_canonical_consistency,
             check_reviewed_navigation=args.check_reviewed_navigation,
+            check_internal_nofollow=args.check_internal_nofollow,
             check_reviewed_fragments=args.check_reviewed_fragments,
+            check_unique_titles=args.check_unique_titles,
+            check_unique_descriptions=args.check_unique_descriptions,
+            required_inbound_paths=tuple(args.require_inbound_link),
         )
         sources = (
             read_source_map(args.sarif_source_map, report, source_root=Path.cwd())
@@ -181,12 +201,24 @@ def main(argv: list[str] | None = None) -> int:
                 f"  Navigation: {navigation['checked_links']} distinct local links checked, "
                 f"{len(navigation['unreviewed_targets'])} unreviewed targets"
             )
+        if args.check_internal_nofollow:
+            links = report["internal_nofollow"]
+            print(
+                f"  Internal nofollow: {links['checked_links']} local links checked, "
+                f"{len(links['nofollow_targets'])} restricted targets"
+            )
         if args.check_reviewed_fragments:
             fragments = report["reviewed_fragments"]
             print(
                 f"  Fragments: {fragments['checked_fragments']} reviewed targets checked, "
                 f"{len(fragments['missing_targets'])} missing IDs, "
                 f"{len(fragments['unverified_targets'])} outside-manifest targets"
+            )
+        if args.require_inbound_link:
+            inbound = report["reviewed_inbound"]
+            print(
+                f"  Inbound links: {len(inbound['linked_paths'])}/"
+                f"{len(inbound['required_paths'])} critical pages linked from a reviewed peer"
             )
     return 0 if report["status"] == "pass" else 1
 

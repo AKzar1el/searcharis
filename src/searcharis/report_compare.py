@@ -13,19 +13,28 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
+from searcharis.contract_ci import _is_canonical_url, _is_http_url
 from searcharis.site_ci import _page_url_identity
 from searcharis.site_junit import build_comparison_junit
+from searcharis.site_sarif import build_comparison_sarif
 
 _MAX_REPORT_BYTES = 16_000_000
 _MAX_HUMAN_DETAILS = 20
 _CHECKS = ("canonical_consistency", "hreflang_clusters", "hreflang_reciprocity")
+_REVIEWED_CHECKS = (
+    ("reviewed_navigation", "checked_links", ("unreviewed_targets",)),
+    ("internal_nofollow", "checked_links", ("nofollow_targets",)),
+    ("reviewed_fragments", "checked_fragments",
+     ("missing_targets", "ambiguous_targets", "unverified_targets")),
+)
+_UNIQUE_CHECKS = ("unique_titles", "unique_descriptions")
 
 
 def _int(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
+def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     if not isinstance(report, dict):
         raise ValueError(f"{name}: report must be a JSON object")
     try:
@@ -51,7 +60,8 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         if not isinstance(page, dict):
             raise ValueError(f"{name}: invalid page entry")
         path, url, issues = page.get("path"), page.get("checked_url"), page.get("issues")
-        if not isinstance(path, str) or not path or not isinstance(url, str) or not url:
+        if (not isinstance(path, str) or not path or not isinstance(url, str)
+                or not _is_http_url(url)):
             raise ValueError(f"{name}: invalid page path or URL")
         # Historical reports may predate the manifest's URL alias checks.
         # Treat equivalent HTTP(S) resource spellings as one page even when
@@ -149,6 +159,10 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
             or not isinstance(item.get("path"), str)
             or item["path"] not in listed_paths
             or not isinstance(item.get("target"), str)
+            # The canonical checker records only syntactically valid,
+            # fragment-free HTTP(S) targets as outside-manifest links.
+            or (check == "canonical_consistency"
+                and not _is_canonical_url(item["target"]))
             or item["target"] in urls
             or (check == "canonical_consistency"
                 and _page_url_identity(item["target"]) in url_identities)
@@ -157,16 +171,108 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[bool, ...]]:
         ):
             raise ValueError(f"{name}: invalid {check} unverified targets")
 
-    options = (strict, *(check in report for check in _CHECKS))
+    # A saved report with one of these opt-in checks disabled cannot be
+    # compared against one with it enabled, even if both found zero issues.
+    for check, count_key, target_keys in _REVIEWED_CHECKS:
+        if check not in report:
+            continue
+        data = report[check]
+        if not isinstance(data, dict) or not _int(data.get(count_key)):
+            raise ValueError(f"{name}: invalid {check} data")
+        for key in target_keys:
+            targets = data.get(key)
+            if not isinstance(targets, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("path"), str)
+                or item["path"] not in listed_paths
+                or not isinstance(item.get("target"), str)
+                or not item["target"]
+                for item in targets
+            ):
+                raise ValueError(f"{name}: invalid {check} {key}")
+
+    nofollow_issues = [
+        (page["path"], issue["actual"])
+        for page in pages for issue in page["issues"]
+        if issue["code"] == "internal_link_nofollow"
+    ]
+    if any(not isinstance(target, str) for _, target in nofollow_issues):
+        raise ValueError(f"{name}: invalid internal_nofollow issue target")
+    if "internal_nofollow" in report:
+        data = report["internal_nofollow"]
+        entries = [(item["path"], item["target"]) for item in data["nofollow_targets"]]
+        if (
+            sorted(entries) != sorted(nofollow_issues)
+            or len(entries) > data["checked_links"]
+            or len(set(entries)) != len(entries)
+            or any(
+                not _is_http_url(target)
+                or _page_url_identity(target) not in url_identities
+                for _, target in entries
+            )
+        ):
+            raise ValueError(f"{name}: inconsistent internal_nofollow findings")
+    elif nofollow_issues:
+        raise ValueError(f"{name}: internal_nofollow issues without enabled policy")
+
+    for check in _UNIQUE_CHECKS:
+        if check in report and report[check] is not True:
+            raise ValueError(f"{name}: invalid {check} provenance")
+
+    # Opt-in critical-page inbound policy is a selected set of paths, not
+    # merely a boolean: changing the targets can silently weaken a CI gate.
+    inbound_paths: tuple[str, ...] = ()
+    if "reviewed_inbound" in report:
+        inbound = report["reviewed_inbound"]
+        if not isinstance(inbound, dict):
+            raise ValueError(f"{name}: invalid reviewed_inbound data")
+        required = inbound.get("required_paths")
+        linked = inbound.get("linked_paths")
+        missing = inbound.get("missing_paths")
+        lists = (required, linked, missing)
+        if (
+            any(not isinstance(items, list) for items in lists)
+            or not required
+            or any(
+                not isinstance(path, str) or path not in listed_paths
+                for items in lists for path in items
+            )
+            or any(len(set(items)) != len(items) for items in lists)
+            or set(linked) & set(missing)
+            or set(linked) | set(missing) != set(required)
+        ):
+            raise ValueError(f"{name}: invalid reviewed_inbound data")
+        actual_missing = {
+            page["path"] for page in pages
+            if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
+        }
+        if set(missing) != actual_missing:
+            raise ValueError(f"{name}: invalid reviewed_inbound missing-page findings")
+        inbound_paths = tuple(sorted(required))
+
+    options = (
+        strict,
+        *(check in report for check in _CHECKS),
+        *(check in report for check, _, _ in _REVIEWED_CHECKS),
+        *(check in report for check in _UNIQUE_CHECKS),
+        inbound_paths,
+    )
     return report, options
 
 
-def _issues(report: dict) -> dict[tuple[str, str, str, int], dict]:
+def _issues(report: dict) -> dict[tuple[str, tuple[str, str, int | None, str, str], str, int], dict]:
     results = {}
     for page in report["pages"]:
-        occurrences: dict[tuple[str, str, str], int] = {}
+        occurrences: dict[
+            tuple[str, tuple[str, str, int | None, str, str], str], int
+        ] = {}
         for issue in page["issues"]:
-            signature = (page["path"], page["checked_url"], json.dumps(issue, sort_keys=True))
+            # Equivalent spellings of one HTTP(S) resource remain the same
+            # reviewed page across separately saved baseline/candidate reports.
+            signature = (
+                page["path"], _page_url_identity(page["checked_url"]),
+                json.dumps(issue, sort_keys=True),
+            )
             # Multiple identical findings are distinct failures, not a set.
             ordinal = occurrences.get(signature, 0)
             occurrences[signature] = ordinal + 1
@@ -186,7 +292,14 @@ def _unverified(report: dict) -> dict[tuple[str, str, int], dict]:
             continue
         occurrences: dict[str, int] = {}
         for item in report[check]["unverified_targets"]:
-            signature = json.dumps(item, sort_keys=True)
+            # Canonical URL identity already ignores equivalent HTTP(S)
+            # spellings inside a report; use it across archived builds too.
+            # Hreflang targets intentionally retain exact URL matching.
+            identity = (
+                {**item, "target": _page_url_identity(item["target"])}
+                if check == "canonical_consistency" else item
+            )
+            signature = json.dumps(identity, sort_keys=True)
             ordinal = occurrences.get(signature, 0)
             occurrences[signature] = ordinal + 1
             # A second identical outside-manifest link is still a new
@@ -207,9 +320,10 @@ def compare_reports(
     if before_options != after_options:
         raise ValueError(
             "Reports use different check options; regenerate both with identical "
-            "coverage, canonical and hreflang flags"
+            "coverage, canonical, hreflang, reviewed navigation/fragment, uniqueness "
+            "and --require-inbound-link paths"
         )
-    if fail_on_new_unverified_targets and not any(before_options[1:]):
+    if fail_on_new_unverified_targets and not any(before_options[1:1 + len(_CHECKS)]):
         raise ValueError(
             "--fail-on-new-unverified-targets requires at least one cross-page check; "
             "regenerate both reports with --check-canonical-consistency, "
@@ -232,11 +346,16 @@ def compare_reports(
     old_issues, current_issues = _issues(before), _issues(after)
     new_keys = sorted(current_issues.keys() - old_issues.keys())
     fixed_keys = sorted(old_issues.keys() - current_issues.keys())
-    old_pages = {(p["path"], p["checked_url"]) for p in before["pages"]}
-    current_pages = {(p["path"], p["checked_url"]) for p in after["pages"]}
+    old_pages = {
+        (p["path"], _page_url_identity(p["checked_url"])) for p in before["pages"]
+    }
+    current_pages = {
+        (p["path"], _page_url_identity(p["checked_url"])) for p in after["pages"]
+    }
+    old_urls = {p["path"]: p["checked_url"] for p in before["pages"]}
     removed = [
-        {"path": path, "checked_url": url}
-        for path, url in sorted(old_pages - current_pages)
+        {"path": path, "checked_url": old_urls[path]}
+        for path, _identity in sorted(old_pages - current_pages)
     ]
     new_unlisted = sorted(set(after["coverage"]["unlisted"]) - set(before["coverage"]["unlisted"]))
     before_unverified, after_unverified = _unverified(before), _unverified(after)
@@ -362,6 +481,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Write regression-only JUnit XML to a new UTF-8 file; never overwrite",
     )
     parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write regression-only SARIF 2.1.0 to a new UTF-8 file; never overwrite",
+    )
+    parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
         help="Block newly unlisted HTML artifacts without failing on existing coverage gaps",
     )
@@ -370,7 +493,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Treat newly unverified canonical/hreflang targets as CI regressions",
     )
     args = parser.parse_args(argv)
-    if args.json and (args.json_file or args.markdown_file or args.junit_file):
+    if args.json and (
+        args.json_file or args.markdown_file or args.junit_file or args.sarif_file
+    ):
         parser.error("--json stdout mode cannot be combined with file reports")
     try:
         baseline_report = _read_report(args.baseline)
@@ -387,7 +512,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid or incompatible report: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.markdown_file or args.junit_file:
+    if args.json_file or args.markdown_file or args.junit_file or args.sarif_file:
+        created_outputs: list[Path] = []
         try:
             outputs: list[tuple[Path, str]] = []
             gate_unlisted = (
@@ -413,6 +539,15 @@ def main(argv: list[str] | None = None) -> int:
                         gate_new_unverified_targets=args.fail_on_new_unverified_targets,
                     ),
                 ))
+            if args.sarif_file:
+                outputs.append((
+                    args.sarif_file,
+                    json.dumps(build_comparison_sarif(
+                        result, candidate_report,
+                        gate_new_unlisted=gate_unlisted,
+                        gate_new_unverified_targets=args.fail_on_new_unverified_targets,
+                    ), indent=2, sort_keys=True),
+                ))
             resolved = [path.resolve() for path, _ in outputs]
             if len(resolved) != len(set(resolved)):
                 raise ValueError("All comparison report destinations must be distinct files")
@@ -425,9 +560,21 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"Report parent must be an existing directory: {path.parent}")
             for path, payload in outputs:
                 with path.open("x", encoding="utf-8", newline="\n") as output:
+                    created_outputs.append(path)
                     output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid report destination: {human_input_error(error)}", file=sys.stderr)
+            cleanup_errors: list[str] = []
+            for path in reversed(created_outputs):
+                try:
+                    path.unlink()
+                except OSError as cleanup_error:
+                    cleanup_errors.append(
+                        human_input_error(OSError(f"{path}: {cleanup_error}"))
+                    )
+            detail = f"Invalid report destination: {human_input_error(error)}"
+            if cleanup_errors:
+                detail += "; partial report cleanup failed: " + "; ".join(cleanup_errors)
+            print(detail, file=sys.stderr)
             return 2
     else:
         print_comparison(

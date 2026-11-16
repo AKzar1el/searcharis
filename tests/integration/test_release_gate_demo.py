@@ -11,6 +11,7 @@ from searcharis.release_cli import main as release_gate
 ROOT = Path(__file__).resolve().parents[2]
 DEMO = ROOT / "examples" / "seo-contract" / "release-demo"
 BUILD = ROOT / "examples" / "seo-contract" / "generator-fixtures" / "vite" / "artifacts"
+INDEXED = DEMO / "indexed"
 STRICT = ("--require-full-coverage", "--require-indexability-coverage")
 
 
@@ -27,6 +28,61 @@ def _check(build, sitemap, *options):
         str(DEMO / "manifest.json"), str(build), str(sitemap),
         *STRICT, "--check-canonical-consistency", *options,
     ])
+
+
+def _check_index(build, index, *options):
+    return release_gate([
+        str(DEMO / "manifest.json"), str(build),
+        "--sitemap-index", str(index),
+        *STRICT, "--check-canonical-consistency", *options,
+    ])
+
+
+def test_indexed_sitemap_demo_passes_both_strict_gates(capsys, monkeypatch):
+    _offline(monkeypatch)
+    assert _check_index(BUILD, INDEXED / "sitemap-index.xml", "--json") == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "pass"
+    assert report["site"]["summary"] == {"checked": 2, "passed": 2, "failed": 0}
+    assert report["sitemap"]["summary"] == {
+        "required": 2, "excluded": 0, "unasserted_pages": 0, "sitemap_urls": 2,
+    }
+
+
+def test_indexed_sitemap_demo_writes_two_ci_artifacts(tmp_path, capsys, monkeypatch):
+    _offline(monkeypatch)
+    json_path = tmp_path / "release.json"
+    junit_path = tmp_path / "release.xml"
+    assert _check_index(
+        BUILD, INDEXED / "sitemap-index.xml",
+        "--json-file", str(json_path), "--junit-file", str(junit_path),
+    ) == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(json_path.read_text(encoding="utf-8"))["status"] == "pass"
+    suite = ET.fromstring(junit_path.read_bytes())
+    assert suite.attrib["tests"] == "1"
+    assert suite.attrib["failures"] == "0"
+
+
+def test_indexed_sitemap_demo_fails_if_second_shard_loses_page(
+    tmp_path, capsys, monkeypatch,
+):
+    _offline(monkeypatch)
+    site = tmp_path / "indexed"
+    shutil.copytree(INDEXED, site)
+    shard = site / "sitemap-1.xml"
+    shard.write_text(
+        shard.read_text(encoding="utf-8").replace(
+            "<url><loc>https://fixtures.invalid/pricing/</loc></url>", ""
+        ), encoding="utf-8",
+    )
+    assert _check_index(BUILD, site / "sitemap-index.xml", "--json") == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["site"]["status"] == "pass"
+    assert report["sitemap"]["status"] == "fail"
+    assert report["sitemap"]["missing_required"] == [
+        "https://fixtures.invalid/pricing/"
+    ]
 
 
 def test_compiled_vite_release_demo_passes_both_strict_gates(capsys, monkeypatch):

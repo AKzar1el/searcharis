@@ -35,8 +35,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("manifest", type=Path, help="Reviewed SEO page manifest (version 1)")
     parser.add_argument(
-        "sitemaps", nargs="+", type=Path,
-        help="One or more explicit local sitemap XML URL sets (not indexes)",
+        "sitemaps", nargs="*", type=Path,
+        help="Explicit local sitemap XML URL sets, or use --sitemap-index",
+    )
+    parser.add_argument(
+        "--sitemap-index", type=Path, metavar="PATH",
+        help="Read 1-16 XML/XML.gz shards beside a local sitemap index, no URL fetch",
     )
     parser.add_argument(
         "--require-indexability-coverage", action="store_true",
@@ -64,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             require_indexability_coverage=args.require_indexability_coverage,
             reject_noncanonical_urls=args.reject_noncanonical_urls,
             reject_unreviewed_urls=args.reject_unreviewed_urls,
+            sitemap_index_path=args.sitemap_index,
         )
     except (OSError, UnicodeError, ValueError) as error:
         if args.json:
@@ -79,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileExistsError(f"JSON report already exists: {path}")
             if not path.parent.is_dir():
                 raise ValueError(f"JSON report parent must be an existing directory: {path.parent}")
+            # Reports must not mutate the local site artifacts being verified.
+            sources = [args.sitemap_index] if args.sitemap_index else args.sitemaps
+            if any(
+                path.resolve().is_relative_to(source.parent.resolve(strict=True))
+                for source in sources
+            ):
+                raise ValueError("JSON report must be outside the supplied sitemap directory")
             # Exclusive creation prevents a concurrent CI job from replacing an artifact.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
                 output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")

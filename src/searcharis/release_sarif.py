@@ -1,4 +1,4 @@
-"""Deterministic SARIF for one offline HTML and sitemap release verification.
+"""Deterministic SARIF for one offline HTML, sitemap and optional robots release gate.
 
 Sitemap findings anchor to the reviewed manifest as a whole, not an inferred
 offending XML line. The serializer performs no filesystem or network I/O.
@@ -32,6 +32,7 @@ def _manifest_uri(manifest: Path) -> str:
 
 def build_release_sarif(
     site: dict, sitemap: dict, manifest: Path, *, sources: dict[str, str] | None = None,
+    robots: dict | None = None,
 ) -> dict:
     """Combine existing site SARIF with all gated local sitemap URL findings."""
     report = build_sarif_report(site, sources=sources)
@@ -65,6 +66,44 @@ def build_release_sarif(
                 "partialFingerprints": {"searcharis/issue/v1": digest},
             })
             rules.add(rule_id)
+
+    if robots is not None and robots["status"] == "fail":
+        sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
+        rule_id = "robots_sitemap_declaration_missing" if sitemap_missing else "robots_policy_drift"
+        identity_values = [
+            "robots", robots["reason"], robots["expected_sha256"],
+            robots["observed_sha256"],
+        ]
+        if sitemap_missing:
+            identity_values.extend(robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]))
+        identity = json.dumps(
+            identity_values, separators=(",", ":"),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        if sitemap_missing:
+            missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
+            examples = ", ".join(
+                json.dumps(url, ensure_ascii=True)[:480] for url in missing[:3]
+            )
+            message = f"Reviewed robots.txt omits required Sitemap URL(s): {examples}"
+            if len(missing) > 3:
+                message += f" (and {len(missing) - 3} more; see JSON report)"
+        else:
+            message = (
+                f"Built robots.txt {robots['reason']}; "
+                f"reviewed SHA-256 {robots['expected_sha256']}; "
+                f"built SHA-256 {robots['observed_sha256'] or 'missing'}"
+            )
+        findings.append({
+            "ruleId": rule_id,
+            "level": "error",
+            "message": {"text": message},
+            "locations": [{
+                "physicalLocation": {"artifactLocation": {"uri": "robots.txt"}},
+            }],
+            "partialFingerprints": {"searcharis/issue/v1": digest},
+        })
+        rules.add(rule_id)
 
     run["tool"]["driver"]["rules"] = [
         {"id": code, "shortDescription": {"text": code.replace("_", " ")}}

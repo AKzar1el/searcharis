@@ -26,7 +26,10 @@ must be a new file in an existing directory; an existing file, input error or
 invalid destination returns exit 2 instead of overwriting anything or
 reporting success. Valid checks still return 0 (pass) or 1 (mismatch) and
 write the report without stdout. Create `ci-artifacts/` outside your generated
-site directory before running CI; do not automatically upload site data.
+site directory before running CI. The CLI rejects report destinations inside
+the directory of any supplied sitemap XML file or local sitemap index, including
+nested paths. Reports are not written into the site being verified. Do not
+automatically upload site data.
 For your own build, supply your **own, reviewed** `seo-manifest.json` and
 `path/to/dist/sitemap.xml`. Run `site_cli` separately on the built HTML to
 check that the actual pages still satisfy their reviewed SEO contracts.

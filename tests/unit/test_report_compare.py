@@ -56,6 +56,40 @@ def test_persistent_existing_failure_does_not_block_candidate():
     assert diff["new_issues"] == []
 
 
+@pytest.mark.parametrize("bad_url", [
+    "ftp://example.test/index.html",
+    "/index.html",
+    "https:///index.html",
+    "https://user@example.test/index.html",
+    "https://example.test/white space.html",
+    "https://exa%6dple.test/index.html",
+    "https://example.test\\other.test/index.html",
+])
+def test_comparison_rejects_invalid_archived_checked_url(bad_url):
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = bad_url
+    with pytest.raises(ValueError, match="invalid page path or URL"):
+        compare_reports(report, report)
+
+
+def test_archived_cli_rejects_invalid_checked_url_with_json_error(tmp_path, capsys):
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = "ftp://example.test/index.html"
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+
+
+def test_archived_comparison_keeps_valid_percent_encoded_urls():
+    report = _report([("index.html", [])])
+    report["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/%7Eexample?x=%2F"
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 def test_comparison_rejects_weakened_contract_for_same_route(tmp_path):
     (tmp_path / "index.html").write_text("<html><head><title>OK</title></head></html>", encoding="utf-8")
     baseline_manifest = {
@@ -95,6 +129,126 @@ def test_contract_fingerprints_ignore_json_key_order(tmp_path):
     assert compare_reports(before, after)["status"] == "pass"
     # Promoting a previously unlisted page into the approved manifest is safe.
     assert compare_reports(before, after, fail_on_new_unlisted=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("check", ["check_reviewed_navigation", "check_reviewed_fragments"])
+@pytest.mark.parametrize("enabled_in_baseline", [True, False])
+def test_archived_reports_reject_mismatched_reviewed_link_checks(
+    tmp_path, check, enabled_in_baseline,
+):
+    (tmp_path / "index.html").write_text(
+        '<html><head><title>Home</title></head><body><a href="/">Home</a></body></html>',
+        encoding="utf-8",
+    )
+    manifest = {"version": 1, "pages": [{"path": "index.html", "contract": {
+        "url": "https://example.test/", "title_present": True,
+    }}]}
+    enabled = verify_manifest(manifest, tmp_path, **{check: True})
+    disabled = verify_manifest(manifest, tmp_path)
+    assert enabled["status"] == disabled["status"] == "pass"
+    assert compare_reports(enabled, enabled)["status"] == "pass"
+    baseline, candidate = (enabled, disabled) if enabled_in_baseline else (disabled, enabled)
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(baseline, candidate)
+
+
+@pytest.mark.parametrize("enabled_in_baseline", [True, False])
+def test_archived_reports_reject_mismatched_required_inbound_policy(enabled_in_baseline):
+    clean = _report([("index.html", []), ("services/index.html", [])])
+    with_inbound = _report([("index.html", []), ("services/index.html", [])])
+    with_inbound["reviewed_inbound"] = {
+        "required_paths": ["services/index.html"],
+        "linked_paths": ["services/index.html"],
+        "missing_paths": [],
+    }
+    assert compare_reports(with_inbound, with_inbound)["status"] == "pass"
+    baseline, candidate = (with_inbound, clean) if enabled_in_baseline else (clean, with_inbound)
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(baseline, candidate)
+
+
+def test_archived_reports_reject_changed_required_inbound_paths():
+    before = _report([("index.html", []), ("services/index.html", [])])
+    after = _report([("index.html", []), ("services/index.html", [])])
+    before["reviewed_inbound"] = {
+        "required_paths": ["services/index.html"],
+        "linked_paths": ["services/index.html"],
+        "missing_paths": [],
+    }
+    after["reviewed_inbound"] = {
+        "required_paths": ["index.html"],
+        "linked_paths": ["index.html"],
+        "missing_paths": [],
+    }
+    with pytest.raises(ValueError, match="different check options"):
+        compare_reports(before, after)
+
+
+@pytest.mark.parametrize("bad_inbound", [
+    {"required_paths": [], "linked_paths": [], "missing_paths": []},
+    {"required_paths": ["missing.html"], "linked_paths": [], "missing_paths": ["missing.html"]},
+    {"required_paths": ["index.html"], "linked_paths": [], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": ["index.html"], "missing_paths": ["index.html"]},
+    {"required_paths": ["index.html", "index.html"], "linked_paths": ["index.html"], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": ["not-listed.html"], "missing_paths": []},
+    {"required_paths": ["index.html"], "linked_paths": [], "missing_paths": ["index.html"]},
+])
+def test_archived_reports_reject_malformed_inbound_summary(bad_inbound):
+    report = _report([("index.html", [])])
+    report["reviewed_inbound"] = bad_inbound
+    with pytest.raises(ValueError, match="invalid reviewed_inbound"):
+        compare_reports(report, report)
+
+
+def test_archived_cli_inbound_option_mismatch_exits_two(tmp_path, capsys):
+    before = _report([("index.html", [])])
+    after = _report([("index.html", [])])
+    before["reviewed_inbound"] = {
+        "required_paths": ["index.html"],
+        "linked_paths": ["index.html"],
+        "missing_paths": [],
+    }
+    baseline_path, candidate_path = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    baseline_path.write_text(json.dumps(before), encoding="utf-8")
+    candidate_path.write_text(json.dumps(after), encoding="utf-8")
+    assert main([str(baseline_path), str(candidate_path), "--json"]) == 2
+    response = json.loads(capsys.readouterr().out)
+    assert response["status"] == "error"
+    assert "different check options" in response["error"]
+
+
+@pytest.mark.parametrize("field, bad_summary", [
+    ("reviewed_navigation", {"checked_links": -1, "unreviewed_targets": []}),
+    ("reviewed_fragments", {"checked_fragments": "not-a-count", "missing_targets": [],
+                            "ambiguous_targets": [], "unverified_targets": []}),
+])
+def test_archived_reports_reject_invalid_reviewed_link_summaries(field, bad_summary):
+    report = _report([("index.html", [])])
+    report[field] = bad_summary
+    with pytest.raises(ValueError, match="invalid " + field):
+        compare_reports(report, report)
+
+
+def test_archived_cli_rejects_reviewed_check_mismatch_as_input_error(tmp_path, capsys):
+    baseline = _report([("index.html", [])])
+    candidate = _report([("index.html", [])])
+    candidate["reviewed_navigation"] = {"checked_links": 0, "unreviewed_targets": []}
+    before = tmp_path / "baseline.json"
+    after = tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+    assert "different check options" in output.out
+
+
+def test_reviewed_navigation_does_not_enable_unverified_hreflang_gate():
+    report = _report([("index.html", [])])
+    report["reviewed_navigation"] = {"checked_links": 0, "unreviewed_targets": []}
+    with pytest.raises(ValueError, match="requires at least one cross-page check"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
 
 
 def test_comparison_rejects_mixed_or_invalid_contract_fingerprints():
@@ -349,6 +503,84 @@ def test_archived_reports_preserve_distinct_page_url_identities(different):
     assert compare_reports(report, report)["status"] == "pass"
 
 
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/pricing",
+    "https://example.test:443/pricing",
+    "https://example.test/a/../pricing",
+    "https://example.test/%70ricing",
+    "https://example.test/pricing#section",
+])
+def test_cross_report_equivalent_url_spelling_preserves_inherited_issue(alias):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = alias
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "pass"
+    assert result["summary"]["existing_issues"] == 1
+    assert result["summary"]["new_issues"] == 0
+    assert result["summary"]["resolved_issues"] == 0
+    assert result["summary"]["removed_pages"] == 0
+
+
+def test_cross_report_equivalent_url_spelling_still_detects_changed_issue():
+    baseline = _report([("pricing.html", [_issue("old")])])
+    candidate = _report([("pricing.html", [_issue("new")])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/pricing"
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["new_issues"] == 1
+    assert result["summary"]["resolved_issues"] == 1
+    assert result["summary"]["removed_pages"] == 0
+    assert result["new_issues"][0]["checked_url"] == "https://EXAMPLE.test:443/pricing"
+
+
+def test_cli_cross_report_equivalent_urls_remain_offline_and_nonblocking(
+    tmp_path, capsys, monkeypatch,
+):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = "https://EXAMPLE.test:443/pricing"
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived report comparison must not fetch URLs")
+    ))
+
+    assert main([str(before), str(after), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "pass"
+    assert result["summary"]["existing_issues"] == 1
+    assert result["removed_pages"] == []
+
+
+@pytest.mark.parametrize("different", [
+    "https://example.test/Pricing",
+    "https://example.test/pricing?mode=other",
+    "https://example.test:444/pricing",
+    "https://example.test/pric%2Fing",
+    "http://example.test/pricing",
+])
+def test_cross_report_distinct_url_still_counts_removed_page(different):
+    baseline = _report([("pricing.html", [_issue()])])
+    candidate = _report([("pricing.html", [_issue()])])
+    baseline["pages"][0]["checked_url"] = "https://example.test/pricing"
+    candidate["pages"][0]["checked_url"] = different
+
+    result = compare_reports(baseline, candidate)
+    assert result["status"] == "regression"
+    assert result["summary"]["removed_pages"] == 1
+    assert result["summary"]["new_issues"] == 1
+    assert result["removed_pages"] == [{
+        "path": "pricing.html", "checked_url": "https://example.test/pricing",
+    }]
+
+
 def test_cli_rejects_archived_aliases_in_machine_readable_comparison(tmp_path, capsys):
     report = _report([("one.html", []), ("two.html", [])])
     report["pages"][0]["checked_url"] = "https://example.test/"
@@ -497,6 +729,47 @@ def test_comparison_rejects_canonical_target_alias_falsely_marked_unverified(ali
     }]
     with pytest.raises(ValueError, match="invalid canonical_consistency unverified targets"):
         compare_reports(report, report)
+
+
+@pytest.mark.parametrize("invalid_target", [
+    "",
+    "/relative/path",
+    "mailto:help@example.test",
+    "https:///missing-host",
+    "https://elsewhere.test/fragment#section",
+    "https://elsewhere.test/blank space",
+    "https://some%2ehost.test/",
+    "https://user@elsewhere.test/",
+])
+def test_comparison_rejects_invalid_archived_unverified_canonical_url(invalid_target):
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": invalid_target,
+    }]
+    with pytest.raises(ValueError, match="invalid canonical_consistency unverified targets"):
+        compare_reports(report, report, fail_on_new_unverified_targets=True)
+
+
+def test_comparison_accepts_valid_archived_external_canonical_url():
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "https://EXTERNAL.test:443/%7Eguide?view=%2F",
+    }]
+    assert compare_reports(report, report, fail_on_new_unverified_targets=True)["status"] == "pass"
+
+
+def test_archived_cli_rejects_invalid_unverified_canonical_with_json_error(tmp_path, capsys):
+    report = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "en/index.html", "target": "javascript:alert(1)",
+    }]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(report), encoding="utf-8")
+    after.write_text(json.dumps(report), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
 
 
 def test_archived_hreflang_target_alias_retains_exact_url_matching():
@@ -664,6 +937,95 @@ def test_opt_in_unverified_targets_gate_blocks_only_new_targets(check, item):
     assert gated["new_unverified_targets"] == [{"check": check, **item}]
     assert compare_reports(candidate, candidate, fail_on_new_unverified_targets=True)["status"] == "pass"
     assert compare_reports(candidate, baseline, fail_on_new_unverified_targets=True)["status"] == "pass"
+
+
+@pytest.mark.parametrize("alias", [
+    "https://OUTSIDE.test/fr/~",
+    "https://outside.test:443/fr/~",
+    "https://outside.test/a/../fr/~",
+    "https://outside.test/fr/%7e",
+])
+def test_archived_canonical_unverified_alias_is_not_new_target(alias):
+    baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    baseline["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": "https://outside.test/fr/~"},
+    ]
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": alias},
+    ]
+
+    comparison = compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )
+    assert comparison["status"] == "pass"
+    assert comparison["summary"]["new_unverified_targets"] == 0
+    assert comparison["new_unverified_targets"] == []
+
+
+@pytest.mark.parametrize("changed_target", [
+    "https://outside.test/fr/?lang=fr",
+    "http://outside.test/fr/~",
+    "https://outside.test:444/fr/~",
+])
+def test_archived_canonical_unverified_distinct_target_still_regresses(changed_target):
+    baseline = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    candidate = _report([("en/index.html", [])], checks=("canonical_consistency",))
+    baseline["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": "https://outside.test/fr/~"},
+    ]
+    candidate["canonical_consistency"]["unverified_targets"] = [
+        {"path": "en/index.html", "target": changed_target},
+    ]
+
+    comparison = compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )
+    assert comparison["status"] == "regression"
+    assert comparison["summary"]["new_unverified_targets"] == 1
+    assert comparison["new_unverified_targets"][0]["target"] == changed_target
+
+
+def test_archived_hreflang_unverified_alias_stays_exact():
+    baseline = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    candidate = _report([("en/index.html", [])], checks=("hreflang_clusters",))
+    baseline["hreflang_clusters"]["unverified_targets"] = [
+        {"path": "en/index.html", "language": "fr", "target": "https://outside.test/fr/"},
+    ]
+    candidate["hreflang_clusters"]["unverified_targets"] = [
+        {"path": "en/index.html", "language": "fr", "target": "https://OUTSIDE.test/fr/"},
+    ]
+    assert compare_reports(
+        baseline, candidate, fail_on_new_unverified_targets=True,
+    )["summary"]["new_unverified_targets"] == 1
+
+
+def test_saved_canonical_target_alias_is_offline_pass_in_strict_cli(
+    tmp_path, capsys, monkeypatch,
+):
+    page = tmp_path / "index.html"
+    manifest = {"version": 1, "pages": [{"path": "index.html", "contract": {
+        "url": "https://example.test/", "title_present": True,
+    }}]}
+    def build_report(target):
+        page.write_text(
+            '<html><head><title>OK</title><link rel="canonical" href="'
+            + target + '"></head></html>', encoding="utf-8",
+        )
+        return verify_manifest(manifest, tmp_path, check_canonical_consistency=True)
+
+    baseline = build_report("https://outside.test/fr/~")
+    candidate = build_report("https://OUTSIDE.test:443/fr/%7e")
+    assert baseline["canonical_consistency"]["unverified_targets"]
+    assert candidate["canonical_consistency"]["unverified_targets"]
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: pytest.fail("network call"))
+    assert main([str(before), str(after), "--json", "--fail-on-new-unverified-targets"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "pass"
+    assert result["summary"]["new_unverified_targets"] == 0
 
 
 @pytest.mark.parametrize("before_count,after_count,expected_new", [
@@ -1094,6 +1456,224 @@ def test_archived_comparison_junit_file_conflicts_with_stdout_json(tmp_path):
     assert not output.exists()
 
 
+@pytest.mark.parametrize("new_issue", [False, True])
+def test_archived_sarif_is_offline_and_regression_only(tmp_path, monkeypatch, capsys, new_issue):
+    baseline = _report([("en/index.html", [_issue("inherited")])])
+    candidate = _report([
+        ("en/index.html", [_issue("inherited")]),
+        ("fr/index.html", [_issue("nouveau <titre>\n\u00e9")] if new_issue else []),
+    ])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    output = tmp_path / "compare.sarif"
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (
+        pytest.fail("Archived SARIF must never fetch a URL")
+    ))
+    monkeypatch.setattr(socket.socket, "connect", lambda *_a, **_k: (
+        pytest.fail("Archived SARIF must never connect")
+    ))
+
+    assert main([str(before), str(after), "--sarif-file", str(output)]) == int(new_issue)
+    assert capsys.readouterr().out == ""
+    sarif = json.loads(output.read_text(encoding="utf-8"))
+    assert sarif["version"] == "2.1.0"
+    results = sarif["runs"][0]["results"]
+    assert len(results) == int(new_issue)
+    if new_issue:
+        assert results[0]["ruleId"] == "title_presence"
+        assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"] == {
+            "uri": "fr/index.html", "uriBaseId": "%BUILDROOT%",
+        }
+        assert "nouveau" in results[0]["message"]["text"]
+    assert "inherited" not in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("unlisted_gate,target_gate,count", [
+    (False, False, 0), (True, False, 1), (False, True, 1), (True, True, 2),
+])
+def test_archived_sarif_respects_optional_gates(tmp_path, unlisted_gate, target_gate, count):
+    before_report = _report([("index.html", [])], checks=("canonical_consistency",))
+    after_report = _report([
+        ("index.html", []),
+    ], unlisted=("new.html",), checks=("canonical_consistency",))
+    after_report["canonical_consistency"]["unverified_targets"] = [{
+        "path": "index.html", "target": "https://other.test/new",
+    }]
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(before_report), encoding="utf-8")
+    after.write_text(json.dumps(after_report), encoding="utf-8")
+    output = tmp_path / "result.sarif"
+    args = [str(before), str(after), "--sarif-file", str(output)]
+    if unlisted_gate:
+        args.append("--fail-on-new-unlisted")
+    if target_gate:
+        args.append("--fail-on-new-unverified-targets")
+    assert main(args) == int(count > 0)
+    results = json.loads(output.read_text(encoding="utf-8"))["runs"][0]["results"]
+    assert len(results) == count
+    assert {r["ruleId"] for r in results} == (
+        ({"unlisted_html"} if unlisted_gate else set()) |
+        ({"canonical_consistency_unverified_target"} if target_gate else set())
+    )
+
+
+def test_archived_sarif_coemits_existing_formats(tmp_path):
+    baseline = _report([("index.html", [_issue("inherited")])])
+    candidate = _report([("index.html", [_issue("inherited")]), ("new.html", [_issue()])])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(json.dumps(baseline), encoding="utf-8")
+    after.write_text(json.dumps(candidate), encoding="utf-8")
+    targets = [tmp_path / n for n in ("compare.json", "compare.md", "compare.xml", "compare.sarif")]
+    assert main([
+        str(before), str(after), "--json-file", str(targets[0]),
+        "--markdown-file", str(targets[1]), "--junit-file", str(targets[2]),
+        "--sarif-file", str(targets[3]),
+    ]) == 1
+    assert json.loads(targets[0].read_text(encoding="utf-8"))["summary"]["new_issues"] == 1
+    assert "REGRESSION" in targets[1].read_text(encoding="utf-8")
+    assert ET.fromstring(targets[2].read_bytes()).attrib["failures"] == "1"
+    assert len(json.loads(targets[3].read_text(encoding="utf-8"))["runs"][0]["results"]) == 1
+
+
+def test_archived_comparison_cleans_earlier_artifacts_when_later_open_fails(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open = Path.open
+
+    def fail_second_open(path, *args, **kwargs):
+        if path == junit_output and args and args[0] == "x":
+            raise OSError("simulated second artifact open failure")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    assert "simulated second artifact" in capsys.readouterr().err
+    assert not json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_cleans_partial_current_artifact_on_write_failure(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open = Path.open
+
+    class FailingWriter:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def write(self, content):
+            self.handle.write(content[:7])
+            raise OSError("simulated partial artifact write failure")
+
+    def fail_second_write(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == junit_output and args and args[0] == "x":
+            return FailingWriter(handle)
+        return handle
+
+    monkeypatch.setattr(Path, "open", fail_second_write)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    assert "simulated partial artifact" in capsys.readouterr().err
+    assert not json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_reports_cleanup_denial_without_claiming_rollback(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open, original_unlink = Path.open, Path.unlink
+
+    def fail_second_open(path, *args, **kwargs):
+        if path == junit_output and args and args[0] == "x":
+            raise OSError("simulated second artifact open failure")
+        return original_open(path, *args, **kwargs)
+
+    def deny_cleanup(path, *args, **kwargs):
+        if path == json_output:
+            raise PermissionError("simulated locked artifact")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    monkeypatch.setattr(Path, "unlink", deny_cleanup)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    error = capsys.readouterr().err
+    assert "simulated second artifact" in error
+    assert "partial report cleanup failed" in error
+    assert "simulated locked artifact" in error
+    assert json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+@pytest.mark.parametrize("invalid", ["same", "input", "existing", "missing"])
+def test_archived_sarif_preflights_all_destinations(tmp_path, invalid):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_out = tmp_path / "compare.json"
+    existing = tmp_path / "existing.sarif"
+    existing.write_bytes(b"KEEP")
+    bad = {
+        "same": json_out, "input": before, "existing": existing,
+        "missing": tmp_path / "missing" / "result.sarif",
+    }[invalid]
+    assert main([
+        str(before), str(after), "--json-file", str(json_out),
+        "--sarif-file", str(bad),
+    ]) == 2
+    assert not json_out.exists()
+    assert existing.read_bytes() == b"KEEP"
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_sarif_invalid_input_and_stdout_conflict(tmp_path):
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text("{", encoding="utf-8")
+    after.write_text(json.dumps(_report([("index.html", [])])), encoding="utf-8")
+    output = tmp_path / "result.sarif"
+    assert main([str(before), str(after), "--sarif-file", str(output)]) == 2
+    assert not output.exists()
+    with pytest.raises(SystemExit) as error:
+        main([str(before), str(after), "--json", "--sarif-file", str(output)])
+    assert error.value.code == 2
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("observed", ["Missing H1", "line one\nline two", "x" * 600])
 def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
     tmp_path, capsys, observed,
@@ -1126,6 +1706,10 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
         unlisted=("other\nFORGED UNLISTED.html",), strict=True,
         checks=("hreflang_clusters",),
     )
+    # Keep the injected display label while using a syntactically valid
+    # archived checked URL; URL syntax is independently validated.
+    baseline["pages"][0]["checked_url"] = "https://example.test/index.html"
+    candidate["pages"][0]["checked_url"] = "https://example.test/index.html"
     candidate["hreflang_clusters"]["unverified_targets"] = [{
         "path": bad_path, "language": "de\nFORGED LOCALE",
         "target": "https://elsewhere.test/a\nFORGED TARGET",

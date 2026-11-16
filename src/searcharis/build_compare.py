@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate new links to unreviewed same-origin routes in built HTML",
     )
     parser.add_argument(
+        "--check-internal-nofollow", action="store_true",
+        help="Gate newly nofollow-tagged links to reviewed same-origin HTML pages",
+    )
+    parser.add_argument(
         "--check-reviewed-fragments", action="store_true",
         help="Gate newly missing or ambiguous fragment IDs in reviewed built HTML",
     )
@@ -76,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-unique-descriptions", action="store_true",
         help="Gate newly duplicated descriptions across reviewed indexable same-origin pages",
+    )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="Gate new missing inbound links to this reviewed critical HTML path (repeatable)",
     )
     parser.add_argument(
         "--fail-on-new-unlisted", action="store_true",
@@ -143,9 +151,11 @@ def main(argv: list[str] | None = None) -> int:
             "check_hreflang_clusters": args.check_hreflang_clusters,
             "check_canonical_consistency": args.check_canonical_consistency,
             "check_reviewed_navigation": args.check_reviewed_navigation,
+            "check_internal_nofollow": args.check_internal_nofollow,
             "check_reviewed_fragments": args.check_reviewed_fragments,
             "check_unique_titles": args.check_unique_titles,
             "check_unique_descriptions": args.check_unique_descriptions,
+            "required_inbound_paths": tuple(args.require_inbound_link),
         }
         baseline = verify_manifest(manifest, args.baseline_dir, **checks)
         candidate = verify_manifest(manifest, args.candidate_dir, **checks)

@@ -114,7 +114,41 @@ def build_comparison_junit(
     ).decode("ascii")
 
 
-def build_release_junit(site: dict, sitemap: dict) -> str:
+def build_sitemap_comparison_junit(comparison: dict) -> str:
+    """Serialize only newly blocking sitemap differences for CI test reports."""
+    failures = [
+        (category, url)
+        for category, urls in comparison["new"].items()
+        for url in urls
+    ]
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO sitemap regression gate",
+        tests=str(len(failures) or 1), failures=str(len(failures)),
+        errors="0", skipped="0",
+    )
+    if not failures:
+        ET.SubElement(
+            suite, "testcase", classname="searcharis.sitemap",
+            name="no-new-blocking-sitemap-regressions",
+        )
+    else:
+        for index, (category, url) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.sitemap",
+                name=_bounded(f"[{index}] {category} :: {url}", limit=300),
+            )
+            failure = ET.SubElement(
+                case, "failure",
+                message=_bounded(f"New sitemap regression: {category}"),
+            )
+            failure.text = f"Sitemap finding: {category}; URL: {_bounded(url, limit=1000)}"
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
+def build_release_junit(site: dict, sitemap: dict, robots: dict | None = None) -> str:
     """Serialize blocking HTML and sitemap findings in one offline JUnit suite."""
     failures: list[tuple[str, str, str]] = []
     for page in site["pages"]:
@@ -154,14 +188,38 @@ def build_release_junit(site: dict, sitemap: dict) -> str:
                 f"Sitemap finding: {field}; URL: {_bounded(url)}",
             ))
 
+    if robots is not None and robots["status"] == "fail":
+        sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
+        missing_urls = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]) if sitemap_missing else []
+        missing_message = ", ".join(_bounded(url) for url in missing_urls[:3])
+        if len(missing_urls) > 3:
+            missing_message += f" (and {len(missing_urls) - 3} more missing Sitemap URLs)"
+        failures.append((
+            "robots.txt :: robots_sitemap_declaration_missing" if sitemap_missing
+            else "robots.txt :: robots_policy_drift",
+            "Reviewed robots.txt lacks required Sitemap URL" if sitemap_missing
+            else "Built robots.txt differs from reviewed local policy",
+            f"Expected Sitemap URL: {missing_message}"
+            if sitemap_missing else
+            f"Reason: {_bounded(robots['reason'])}; "
+            f"reviewed SHA-256: {robots['expected_sha256']}; "
+            f"built SHA-256: {robots['observed_sha256'] or 'missing'}",
+        ))
+
     count = len(failures)
     suite = ET.Element(
-        "testsuite", name="Searcharis SEO HTML and sitemap release gate",
+        "testsuite", name=(
+            "Searcharis SEO HTML, sitemap and robots.txt release gate"
+            if robots is not None else "Searcharis SEO HTML and sitemap release gate"
+        ),
         tests=str(count or 1), failures=str(count), errors="0", skipped="0",
     )
     if not count:
         ET.SubElement(suite, "testcase", classname="searcharis.release",
-                      name="html-and-sitemap-passed")
+                      name=(
+                          "html-sitemap-and-robots-passed"
+                          if robots is not None else "html-and-sitemap-passed"
+                      ))
     else:
         for index, (name, message, details) in enumerate(failures, start=1):
             case = ET.SubElement(
