@@ -1536,6 +1536,109 @@ def test_archived_sarif_coemits_existing_formats(tmp_path):
     assert len(json.loads(targets[3].read_text(encoding="utf-8"))["runs"][0]["results"]) == 1
 
 
+def test_archived_comparison_cleans_earlier_artifacts_when_later_open_fails(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open = Path.open
+
+    def fail_second_open(path, *args, **kwargs):
+        if path == junit_output and args and args[0] == "x":
+            raise OSError("simulated second artifact open failure")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    assert "simulated second artifact" in capsys.readouterr().err
+    assert not json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_cleans_partial_current_artifact_on_write_failure(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open = Path.open
+
+    class FailingWriter:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def write(self, content):
+            self.handle.write(content[:7])
+            raise OSError("simulated partial artifact write failure")
+
+    def fail_second_write(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == junit_output and args and args[0] == "x":
+            return FailingWriter(handle)
+        return handle
+
+    monkeypatch.setattr(Path, "open", fail_second_write)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    assert "simulated partial artifact" in capsys.readouterr().err
+    assert not json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_reports_cleanup_denial_without_claiming_rollback(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    original_open, original_unlink = Path.open, Path.unlink
+
+    def fail_second_open(path, *args, **kwargs):
+        if path == junit_output and args and args[0] == "x":
+            raise OSError("simulated second artifact open failure")
+        return original_open(path, *args, **kwargs)
+
+    def deny_cleanup(path, *args, **kwargs):
+        if path == json_output:
+            raise PermissionError("simulated locked artifact")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    monkeypatch.setattr(Path, "unlink", deny_cleanup)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    error = capsys.readouterr().err
+    assert "simulated second artifact" in error
+    assert "partial report cleanup failed" in error
+    assert "simulated locked artifact" in error
+    assert json_output.exists()
+    assert not junit_output.exists()
+    assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
 @pytest.mark.parametrize("invalid", ["same", "input", "existing", "missing"])
 def test_archived_sarif_preflights_all_destinations(tmp_path, invalid):
     report = json.dumps(_report([("index.html", [])]))

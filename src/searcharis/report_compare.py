@@ -513,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file or args.markdown_file or args.junit_file or args.sarif_file:
+        created_outputs: list[Path] = []
         try:
             outputs: list[tuple[Path, str]] = []
             gate_unlisted = (
@@ -559,9 +560,21 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"Report parent must be an existing directory: {path.parent}")
             for path, payload in outputs:
                 with path.open("x", encoding="utf-8", newline="\n") as output:
+                    created_outputs.append(path)
                     output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid report destination: {human_input_error(error)}", file=sys.stderr)
+            cleanup_errors: list[str] = []
+            for path in reversed(created_outputs):
+                try:
+                    path.unlink()
+                except OSError as cleanup_error:
+                    cleanup_errors.append(
+                        human_input_error(OSError(f"{path}: {cleanup_error}"))
+                    )
+            detail = f"Invalid report destination: {human_input_error(error)}"
+            if cleanup_errors:
+                detail += "; partial report cleanup failed: " + "; ".join(cleanup_errors)
+            print(detail, file=sys.stderr)
             return 2
     else:
         print_comparison(

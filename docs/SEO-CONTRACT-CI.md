@@ -1934,6 +1934,10 @@ locations refer to reviewed generated HTML paths at document-level line 1,
 not inferred source-template locations. All four destinations must be distinct,
 non-existing files in existing parent directories and cannot replace input
 reports. They are validated before any is written. If an I/O failure occurs
-after writing begins, discard all outputs on exit 2. No network access,
+after writing begins, the command exits 2 and attempts to delete only the
+new artifacts created in that invocation, including a partially written file.
+If the filesystem denies cleanup, stderr identifies the failed cleanup and
+partial output may remain; this is not an atomic multi-file transaction.
+No network access,
 upload, GitHub permissions, protected workflow change or source mapping is
 performed. Hosted SARIF acceptance and actual adoption remain unverified.
