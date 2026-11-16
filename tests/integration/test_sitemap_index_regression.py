@@ -625,6 +625,76 @@ def test_sitemap_sarif_stdout_inherited_only_is_clean(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["runs"][0]["results"] == []
 
 
+def test_github_annotations_only_new_gated_findings_and_offline(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+    monkeypatch.setattr(socket, "socket", lambda *a, **kw: pytest.fail("Network attempted"))
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--github-annotations",
+    ]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("::error title=Sitemap present_excluded::")
+    assert "https://example.test/draft" in lines[0]
+    assert "https://example.test/about" not in lines[0]
+
+
+def test_github_annotations_inherited_debt_has_no_output(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--github-annotations",
+    ]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_github_annotations_escape_untrusted_percent_and_command_text(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    attack = "https://example.test/new?x=%0A::error%20title=forged::payload"
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/", attack)
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--reject-unreviewed-urls",
+        "--github-annotations",
+    ]) == 1
+    output = capsys.readouterr().out
+    assert output.count("::error title=") == 1
+    assert "%250A" in output and "%2520" in output
+    assert "\n::error" not in output
+
+
+def test_github_annotations_bounded_fair_and_escapes_literal_controls():
+    from searcharis.sitemap_compare import format_github_annotations
+
+    findings = {
+        "missing_required": [f"https://example.test/missing/{n}" for n in range(40)],
+        "present_excluded": ["https://example.test/noindex"],
+        "present_noncanonical": ["https://example.test/canonical"],
+        "unreviewed_urls": ["https://example.test/unsafe%\n::error\rmore"],
+    }
+    lines = format_github_annotations({"new": findings})
+    assert len(lines) == 20
+    assert {category for category in findings if any(category in line for line in lines)} == set(findings)
+    assert all(line.startswith("::error title=Sitemap ") for line in lines)
+    assert all("\n" not in line and "\r" not in line for line in lines)
+    assert "%25" in lines[-1] or any("%25" in line for line in lines)
+
+
+def test_github_annotations_cannot_mix_with_file_reports(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate), "--github-annotations",
+            "--json-file", str(tmp_path / "out.json"),
+        ])
+
+
 def test_sitemap_sarif_includes_all_four_new_gated_categories(tmp_path, capsys):
     manifest = _manifest(tmp_path)
     data = json.loads(manifest.read_text(encoding="utf-8"))
