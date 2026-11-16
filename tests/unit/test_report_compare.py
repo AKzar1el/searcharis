@@ -1576,6 +1576,9 @@ def test_archived_comparison_cleans_partial_current_artifact_on_write_failure(
         def __init__(self, handle):
             self.handle = handle
 
+        def fileno(self):
+            return self.handle.fileno()
+
         def __enter__(self):
             self.handle.__enter__()
             return self
@@ -1637,6 +1640,34 @@ def test_archived_comparison_reports_cleanup_denial_without_claiming_rollback(
     assert json_output.exists()
     assert not junit_output.exists()
     assert before.read_text(encoding="utf-8") == after.read_text(encoding="utf-8") == report
+
+
+def test_archived_comparison_preserves_concurrent_replacement_on_later_failure(
+    tmp_path, monkeypatch, capsys,
+):
+    report = json.dumps(_report([("index.html", [])]))
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    before.write_text(report, encoding="utf-8")
+    after.write_text(report, encoding="utf-8")
+    json_output, junit_output = tmp_path / "comparison.json", tmp_path / "comparison.xml"
+    replacement = tmp_path / "other-worker.txt"
+    replacement.write_bytes(b"DO NOT DELETE CONCURRENT OUTPUT")
+    original_open = Path.open
+
+    def replace_before_second_failure(path, *args, **kwargs):
+        if path == junit_output and args and args[0] == "x":
+            replacement.replace(json_output)
+            raise OSError("simulated second output failure after replacement")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replace_before_second_failure)
+    assert main([
+        str(before), str(after), "--json-file", str(json_output),
+        "--junit-file", str(junit_output),
+    ]) == 2
+    assert json_output.read_bytes() == b"DO NOT DELETE CONCURRENT OUTPUT"
+    assert "partial report cleanup skipped" in capsys.readouterr().err
+    assert not junit_output.exists()
 
 
 @pytest.mark.parametrize("invalid", ["same", "input", "existing", "missing"])
