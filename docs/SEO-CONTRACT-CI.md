@@ -1904,6 +1904,18 @@ exist, and its destination must resolve **outside both static-build directories*
 to prevent modifying either supplied artifact tree. Input and output errors
 return exit 2 without creating or replacing a comparison artifact.
 
+CI systems that ingest **JUnit XML** can use `--junit` for stdout or
+`--junit-file reports/sitemap-comparison.xml` for a create-only UTF-8
+artifact. Each **new** gated missing/index-excluded/noncanonical/unreviewed
+URL becomes one failed testcase; inherited or resolved findings do not fail
+the suite. A no-regression comparison emits one passing testcase, even when
+the baseline has known defects. JUnit and JSON output modes are mutually
+exclusive per invocation; run the comparator separately to collect both.
+JUnit files observe the same existing-parent, no-overwrite, outside-both-builds
+and partial-new-artifact cleanup rules as JSON files. Report output does not
+alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
+JUnit suite cannot establish public indexing, deployed URLs or customer usage.
+
 Both inputs must be independent non-overlapping local build directories
 containing index XML and adjacent XML/XML.gz shards. Their public index site
 must match; detectable cross-build hard links, invalid XML, missing or

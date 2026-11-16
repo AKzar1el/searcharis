@@ -114,6 +114,40 @@ def build_comparison_junit(
     ).decode("ascii")
 
 
+def build_sitemap_comparison_junit(comparison: dict) -> str:
+    """Serialize only newly blocking sitemap differences for CI test reports."""
+    failures = [
+        (category, url)
+        for category, urls in comparison["new"].items()
+        for url in urls
+    ]
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO sitemap regression gate",
+        tests=str(len(failures) or 1), failures=str(len(failures)),
+        errors="0", skipped="0",
+    )
+    if not failures:
+        ET.SubElement(
+            suite, "testcase", classname="searcharis.sitemap",
+            name="no-new-blocking-sitemap-regressions",
+        )
+    else:
+        for index, (category, url) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.sitemap",
+                name=_bounded(f"[{index}] {category} :: {url}", limit=300),
+            )
+            failure = ET.SubElement(
+                case, "failure",
+                message=_bounded(f"New sitemap regression: {category}"),
+            )
+            failure.text = f"Sitemap finding: {category}; URL: {_bounded(url, limit=1000)}"
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
 def build_release_junit(site: dict, sitemap: dict, robots: dict | None = None) -> str:
     """Serialize blocking HTML and sitemap findings in one offline JUnit suite."""
     failures: list[tuple[str, str, str]] = []
