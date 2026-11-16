@@ -1916,6 +1916,25 @@ and partial-new-artifact cleanup rules as JSON files. Report output does not
 alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
 JUnit suite cannot establish public indexing, deployed URLs or customer usage.
 
+For human reviewers, use `--markdown` to print a bounded Markdown summary or
+`--markdown-file reports/sitemap-review.md` to create a portable UTF-8 artifact:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --reject-unreviewed-urls --markdown-file reports/sitemap-review.md
+```
+
+The summary distinguishes **new blocking**, **inherited nonblocking**, and
+**resolved** sitemap findings, with up to 20 HTML-escaped URL examples and at
+least one example from each populated new-finding category. It gives fixed
+reviewer next steps without treating URL text as instructions. Markdown is
+mutually exclusive with other output formats in one invocation; use a second
+invocation for JSON or JUnit. File output is create-only, requires an existing
+parent, rejects both build directories and attempts cleanup of a new partial
+report on failure. The report is not evidence of live indexing or actual
+deployment and is not automatically uploaded.
+
 Both inputs must be independent non-overlapping local build directories
 containing index XML and adjacent XML/XML.gz shards. Their public index site
 must match; detectable cross-build hard links, invalid XML, missing or
