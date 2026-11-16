@@ -651,6 +651,34 @@ def test_multiple_sitemap_outputs_cleanup_after_later_open_failure(
     assert "simulated second-report I/O failure" in capsys.readouterr().err
 
 
+def test_multiple_sitemap_outputs_do_not_delete_replaced_report(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    replacement = tmp_path / "external-owner.txt"
+    replacement.write_text("concurrent owner's data", encoding="utf-8")
+    real_open = Path.open
+
+    def replace_then_fail(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            os.replace(replacement, first)
+            raise OSError("second report failed after replacement")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replace_then_fail)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert first.read_text(encoding="utf-8") == "concurrent owner's data"
+    assert not second.exists()
+    assert "cleanup skipped" in capsys.readouterr().err
+
+
 def test_multiple_sitemap_outputs_report_cleanup_denial(tmp_path, capsys, monkeypatch):
     manifest = _manifest(tmp_path)
     baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
