@@ -1926,6 +1926,27 @@ SHA-256 fingerprints and anchor to line 1 of the **reviewed manifest**, not
 an invented XML or source-template line. They require a separately configured
 SARIF consumer; the checker does not upload results or edit CI workflows.
 
+GitHub Actions users can opt in to inline errors without SARIF upload or a
+third-party action by running the comparator directly in an Actions step:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --github-annotations
+```
+
+`--github-annotations` prints GitHub Actions `::error` workflow commands for
+**newly blocking** findings only. Inherited and resolved issues produce no
+annotations; a passing comparison emits no workflow commands. At most 20 URL
+examples are shown, reserving room for each populated category. URLs are
+bounded and escaped as untrusted log text (including percent and line endings),
+and no invented source-file or line annotations are attached. Exit codes stay
+0/1/2. This opt-in stdout mode is exclusive with JSON, JUnit, Markdown, SARIF
+stdout modes and all report-file options. Use `--json-file` or `--sarif-file`
+in a separate run when complete machine-readable results are needed. These
+commands are interpreted by GitHub Actions runners; they do not upload SARIF,
+fetch site URLs, or prove indexing, traffic, adoption or revenue.
+
 For human reviewers, use `--markdown` to print a bounded Markdown summary or
 `--markdown-file reports/sitemap-review.md` to create a portable UTF-8 artifact:
 

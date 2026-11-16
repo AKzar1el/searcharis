@@ -111,6 +111,27 @@ def compare_sitemap_reports(baseline: dict, candidate: dict) -> dict:
     }
 
 
+def format_github_annotations(result: dict) -> list[str]:
+    """Format bounded, regression-only GitHub Actions workflow commands."""
+    findings: list[str] = []
+    categories = (*_DEFAULT_CATEGORIES, "present_noncanonical", "unreviewed_urls")
+    for index, category in enumerate(categories):
+        urls = result["new"].get(category, [])
+        # Keep space for every later populated category before taking extras.
+        reserved = sum(bool(result["new"].get(key)) for key in categories[index + 1:])
+        take = max(0, _MAX_HUMAN_URLS - len(findings) - reserved)
+        for url in urls[:take]:
+            label = repr(url)
+            if len(label) > 200:
+                label = label[:197] + "..."
+            message = f"New sitemap regression ({category}): {label}"
+            # Workflow commands treat percent and line endings as escapes;
+            # URL content must never inject a second runner command.
+            message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            findings.append(f"::error title=Sitemap {category}::{message}")
+    return findings
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Gate new offline sitemap regressions, tolerating inherited debt",
@@ -168,12 +189,16 @@ def main(argv: list[str] | None = None) -> int:
         "--sarif", action="store_true",
         help="Print SARIF 2.1.0 for only newly blocking sitemap regressions",
     )
+    stdout.add_argument(
+        "--github-annotations", action="store_true",
+        help="Print bounded GitHub Actions errors for only new sitemap regressions",
+    )
     parser.add_argument(
         "--sarif-file", type=Path, metavar="PATH",
         help="Write regression-only SARIF to a new file outside both builds",
     )
     args = parser.parse_args(argv)
-    if (args.json or args.junit or args.markdown or args.sarif) and (
+    if (args.json or args.junit or args.markdown or args.sarif or args.github_annotations) and (
         args.json_file or args.junit_file or args.markdown_file or args.sarif_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
@@ -296,6 +321,9 @@ def main(argv: list[str] | None = None) -> int:
             build_sitemap_regression_sarif(result, args.manifest),
             indent=2, sort_keys=True,
         ))
+    elif args.github_annotations:
+        for line in format_github_annotations(result):
+            print(line)
     else:
         summary = result["summary"]
         print(
