@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.comparison_markdown import build_sitemap_comparison_markdown
 from searcharis.site_ci import _page_url_identity, read_manifest
 from searcharis.site_junit import build_sitemap_comparison_junit
 from searcharis.sitemap_ci import _local_index_shards, verify_sitemap_manifest
@@ -116,6 +117,14 @@ def main(argv: list[str] | None = None) -> int:
         "--junit-file", type=Path, metavar="PATH",
         help="Write regression-only JUnit XML to a new file outside both builds",
     )
+    output.add_argument(
+        "--markdown", action="store_true",
+        help="Print a bounded, reviewer-friendly Markdown regression summary",
+    )
+    output.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write a bounded UTF-8 Markdown summary to a new file outside both builds",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -139,9 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.junit_file:
-        path = args.json_file or args.junit_file
-        label = "JSON" if args.json_file else "JUnit"
+    if args.json_file or args.junit_file or args.markdown_file:
+        path = args.json_file or args.junit_file or args.markdown_file
+        label = "JSON" if args.json_file else "JUnit" if args.junit_file else "Markdown"
         created = False
         try:
             if path.exists() or path.is_symlink():
@@ -161,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
                 created = True
                 payload = (
                     json.dumps(result, indent=2, sort_keys=True) if args.json_file
-                    else build_sitemap_comparison_junit(result)
+                    else build_sitemap_comparison_junit(result) if args.junit_file
+                    else build_sitemap_comparison_markdown(result)
                 )
                 output_file.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
@@ -181,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
     elif args.junit:
         print(build_sitemap_comparison_junit(result))
+    elif args.markdown:
+        print(build_sitemap_comparison_markdown(result))
     else:
         summary = result["summary"]
         print(
