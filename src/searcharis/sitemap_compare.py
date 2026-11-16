@@ -140,29 +140,33 @@ def main(argv: list[str] | None = None) -> int:
         "--reject-unreviewed-urls", action="store_true",
         help="Gate newly introduced sitemap URLs absent from reviewed manifest",
     )
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json", action="store_true", help="Print full comparison as JSON")
-    output.add_argument(
+    stdout = parser.add_mutually_exclusive_group()
+    stdout.add_argument("--json", action="store_true", help="Print full comparison as JSON")
+    parser.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write complete JSON to a new UTF-8 file outside both builds",
     )
-    output.add_argument(
+    stdout.add_argument(
         "--junit", action="store_true",
         help="Print JUnit XML for only newly blocking sitemap regressions",
     )
-    output.add_argument(
+    parser.add_argument(
         "--junit-file", type=Path, metavar="PATH",
         help="Write regression-only JUnit XML to a new file outside both builds",
     )
-    output.add_argument(
+    stdout.add_argument(
         "--markdown", action="store_true",
         help="Print a bounded, reviewer-friendly Markdown regression summary",
     )
-    output.add_argument(
+    parser.add_argument(
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded UTF-8 Markdown summary to a new file outside both builds",
     )
     args = parser.parse_args(argv)
+    if (args.json or args.junit or args.markdown) and (
+        args.json_file or args.junit_file or args.markdown_file
+    ):
+        parser.error("stdout report mode is not allowed with file report modes")
     baseline_single = args.single_sitemap or args.baseline_single_sitemap
     candidate_single = args.single_sitemap or args.candidate_single_sitemap
 
@@ -195,43 +199,58 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file or args.junit_file or args.markdown_file:
-        path = args.json_file or args.junit_file or args.markdown_file
-        label = "JSON" if args.json_file else "JUnit" if args.junit_file else "Markdown"
-        created = False
+        reports: list[tuple[Path, str, str]] = []
+        created_paths: list[Path] = []
         try:
-            if path.exists() or path.is_symlink():
-                raise FileExistsError(f"{label} comparison already exists: {path}")
-            if not path.parent.is_dir():
-                raise ValueError(
-                    f"{label} comparison parent must be an existing directory: {path.parent}"
-                )
-            # Comparing compiled site artifacts must never add a report to either build.
-            output_path = path.resolve()
-            if any(
-                output_path.is_relative_to(index.parent.resolve(strict=True))
-                for index in (args.baseline_index, args.candidate_index)
-            ):
-                raise ValueError(f"{label} comparison must be outside both sitemap directories")
-            with path.open("x", encoding="utf-8", newline="\n") as output_file:
-                created = True
-                payload = (
-                    json.dumps(result, indent=2, sort_keys=True) if args.json_file
-                    else build_sitemap_comparison_junit(result) if args.junit_file
-                    else build_sitemap_comparison_markdown(result)
-                )
-                output_file.write(payload + "\n")
+            # Serialize before creating anything: a later serializer failure
+            # must not leave an earlier format looking like a complete run.
+            if args.json_file:
+                reports.append((
+                    args.json_file, "JSON", json.dumps(result, indent=2, sort_keys=True),
+                ))
+            if args.junit_file:
+                reports.append((
+                    args.junit_file, "JUnit", build_sitemap_comparison_junit(result),
+                ))
+            if args.markdown_file:
+                reports.append((
+                    args.markdown_file, "Markdown", build_sitemap_comparison_markdown(result),
+                ))
+            targets = [path.resolve() for path, _, _ in reports]
+            if len(set(targets)) != len(targets):
+                raise ValueError("All comparison destinations must be distinct files")
+            build_roots = (
+                args.baseline_index.parent.resolve(strict=True),
+                args.candidate_index.parent.resolve(strict=True),
+            )
+            for (path, label, _), target in zip(reports, targets, strict=True):
+                if any(target.is_relative_to(root) for root in build_roots):
+                    raise ValueError(f"{label} comparison must be outside both sitemap directories")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"{label} comparison already exists: {path}")
+                if not path.parent.is_dir():
+                    raise ValueError(
+                        f"{label} comparison parent must be an existing directory: {path.parent}"
+                    )
+            for path, _, payload in reports:
+                # Exclusive creation protects against a post-preflight race.
+                with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                    created_paths.append(path)
+                    output_file.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            if created:
+            cleanup_errors = []
+            for path in reversed(created_paths):
                 try:
                     path.unlink()
                 except OSError as cleanup_error:
-                    print(
-                        f"Invalid input: {human_input_error(error)}; "
-                        f"partial report cleanup failed: {human_input_error(cleanup_error)}",
-                        file=sys.stderr,
-                    )
-                    return 2
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                    cleanup_errors.append(cleanup_error)
+            message = f"Invalid input: {human_input_error(error)}"
+            if cleanup_errors:
+                message += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
+            print(message, file=sys.stderr)
             return 2
     elif args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
