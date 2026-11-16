@@ -26,7 +26,8 @@ _MAX_HUMAN_URLS = 20
 
 
 def _check_independent_snapshots(
-    baseline_index: Path, candidate_index: Path, *, single_sitemap: bool = False,
+    baseline_index: Path, candidate_index: Path, *,
+    baseline_single: bool = False, candidate_single: bool = False,
 ) -> None:
     """Reject directory aliasing and shared NTFS/POSIX file identities."""
     baseline_root = baseline_index.parent.resolve(strict=True)
@@ -38,33 +39,26 @@ def _check_independent_snapshots(
     ):
         raise ValueError("Baseline and candidate need non-overlapping sitemap directories")
 
-    if single_sitemap:
-        for path in (baseline_index, candidate_index):
+    def inspect(path: Path, *, single: bool) -> tuple[tuple[Path, ...], tuple | None]:
+        if single:
             if not path.name.lower().endswith((".xml", ".xml.gz")):
                 raise ValueError("Single sitemap must have an .xml or .xml.gz filename")
             if path.is_symlink() or not path.is_file():
                 raise ValueError("Single sitemap must be a regular local file")
             if path.name not in {item.name for item in path.parent.iterdir()}:
                 raise ValueError("Single sitemap path must match the exact-case filename")
-        baseline_urls = _read_sitemaps(baseline_index)
-        candidate_urls = _read_sitemaps(candidate_index)
-        # A trusted empty baseline has no public site to bind a candidate to.
-        # Fail closed rather than silently inheriting all missing reviewed URLs
-        # when the candidate points at an unrelated site.
-        if not baseline_urls:
-            raise ValueError("Baseline single sitemap must establish a nonempty site identity")
-        if (
-            candidate_urls
-            and next(iter(baseline_urls))[:3] != next(iter(candidate_urls))[:3]
-        ):
-            raise ValueError("Baseline and candidate sitemaps must refer to the same site")
-        baseline_shards: tuple[Path, ...] = ()
-        candidate_shards: tuple[Path, ...] = ()
-    else:
-        baseline_shards, baseline_site = _local_index_shards(baseline_index)
-        candidate_shards, candidate_site = _local_index_shards(candidate_index)
-        if baseline_site != candidate_site:
-            raise ValueError("Baseline and candidate sitemap indexes must refer to the same site")
+            urls = _read_sitemaps(path)
+            return (), next(iter(urls))[:3] if urls else None
+        return _local_index_shards(path)
+
+    baseline_shards, baseline_site = inspect(baseline_index, single=baseline_single)
+    candidate_shards, candidate_site = inspect(candidate_index, single=candidate_single)
+    # An empty single-file candidate can signal genuine missing reviewed pages.
+    # An empty baseline cannot establish a trusted site identity.
+    if baseline_site is None:
+        raise ValueError("Baseline single sitemap must establish a nonempty site identity")
+    if candidate_site is not None and baseline_site != candidate_site:
+        raise ValueError("Baseline and candidate sitemaps must refer to the same site")
 
     baseline_ids: set[tuple[int, int]] = set()
     for path in (baseline_index, *baseline_shards):
@@ -128,7 +122,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--single-sitemap", action="store_true",
-        help="Treat each positional XML/XML.gz input as one local URL set, not a sitemap index",
+        help="Treat both inputs as single local URL sets rather than sitemap indexes",
+    )
+    parser.add_argument(
+        "--baseline-single-sitemap", action="store_true",
+        help="Treat only the baseline input as a single local URL set",
+    )
+    parser.add_argument(
+        "--candidate-single-sitemap", action="store_true",
+        help="Treat only the candidate input as a single local URL set",
     )
     parser.add_argument(
         "--reject-noncanonical-urls", action="store_true",
@@ -161,11 +163,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Write a bounded UTF-8 Markdown summary to a new file outside both builds",
     )
     args = parser.parse_args(argv)
+    baseline_single = args.single_sitemap or args.baseline_single_sitemap
+    candidate_single = args.single_sitemap or args.candidate_single_sitemap
 
     try:
         _check_independent_snapshots(
             args.baseline_index, args.candidate_index,
-            single_sitemap=args.single_sitemap,
+            baseline_single=baseline_single, candidate_single=candidate_single,
         )
         manifest = read_manifest(args.manifest)
         checks = {
@@ -173,13 +177,13 @@ def main(argv: list[str] | None = None) -> int:
             "reject_unreviewed_urls": args.reject_unreviewed_urls,
         }
         baseline = verify_sitemap_manifest(
-            manifest, args.baseline_index if args.single_sitemap else [],
-            sitemap_index_path=None if args.single_sitemap else args.baseline_index,
+            manifest, args.baseline_index if baseline_single else [],
+            sitemap_index_path=None if baseline_single else args.baseline_index,
             **checks,
         )
         candidate = verify_sitemap_manifest(
-            manifest, args.candidate_index if args.single_sitemap else [],
-            sitemap_index_path=None if args.single_sitemap else args.candidate_index,
+            manifest, args.candidate_index if candidate_single else [],
+            sitemap_index_path=None if candidate_single else args.candidate_index,
             **checks,
         )
         result = compare_sitemap_reports(baseline, candidate)
