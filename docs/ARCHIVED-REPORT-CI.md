@@ -33,7 +33,11 @@ regressions; exit **2** means malformed, incompatible or inaccessible input,
 or an invalid output destination. **Preserve these exit codes in CI.** The
 file is create-only: an existing file, an input file, a missing parent
 folder or invalid input is never silently overwritten. It emits no report to
-stdout in file mode. If a write is interrupted, discard any partial report.
+stdout in file mode. On a later write failure, cleanup attempts to remove only
+reports it created and whose file identity still matches; concurrent
+replacements or unverifiable identities are retained and reported. Cleanup is
+best-effort, not atomic against a rename between identity check and unlink.
+If a write is interrupted, inspect and discard any partial report you own.
 
 For a complete, machine-readable diff, choose `--json` or the separate
 `--json-file reports/seo-comparison.json` mode. File outputs can be emitted

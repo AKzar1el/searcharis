@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -513,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file or args.markdown_file or args.junit_file or args.sarif_file:
-        created_outputs: list[Path] = []
+        created_outputs: list[tuple[Path, tuple[int, int]]] = []
         try:
             outputs: list[tuple[Path, str]] = []
             gate_unlisted = (
@@ -560,18 +561,34 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"Report parent must be an existing directory: {path.parent}")
             for path, payload in outputs:
                 with path.open("x", encoding="utf-8", newline="\n") as output:
-                    created_outputs.append(path)
+                    created = os.fstat(output.fileno())
+                    created_outputs.append((path, (created.st_dev, created.st_ino)))
                     output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             cleanup_errors: list[str] = []
-            for path in reversed(created_outputs):
+            cleanup_skipped = 0
+            for path, identity in reversed(created_outputs):
                 try:
+                    current = path.lstat()
+                    # A second writer may have replaced a created report.
+                    # Avoid deleting an unknown identity during best-effort rollback.
+                    if (
+                        not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
                     path.unlink()
                 except OSError as cleanup_error:
                     cleanup_errors.append(
                         human_input_error(OSError(f"{path}: {cleanup_error}"))
                     )
             detail = f"Invalid report destination: {human_input_error(error)}"
+            if cleanup_skipped:
+                detail += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
             if cleanup_errors:
                 detail += "; partial report cleanup failed: " + "; ".join(cleanup_errors)
             print(detail, file=sys.stderr)
