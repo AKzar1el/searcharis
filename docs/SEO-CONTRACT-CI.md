@@ -1945,6 +1945,28 @@ manifest before trusting a no-regression result: a passing diff is not proof
 that existing defects are acceptable, that files were deployed or indexed, or
 that users adopted this workflow.
 
+For static generators that emit **one `sitemap.xml` (or `sitemap.xml.gz`)**
+instead of an index, opt in to the same regression-only check with:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap.xml candidate-dist/sitemap.xml \
+  --single-sitemap --json
+```
+
+This mode uses the existing bounded single-file URL-set parser, including
+XML.gz decompression limits, and preserves the same new/inherited/resolved
+categories, optional gates, outputs and exit codes. It does **not** discover
+other shards; use the default index mode for indexed sites. Both single
+files must have literal XML/XML.gz names in non-overlapping local directories,
+with exact-case filenames, no symlinks or detectable shared hard links.
+The trusted baseline must contain at least one URL to establish public site
+identity; a candidate with URLs must match its scheme, host and effective port.
+An empty candidate is allowed and triggers newly missing reviewed indexable
+URLs, while an empty baseline is an input error rather than an untrusted
+no-regression result. No network requests, source mutations or hosted SEO
+guarantees are involved.
+
 ## Archived SEO report SARIF for separate CI stages
 
 The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0
