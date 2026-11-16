@@ -1967,6 +1967,31 @@ URLs, while an empty baseline is an input error rather than an untrusted
 no-regression result. No network requests, source mutations or hosted SEO
 guarantees are involved.
 
+For a **sitemap generator migration** in which one build emits an index and
+the other emits a conventional single XML/XML.gz URL set, select each input's
+format independently:
+
+```sh
+# Indexed baseline -> one-file candidate
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap.xml \
+  --candidate-single-sitemap --json
+
+# One-file baseline -> indexed candidate
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap.xml candidate-dist/sitemap-index.xml \
+  --baseline-single-sitemap --json
+```
+
+The original `--single-sitemap` continues to select single-file parsing for
+**both** inputs, and leaving all format flags out continues to require two
+indexes. The same reviewed manifest, regression-only exit codes, and
+JSON/JUnit/Markdown reports apply across formats. Both build directories must
+remain independent, public sites must match, the trusted baseline must
+identify a site, and all local XML shards stay adjacent to their own index.
+This compares artifacts only; it cannot confirm that a migration was deployed
+or that search engines adopted the new sitemap structure.
+
 ## Archived SEO report SARIF for separate CI stages
 
 The offline `report_compare` command can also create a new UTF-8 SARIF 2.1.0
