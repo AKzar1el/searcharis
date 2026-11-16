@@ -1909,14 +1909,22 @@ CI systems that ingest **JUnit XML** can use `--junit` for stdout or
 artifact. Each **new** gated missing/index-excluded/noncanonical/unreviewed
 URL becomes one failed testcase; inherited or resolved findings do not fail
 the suite. A no-regression comparison emits one passing testcase, even when
-the baseline has known defects. JSON, JUnit and Markdown **stdout** modes
-are mutually exclusive. Their `--json-file`, `--junit-file` and
-`--markdown-file` options can instead be combined in one invocation; stdout
-modes cannot be mixed with file modes. All report files observe the same
+the baseline has known defects. JSON, JUnit, Markdown and SARIF **stdout**
+modes are mutually exclusive. Their `--json-file`, `--junit-file`,
+`--markdown-file` and `--sarif-file` options can instead be combined in one
+invocation; stdout modes cannot be mixed with file modes. All report files observe the same
 existing-parent, no-overwrite, outside-both-builds and partial-new-artifact
 cleanup rules. Report output does not
 alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
 JUnit suite cannot establish public indexing, deployed URLs or customer usage.
+
+For SARIF 2.1.0 consumers, `--sarif` prints deterministic JSON to stdout;
+`--sarif-file reports/sitemap-regressions.sarif` creates a portable artifact.
+Only newly blocking URL findings become SARIF errors; inherited debt and
+resolved URLs are excluded. Findings reuse the offline release gate's stable
+SHA-256 fingerprints and anchor to line 1 of the **reviewed manifest**, not
+an invented XML or source-template line. They require a separately configured
+SARIF consumer; the checker does not upload results or edit CI workflows.
 
 For human reviewers, use `--markdown` to print a bounded Markdown summary or
 `--markdown-file reports/sitemap-review.md` to create a portable UTF-8 artifact:
@@ -1938,7 +1946,8 @@ uv run python -m searcharis.sitemap_compare \
   manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
   --json-file reports/sitemap-comparison.json \
   --junit-file reports/sitemap-comparison.xml \
-  --markdown-file reports/sitemap-review.md
+  --markdown-file reports/sitemap-review.md \
+  --sarif-file reports/sitemap-regressions.sarif
 ```
 
 All destinations are preflighted before the first write, must be distinct and

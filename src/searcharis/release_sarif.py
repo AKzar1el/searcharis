@@ -110,3 +110,12 @@ def build_release_sarif(
         for code in sorted(rules)
     ]
     return report
+
+
+def build_sitemap_regression_sarif(comparison: dict, manifest: Path) -> dict:
+    """Report only new sitemap regressions using the existing stable SARIF format."""
+    empty_site = {
+        "pages": [],
+        "coverage": {"require_full_coverage": False, "unlisted": []},
+    }
+    return build_release_sarif(empty_site, comparison["new"], manifest)
