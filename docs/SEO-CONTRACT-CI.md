@@ -1909,10 +1909,12 @@ CI systems that ingest **JUnit XML** can use `--junit` for stdout or
 artifact. Each **new** gated missing/index-excluded/noncanonical/unreviewed
 URL becomes one failed testcase; inherited or resolved findings do not fail
 the suite. A no-regression comparison emits one passing testcase, even when
-the baseline has known defects. JUnit and JSON output modes are mutually
-exclusive per invocation; run the comparator separately to collect both.
-JUnit files observe the same existing-parent, no-overwrite, outside-both-builds
-and partial-new-artifact cleanup rules as JSON files. Report output does not
+the baseline has known defects. JSON, JUnit and Markdown **stdout** modes
+are mutually exclusive. Their `--json-file`, `--junit-file` and
+`--markdown-file` options can instead be combined in one invocation; stdout
+modes cannot be mixed with file modes. All report files observe the same
+existing-parent, no-overwrite, outside-both-builds and partial-new-artifact
+cleanup rules. Report output does not
 alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
 JUnit suite cannot establish public indexing, deployed URLs or customer usage.
 
@@ -1928,12 +1930,23 @@ uv run python -m searcharis.sitemap_compare \
 The summary distinguishes **new blocking**, **inherited nonblocking**, and
 **resolved** sitemap findings, with up to 20 HTML-escaped URL examples and at
 least one example from each populated new-finding category. It gives fixed
-reviewer next steps without treating URL text as instructions. Markdown is
-mutually exclusive with other output formats in one invocation; use a second
-invocation for JSON or JUnit. File output is create-only, requires an existing
-parent, rejects both build directories and attempts cleanup of a new partial
-report on failure. The report is not evidence of live indexing or actual
-deployment and is not automatically uploaded.
+reviewer next steps without treating URL text as instructions. All file formats
+can be collected from one offline comparison, for example:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --json-file reports/sitemap-comparison.json \
+  --junit-file reports/sitemap-comparison.xml \
+  --markdown-file reports/sitemap-review.md
+```
+
+All destinations are preflighted before the first write, must be distinct and
+create-only with existing parents outside either build. A later write error
+returns exit 2 and attempts to remove only files created by this invocation;
+if cleanup is denied, the error explicitly reports the remaining risk. Outputs
+are not an atomic multi-file transaction. Reports are not evidence of live
+indexing or deployment and are not automatically uploaded.
 
 Both inputs must be independent non-overlapping local build directories
 containing index XML and adjacent XML/XML.gz shards. Their public index site

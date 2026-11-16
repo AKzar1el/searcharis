@@ -4,6 +4,7 @@ import json
 import os
 import socket
 from html import escape
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -558,6 +559,174 @@ def test_markdown_file_requires_existing_parent(tmp_path, capsys):
     assert main([str(manifest), str(baseline), str(candidate), "--markdown-file", str(artifact)]) == 2
     assert not artifact.exists()
     assert "existing directory" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("regression,code", [(False, 0), (True, 1)])
+def test_sitemap_comparison_writes_json_junit_and_markdown_in_one_pass(
+    tmp_path, capsys, monkeypatch, regression, code,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    urls = ["https://example.test/"]
+    if regression:
+        urls.append("https://example.test/draft")
+    candidate = _snapshot(tmp_path, "candidate", *urls)
+    targets = [tmp_path / "comparison.json", tmp_path / "comparison.xml", tmp_path / "review.md"]
+
+    def deny_network(*args, **kwargs):
+        raise AssertionError("Sitemap report creation must remain offline")
+
+    monkeypatch.setattr(socket, "socket", deny_network)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(targets[0]),
+        "--junit-file", str(targets[1]),
+        "--markdown-file", str(targets[2]),
+    ]) == code
+    assert capsys.readouterr().out == ""
+    result = json.loads(targets[0].read_text(encoding="utf-8"))
+    assert result["summary"]["new"] == int(regression)
+    assert ET.parse(targets[1]).getroot().attrib["failures"] == str(int(regression))
+    assert "# Searcharis SEO sitemap comparison" in targets[2].read_text(encoding="utf-8")
+    assert all(target.read_bytes().endswith(b"\n") for target in targets)
+
+
+def test_multiple_sitemap_outputs_preflight_all_destinations(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    invalid = tmp_path / "missing-parent" / "comparison.xml"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(invalid),
+    ]) == 2
+    assert not first.exists() and not invalid.exists()
+    assert "existing directory" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_reject_duplicate_and_existing_files(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(first),
+    ]) == 2
+    assert not first.exists()
+    assert "distinct" in capsys.readouterr().err
+
+    existing = tmp_path / "existing.xml"
+    existing.write_bytes(b"important existing content")
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(existing),
+    ]) == 2
+    assert not first.exists()
+    assert existing.read_bytes() == b"important existing content"
+
+
+def test_multiple_sitemap_outputs_cleanup_after_later_open_failure(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    real_open = Path.open
+
+    def fail_second_open(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            raise OSError("simulated second-report I/O failure")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert not first.exists() and not second.exists()
+    assert "simulated second-report I/O failure" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_report_cleanup_denial(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    real_open = Path.open
+    real_unlink = Path.unlink
+
+    def fail_second_open(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            raise OSError("second output failed")
+        return real_open(path, mode, *args, **kwargs)
+
+    def deny_first_cleanup(path, *args, **kwargs):
+        if path == first:
+            raise PermissionError("cleanup denied")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    monkeypatch.setattr(Path, "unlink", deny_first_cleanup)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert first.exists() and not second.exists()
+    assert "partial report cleanup failed" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_reject_build_directory_before_writing(
+    tmp_path, capsys,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    forbidden = candidate.parent / "comparison.xml"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(forbidden),
+    ]) == 2
+    assert not first.exists() and not forbidden.exists()
+    assert "outside both sitemap directories" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_serialization_error_creates_nothing(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+
+    def broken_junit(_result):
+        raise OSError("injected serializer error")
+
+    monkeypatch.setattr("searcharis.sitemap_compare.build_sitemap_comparison_junit", broken_junit)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert not first.exists() and not second.exists()
+    assert "injected serializer error" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_preserve_stdout_exclusivity(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate), "--json",
+            "--json-file", str(tmp_path / "comparison.json"),
+            "--junit-file", str(tmp_path / "comparison.xml"),
+        ])
 
 
 def test_markdown_bounded_findings_preserve_all_new_categories():
