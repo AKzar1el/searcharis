@@ -14,6 +14,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_sitemap_comparison_markdown
+from searcharis.release_sarif import build_sitemap_regression_sarif
 from searcharis.site_ci import _page_url_identity, read_manifest
 from searcharis.site_junit import build_sitemap_comparison_junit
 from searcharis.sitemap_ci import (
@@ -163,9 +164,17 @@ def main(argv: list[str] | None = None) -> int:
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded UTF-8 Markdown summary to a new file outside both builds",
     )
+    stdout.add_argument(
+        "--sarif", action="store_true",
+        help="Print SARIF 2.1.0 for only newly blocking sitemap regressions",
+    )
+    parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write regression-only SARIF to a new file outside both builds",
+    )
     args = parser.parse_args(argv)
-    if (args.json or args.junit or args.markdown) and (
-        args.json_file or args.junit_file or args.markdown_file
+    if (args.json or args.junit or args.markdown or args.sarif) and (
+        args.json_file or args.junit_file or args.markdown_file or args.sarif_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
     baseline_single = args.single_sitemap or args.baseline_single_sitemap
@@ -199,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.junit_file or args.markdown_file:
+    if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
         reports: list[tuple[Path, str, str]] = []
         created_paths: list[tuple[Path, tuple[int, int]]] = []
         try:
@@ -216,6 +225,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.markdown_file:
                 reports.append((
                     args.markdown_file, "Markdown", build_sitemap_comparison_markdown(result),
+                ))
+            if args.sarif_file:
+                reports.append((
+                    args.sarif_file, "SARIF", json.dumps(
+                        build_sitemap_regression_sarif(result, args.manifest),
+                        indent=2, sort_keys=True,
+                    ),
                 ))
             targets = [path.resolve() for path, _, _ in reports]
             if len(set(targets)) != len(targets):
@@ -275,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
         print(build_sitemap_comparison_junit(result))
     elif args.markdown:
         print(build_sitemap_comparison_markdown(result))
+    elif args.sarif:
+        print(json.dumps(
+            build_sitemap_regression_sarif(result, args.manifest),
+            indent=2, sort_keys=True,
+        ))
     else:
         summary = result["summary"]
         print(

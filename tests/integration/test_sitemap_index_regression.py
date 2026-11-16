@@ -591,6 +591,141 @@ def test_sitemap_comparison_writes_json_junit_and_markdown_in_one_pass(
     assert all(target.read_bytes().endswith(b"\n") for target in targets)
 
 
+def test_sitemap_sarif_stdout_contains_only_new_regressions(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+
+    def deny_network(*args, **kwargs):
+        raise AssertionError("SARIF export must remain fully offline")
+
+    monkeypatch.setattr(socket, "socket", deny_network)
+    args = [str(manifest), str(baseline), str(candidate), "--sarif"]
+    assert main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["version"] == "2.1.0"
+    results = report["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "sitemap_present_excluded"
+    assert "https://example.test/draft" in results[0]["message"]["text"]
+    assert "https://example.test/about" not in results[0]["message"]["text"]
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "reviewed.json"
+    assert len(results[0]["partialFingerprints"]["searcharis/issue/v1"]) == 64
+    assert main(args) == 1
+    assert json.loads(capsys.readouterr().out) == report
+
+
+def test_sitemap_sarif_stdout_inherited_only_is_clean(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    assert main([str(manifest), str(baseline), str(candidate), "--sarif"]) == 0
+    assert json.loads(capsys.readouterr().out)["runs"][0]["results"] == []
+
+
+def test_sitemap_sarif_includes_all_four_new_gated_categories(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["pages"].append({
+        "path": "alias.html",
+        "contract": {
+            "url": "https://example.test/alias",
+            "canonical": "https://example.test/",
+            "indexable": True,
+        },
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    baseline = _snapshot(
+        tmp_path, "baseline", "https://example.test/", "https://example.test/about",
+    )
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+        "https://example.test/alias", "https://example.test/unreviewed?<test=1&x=2",
+    )
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--reject-noncanonical-urls", "--reject-unreviewed-urls", "--sarif",
+    ]) == 1
+    report = json.loads(capsys.readouterr().out)
+    run = report["runs"][0]
+    assert {item["ruleId"] for item in run["results"]} == {
+        "sitemap_missing_required",
+        "sitemap_present_excluded",
+        "sitemap_present_noncanonical",
+        "sitemap_unreviewed_urls",
+    }
+    assert len(run["results"]) == 4
+    assert all(
+        item["level"] == "error" and
+        item["locations"][0]["physicalLocation"]["region"]["startLine"] == 1
+        for item in run["results"]
+    )
+
+
+def test_sitemap_sarif_stdout_is_exclusive_with_file_reports(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate),
+            "--sarif", "--json-file", str(tmp_path / "review.json"),
+        ])
+
+
+def test_sitemap_sarif_file_combines_with_other_reports(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+    targets = [tmp_path / name for name in (
+        "review.json", "review.xml", "review.md", "review.sarif",
+    )]
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(targets[0]), "--junit-file", str(targets[1]),
+        "--markdown-file", str(targets[2]), "--sarif-file", str(targets[3]),
+    ]) == 1
+    assert capsys.readouterr().out == ""
+    assert all(path.exists() for path in targets)
+    assert json.loads(targets[0].read_text(encoding="utf-8"))["summary"]["new"] == 1
+    assert ET.parse(targets[1]).getroot().attrib["failures"] == "1"
+    assert "1 new" in targets[2].read_text(encoding="utf-8")
+    assert len(json.loads(targets[3].read_text(encoding="utf-8"))["runs"][0]["results"]) == 1
+
+
+def test_sitemap_sarif_file_refuses_overwrite_without_creating_other_reports(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    protected = tmp_path / "protected.sarif"
+    protected.write_bytes(b"other owner")
+    json_path = tmp_path / "review.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(json_path), "--sarif-file", str(protected),
+    ]) == 2
+    assert protected.read_bytes() == b"other owner"
+    assert not json_path.exists()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("root", ["baseline", "candidate"])
+def test_sitemap_sarif_file_rejects_write_inside_snapshots(tmp_path, capsys, root):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    target = tmp_path / root / "review.sarif"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--sarif-file", str(target),
+    ]) == 2
+    assert not target.exists()
+    assert capsys.readouterr().out == ""
+
+
 def test_multiple_sitemap_outputs_preflight_all_destinations(tmp_path, capsys):
     manifest = _manifest(tmp_path)
     baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
