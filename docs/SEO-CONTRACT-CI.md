@@ -1944,8 +1944,11 @@ uv run python -m searcharis.sitemap_compare \
 All destinations are preflighted before the first write, must be distinct and
 create-only with existing parents outside either build. A later write error
 returns exit 2 and attempts to remove only files created by this invocation;
-if cleanup is denied, the error explicitly reports the remaining risk. Outputs
-are not an atomic multi-file transaction. Reports are not evidence of live
+if cleanup is denied or a created path has been replaced by another process,
+the error explicitly reports the remaining risk rather than deleting a
+different file. Cleanup is best-effort, not atomic against concurrent changes;
+CI consumers must always honor exit code 2 rather than ingesting leftover files.
+Reports are not evidence of live
 indexing or deployment and are not automatically uploaded.
 
 Both inputs must be independent non-overlapping local build directories

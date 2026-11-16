@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -200,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json_file or args.junit_file or args.markdown_file:
         reports: list[tuple[Path, str, str]] = []
-        created_paths: list[Path] = []
+        created_paths: list[tuple[Path, tuple[int, int]]] = []
         try:
             # Serialize before creating anything: a later serializer failure
             # must not leave an earlier format looking like a complete run.
@@ -235,16 +236,32 @@ def main(argv: list[str] | None = None) -> int:
             for path, _, payload in reports:
                 # Exclusive creation protects against a post-preflight race.
                 with path.open("x", encoding="utf-8", newline="\n") as output_file:
-                    created_paths.append(path)
+                    created = os.fstat(output_file.fileno())
+                    created_paths.append((path, (created.st_dev, created.st_ino)))
                     output_file.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
             cleanup_errors = []
-            for path in reversed(created_paths):
+            cleanup_skipped = 0
+            for path, identity in reversed(created_paths):
                 try:
+                    current = path.lstat()
+                    # A concurrent process may have replaced this report.
+                    # Never unlink a file whose identity we cannot verify.
+                    if (
+                        not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
                     path.unlink()
                 except OSError as cleanup_error:
                     cleanup_errors.append(cleanup_error)
             message = f"Invalid input: {human_input_error(error)}"
+            if cleanup_skipped:
+                message += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
             if cleanup_errors:
                 message += (
                     f"; partial report cleanup failed ({len(cleanup_errors)}): "
