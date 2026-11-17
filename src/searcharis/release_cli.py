@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+from itertools import islice
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
@@ -38,6 +39,57 @@ def _bounded_human_lines(groups: tuple[list[str], ...]) -> tuple[list[str], int]
         available = max(0, _MAX_HUMAN_FINDINGS - len(selected) - reserved)
         selected.extend(group[:available])
     return selected, sum(map(len, groups)) - len(selected)
+
+
+def _github_annotations(site: dict, sitemap: dict, robots: dict | None) -> list[str]:
+    """Emit only blocking release findings as bounded Actions errors."""
+    groups: list[tuple[str, list[str]]] = [
+        ("HTML", list(islice((
+            f"{_preview(page['path'])}: {_preview(issue['code'])}"
+            for page in site["pages"] if page["status"] == "fail"
+            for issue in page["issues"]
+        ), _MAX_HUMAN_FINDINGS))),
+        ("HTML coverage", [
+            _preview(path)
+            for path in site["coverage"]["unlisted"][:_MAX_HUMAN_FINDINGS]
+        ] if site["coverage"]["require_full_coverage"] else []),
+    ]
+    for title, key in (
+        ("Sitemap missing required", "missing_required"),
+        ("Sitemap included noindex", "present_excluded"),
+        ("Sitemap noncanonical", "present_noncanonical"),
+        ("Sitemap unreviewed", "unreviewed_urls"),
+    ):
+        groups.append((title, [
+            _preview(url) for url in sitemap.get(key, [])[:_MAX_HUMAN_FINDINGS]
+        ]))
+    if robots is not None and robots["status"] == "fail":
+        if robots.get("reason") == "sitemap_declaration_missing":
+            missing = robots.get("missing_sitemap_urls") or [
+                robots["required_sitemap_url"]
+            ]
+            messages = [
+                f"Missing reviewed Sitemap: {_preview(url)}"
+                for url in missing[:_MAX_HUMAN_FINDINGS]
+            ]
+        else:
+            messages = [f"Reviewed robots.txt: {_preview(robots['reason'])}"]
+        groups.append(("robots.txt", messages))
+
+    annotations: list[str] = []
+    for index, (title, messages) in enumerate(groups):
+        # A flooded HTML category must not hide another blocking gate.
+        reserved = sum(bool(later) for _, later in groups[index + 1:])
+        take = max(0, _MAX_HUMAN_FINDINGS - len(annotations) - reserved)
+        for message in messages[:take]:
+            payload = (
+                message.replace("%", "%25").replace("\r", "%0D")
+                .replace("\n", "%0A").replace("::", ": :")
+                .replace("\u2028", " ").replace("\u2029", " ")
+            )
+            # Built artifacts are not source paths: never invent file/line fields.
+            annotations.append(f"::error title=SEO {title}::{payload}")
+    return annotations
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -116,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
+    stdout.add_argument(
+        "--github-annotations", action="store_true",
+        help="Print at most 20 GitHub Actions errors for blocking release findings",
+    )
     parser.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write both reports to a new UTF-8 JSON file; never overwrite",
@@ -145,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--require-robots-sitemap requires --reviewed-robots")
     if args.sarif_source_map and not args.sarif_file:
         parser.error("--sarif-source-map requires --sarif-file")
-    if (args.json or args.junit) and (
+    if (args.json or args.junit or args.github_annotations) and (
         args.json_file or args.junit_file or args.markdown_file or args.sarif_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
@@ -277,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.json:
         serialized = json.dumps(report, indent=2, sort_keys=True)
         print(serialized)
+    elif args.github_annotations:
+        for line in _github_annotations(site, sitemap, robots):
+            print(line)
     else:
         pages = site["summary"]
         xml = sitemap["summary"]

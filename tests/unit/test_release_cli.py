@@ -858,3 +858,81 @@ def test_release_markdown_bounded_diagnostics_are_reproducible():
     assert "80 more sitemap findings" in output
     assert "issue-20" not in output
     assert len(output) < 10000
+
+
+def test_release_github_annotations_show_blocking_html_and_sitemap(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/draft"])
+    code = main([str(manifest), str(build), str(sitemap), "--github-annotations"])
+    result = capsys.readouterr()
+    assert code == 1 and result.err == ""
+    lines = result.out.splitlines()
+    assert all(line.startswith("::error title=SEO ") for line in lines)
+    assert any("index.html" in line for line in lines)
+    assert any("https://example.test/" in line for line in lines)
+    assert any("https://example.test/draft" in line for line in lines)
+
+
+def test_release_github_annotations_silent_for_ungated_issues(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "unlisted.html").write_text("<html/>", encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/", "https://example.test/unreviewed"])
+    assert main([str(manifest), str(build), str(sitemap), "--github-annotations"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_release_github_annotations_escape_and_reserve_categories(
+    tmp_path, capsys, monkeypatch,
+):
+    import searcharis.release_cli as cli
+
+    manifest, build, sitemap = _fixture(tmp_path)
+    hostile = "host%::\n::warning title=forged::bad"
+    site = {"status": "fail", "pages": [{"status": "fail", "path": hostile,
+            "issues": [{"code": f"broken-{i}"}]} for i in range(45)],
+            "coverage": {"require_full_coverage": True,
+                         "unlisted": ["unlisted-critical.html"]}}
+    xml = {"status": "fail", "missing_required": ["https://example.test/missing"],
+           "present_excluded": ["https://example.test/noindex"],
+           "present_noncanonical": ["https://example.test/alias"],
+           "unreviewed_urls": ["https://example.test/unreviewed"]}
+    robots = {"status": "fail", "reason": "robots_mismatch",
+              "expected_sha256": "a" * 64, "observed_sha256": "b" * 64}
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_a, **_k: site)
+    monkeypatch.setattr(cli, "verify_sitemap_manifest", lambda *_a, **_k: xml)
+    monkeypatch.setattr(cli, "verify_reviewed_robots_policy", lambda *_a, **_k: robots)
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--reviewed-robots", str(tmp_path / "policy.txt"),
+                 "--github-annotations"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 20
+    assert all(line.startswith("::error title=SEO ") for line in lines)
+    assert "::warning" not in "\n".join(lines)
+    assert "%25" in lines[0] and "%0A" not in lines[0]
+    assert any("unlisted-critical.html" in line for line in lines)
+    assert any("missing" in line for line in lines)
+    assert any("noindex" in line for line in lines)
+    assert any("alias" in line for line in lines)
+    assert any("unreviewed" in line for line in lines)
+    assert any("robots" in line for line in lines)
+
+
+def test_release_github_annotations_input_error_does_not_emit_commands(tmp_path, capsys):
+    manifest, build, _ = _fixture(tmp_path)
+    code = main([str(manifest), str(build), str(tmp_path / "missing.xml"),
+                 "--github-annotations"])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == ""
+    assert "Invalid input:" in output.err
+
+
+def test_release_github_annotations_excludes_file_modes(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    target = tmp_path / "report.json"
+    with pytest.raises(SystemExit) as error:
+        main([str(manifest), str(build), str(sitemap),
+              "--github-annotations", "--json-file", str(target)])
+    assert error.value.code == 2
+    assert "not allowed" in capsys.readouterr().err
+    assert not target.exists()

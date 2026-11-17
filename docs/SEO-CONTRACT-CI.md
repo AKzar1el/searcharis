@@ -1173,6 +1173,34 @@ for complete findings. Each failed-page line also caps individual issue codes
 at eight. Ungated unlisted HTML is counted but does not consume
 blocking detail slots. Exit codes and JSON/JUnit/Markdown artifacts are unchanged.
 
+## GitHub Actions inline release findings (opt-in)
+
+To surface blocking built-HTML, sitemap and reviewed robots.txt findings directly
+in a GitHub Actions job log without uploading SARIF, run the existing offline
+release gate with `--github-annotations`:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
+  --require-full-coverage --reject-unreviewed-urls --github-annotations
+```
+
+The flag writes only GitHub Actions `::error` workflow commands to stdout,
+with at most 20 actionable, escaped findings across populated blocking
+categories. A large HTML failure cannot hide a separate sitemap or optional
+robots.txt failure. Passing runs emit no annotations; unlisted built HTML or
+unreviewed sitemap URLs are *not* annotated unless their respective explicit
+gates are enabled. A reviewed robots policy is checked only with
+`--reviewed-robots`. Input errors still exit **2** to stderr; ordinary pass
+and policy-failure exit codes remain **0** and **1**. The new mode is mutually
+exclusive with `--json`, `--junit`, or report-file output. Use a structured
+report separately when all details are needed.
+
+Only a configured GitHub Actions runner interprets these log commands as
+annotations. This option does not modify workflow files, upload a report,
+invent source line locations, make network calls, or establish live crawling,
+search rankings or commercial adoption. Review the local manifest and any
+strict flags before enabling release blocking in a production CI workflow.
+
 ## One-pass HTML and sitemap SARIF release artifact
 
 For a single offline release check that preserves *both* built-HTML failures
