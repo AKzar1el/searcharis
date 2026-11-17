@@ -21,6 +21,27 @@ _MAX_POLICY_BYTES = 512_000
 _MAX_REQUIRED_SITEMAPS = 16
 
 
+def format_github_annotations(report: dict) -> list[str]:
+    """Report only blocking reviewed-policy failures, with no invented file location."""
+    if report["status"] != "fail":
+        return []
+    if report["reason"] == "sitemap_declaration_missing":
+        missing = report.get("missing_sitemap_urls") or [report["required_sitemap_url"]]
+        messages = [f"Missing reviewed Sitemap: {url!r}" for url in missing[:16]]
+    else:
+        messages = [f"Reviewed robots.txt {report['reason']}"]
+    annotations: list[str] = []
+    for message in messages:
+        bounded = message if len(message) <= 160 else message[:157] + "..."
+        escaped = (
+            bounded.replace("%", "%25").replace("\r", "%0D")
+            .replace("\n", "%0A").replace("::", ": :")
+            .replace("\u2028", " ").replace("\u2029", " ")
+        )
+        annotations.append(f"::error title=SEO robots.txt::{escaped}")
+    return annotations
+
+
 def _read_bounded(path: Path) -> bytes:
     with path.open("rb") as source:
         data = source.read(_MAX_POLICY_BYTES + 1)
@@ -120,10 +141,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Write complete JSON to a new UTF-8 file instead of stdout; never overwrite",
     )
     parser.add_argument(
+        "--github-annotations", action="store_true",
+        help="Emit escaped GitHub Actions errors for current blocking robots findings",
+    )
+    parser.add_argument(
         "--require-robots-sitemap", action="append", metavar="URL",
         help="Require a reviewed Sitemap URL (repeatable, up to 16; no URL fetch)",
     )
     args = parser.parse_args(argv)
+    if args.json and args.github_annotations:
+        parser.error("--github-annotations cannot be combined with JSON stdout")
 
     try:
         report = verify_reviewed_robots_policy(
@@ -177,8 +204,14 @@ def main(argv: list[str] | None = None) -> int:
                     )
             print(f"Invalid input: {human_input_error(error)}{cleanup}", file=sys.stderr)
             return 2
+        if args.github_annotations:
+            for line in format_github_annotations(report):
+                print(line)
     elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.github_annotations:
+        for line in format_github_annotations(report):
+            print(line)
     elif report["status"] == "pass":
         print(f"PASS robots.txt matches reviewed SHA-256 {report['expected_sha256'][:12]}")
     elif report["reason"] == "sitemap_declaration_missing":

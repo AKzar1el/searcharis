@@ -160,6 +160,15 @@ source-controlled production policy that a reviewer deliberately approved:
 uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist --json
 ```
 
+For a standalone GitHub Actions job, use `--github-annotations` to emit
+escaped `::error` annotations for changed/missing policies or explicitly
+required Sitemap declarations. Passing gates emit no annotations. Combine
+with `--json-file reports/robots.json` to keep a create-only UTF-8 artifact;
+annotations are emitted only after successful report creation. Do not combine
+the annotation flag with JSON stdout. This checks only local build artifacts,
+does not fetch URLs or infer source file/line locations, and does not upload
+or deploy anything. Preserve process exit status 0/1/2 in the CI job.
+
 Run this after generating `dist`, alongside the existing HTML and sitemap
 checks, and preserve its exit status in CI. Exit 0 means the bytes match, 1
 means the built policy differs or is missing, and 2 means invalid input.
