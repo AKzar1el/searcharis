@@ -11,6 +11,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_junit import build_site_junit
 from searcharis.site_sarif import build_sarif_report
 from searcharis.site_source_map import read_source_map
 
@@ -130,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
         "--sarif-file", type=Path, metavar="PATH",
         help="Write SARIF 2.1.0 to a new UTF-8 file; never overwrite existing files",
     )
+    output.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write standalone reviewed-site JUnit XML to a new file for CI test reports",
+    )
     parser.add_argument(
         "--github-annotations", action="store_true",
         help="Print bounded GitHub Actions error commands for blocking built-site checks",
@@ -171,25 +176,34 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.sarif_file:
+    if args.json_file or args.sarif_file or args.junit_file:
         created_output = False
         created_identity: tuple[int, int] | None = None
         try:
-            path = args.json_file or args.sarif_file
-            format_name = "JSON" if args.json_file else "SARIF"
+            path = args.json_file or args.sarif_file or args.junit_file
+            format_name = (
+                "JSON" if args.json_file else "SARIF" if args.sarif_file else "JUnit"
+            )
             if path.resolve().is_relative_to(args.build_dir.resolve()):
                 raise ValueError(f"{format_name} report must be outside the build directory")
             if path.exists() or path.is_symlink():
                 raise FileExistsError(f"{format_name} report already exists: {path}")
             if not path.parent.is_dir():
                 raise ValueError(f"{format_name} report parent must be an existing directory: {path.parent}")
-            payload = report if args.json_file else build_sarif_report(report, sources=sources)
+            if args.json_file:
+                content = json.dumps(report, indent=2, sort_keys=True) + "\n"
+            elif args.sarif_file:
+                content = json.dumps(
+                    build_sarif_report(report, sources=sources), indent=2, sort_keys=True,
+                ) + "\n"
+            else:
+                content = build_site_junit(report) + "\n"
             # Exclusive creation protects existing artifacts if another CI job races us.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
                 created_output = True
                 info = os.fstat(output_file.fileno())
                 created_identity = (info.st_dev, info.st_ino)
-                output_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+                output_file.write(content)
         except (OSError, UnicodeError, ValueError) as error:
             cleanup_message = ""
             if created_output:

@@ -65,6 +65,7 @@ def _fail_report_write(monkeypatch, target, *, replace=False):
 
 @pytest.mark.parametrize("file_flag,suffix", [
     ("--json-file", ".json"), ("--sarif-file", ".sarif"),
+    ("--junit-file", ".xml"),
 ])
 @pytest.mark.parametrize("replaced", [False, True])
 def test_failed_report_write_cleans_only_owned_artifact(
@@ -89,6 +90,7 @@ def test_failed_report_write_cleans_only_owned_artifact(
 
 @pytest.mark.parametrize("file_flag,suffix", [
     ("--json-file", ".json"), ("--sarif-file", ".sarif"),
+    ("--junit-file", ".xml"),
 ])
 def test_cleanup_denial_is_reported_not_silenced(
     tmp_path, monkeypatch, capsys, file_flag, suffix,
