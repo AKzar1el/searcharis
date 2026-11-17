@@ -121,6 +121,70 @@ def test_plain_output_preserves_exit_code_and_actionable_digest(tmp_path, capsys
     assert "FAIL" in out and "SHA-256" in out
 
 
+def test_standalone_robots_github_annotations_are_opt_in_and_offline(
+    tmp_path, capsys, monkeypatch,
+):
+    reviewed, build = _fixture(tmp_path)
+
+    def deny_socket(*args, **kwargs):
+        raise AssertionError("robots annotations must not fetch URLs")
+
+    monkeypatch.setattr(socket, "socket", deny_socket)
+    args = [str(reviewed), str(build), "--github-annotations"]
+    assert main(args) == 0
+    assert capsys.readouterr().out == ""
+    (build / "robots.txt").write_bytes(b"User-agent: *\nDisallow: /\n")
+    assert main(args) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out.count("::error ") == 1
+    assert "robots.txt" in output.out and "changed" in output.out
+    assert "file=" not in output.out and "line=" not in output.out
+
+
+def test_standalone_robots_github_annotations_escape_missing_sitemap(
+    tmp_path, capsys,
+):
+    reviewed, build = _fixture(tmp_path)
+    missing = "https://example.test/missing%25.xml"
+    assert main([
+        str(reviewed), str(build), "--github-annotations",
+        "--require-robots-sitemap", missing,
+    ]) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out.count("::error ") == 1
+    assert "missing%2525.xml" in output.out
+    assert "Missing reviewed Sitemap" in output.out
+
+
+def test_standalone_robots_github_annotations_follow_successful_report_write(
+    tmp_path, capsys,
+):
+    reviewed, build = _fixture(tmp_path)
+    (build / "robots.txt").unlink()
+    output_path = tmp_path / "robots-report.json"
+    args = [str(reviewed), str(build), "--json-file", str(output_path), "--github-annotations"]
+    assert main(args) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert "::error " in output.out
+    assert json.loads(output_path.read_text(encoding="utf-8"))["reason"] == "missing"
+    # A refused create-only output must not publish a misleading annotation.
+    assert main(args) == 2
+    output = capsys.readouterr()
+    assert "already exists" in output.err
+    assert output.out == ""
+
+
+def test_standalone_robots_github_annotations_reject_json_stdout(tmp_path, capsys):
+    reviewed, build = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main([str(reviewed), str(build), "--json", "--github-annotations"])
+    assert exc.value.code == 2
+    assert "cannot be combined" in capsys.readouterr().err
+
+
 def test_checked_in_policy_smoke_matches_documented_exit_codes(capsys):
     root = Path(__file__).resolve().parents[2] / "examples/seo-contract/robots-policy"
     good, report, _ = _run(capsys, root / "reviewed.txt", root / "passing")
