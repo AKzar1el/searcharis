@@ -36,6 +36,21 @@ your manually reviewed manifest and `dist/sitemap-index.xml`. Use a CI step
 that preserves the verifier's exit code. Missing reviewed sitemap URLs fail
 with exit 1; missing/invalid index or shard files fail with exit 2.
 
+For a simpler **one-command CI report bundle**, prepare an existing empty
+directory outside your compiled site (for example `mkdir seo-ci-reports`)
+and run the same release gate with `--report-dir seo-ci-reports` instead of
+any individual report-file flags or `--json`. It creates four UTF-8,
+create-only artifacts in one verification pass:
+`seo-release.json`, `seo-release.xml`, `seo-release.md`, and
+`seo-release.sarif`. You may add `--github-annotations` to show blocking
+findings in GitHub Actions logs after successful report creation; the four
+reports are still generated on exit 1. Reusing a directory with any of those
+filenames, placing it inside `dist/`, or supplying a missing parent exits 2
+without overwriting earlier artifacts. Use a **new empty directory per CI
+run**, preserve exit 0/1/2, and upload or append reports only in separate
+owner-authorized workflow steps. Neither the CLI nor this example changes
+workflow permissions, uploads data or fetches public URLs.
+
 For a machine-readable CI artifact, replace `--json` with
 `--json-file seo-release.json`. The target filename must not already exist
 and must be outside the build tree. The command writes UTF-8 directly, does
