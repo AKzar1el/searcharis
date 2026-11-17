@@ -1410,6 +1410,27 @@ Filesystems without usable file IDs cannot
 support this additional alias check. The baseline must come from a trusted,
 review-controlled revision, not an arbitrary artifact. No URLs are fetched.
 
+For a GitHub Actions job that runs this local build comparison, use opt-in
+inline error annotations instead of configuring a SARIF upload:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --github-annotations
+```
+
+`--github-annotations` prints runner `::error` commands for **newly blocking**
+page issues and removed reviewed pages, never inherited or resolved debt. New
+unlisted HTML is annotated only with `--require-full-coverage` or
+`--fail-on-new-unlisted`, and newly unverified cross-page targets only with
+`--fail-on-new-unverified-targets`. A passing run emits no commands. Output
+reserves examples across populated categories, at most 20 in total, with
+bounded and escaped untrusted values. Build paths are not necessarily source
+paths, so no repository file/line anchors are invented. This stdout mode cannot
+be combined with JSON/JUnit/SARIF stdout or report-file outputs. Existing
+0/1/2 exit codes, local-only inputs and no-network behavior remain unchanged.
+The GitHub runner interprets these commands only when invoked in an Actions
+step; this tool never edits workflows, uploads reports or measures indexing.
+
 Optional `--check-reviewed-navigation`, `--check-reviewed-fragments`, and
 `--check-internal-nofollow`
 also work with `build_compare`. They compare the **same opt-in checks on
