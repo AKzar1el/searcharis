@@ -1383,6 +1383,26 @@ file whose identity still matches this invocation. A concurrent replacement
 is left untouched, and cleanup failures are reported with exit 2. This is
 best-effort cleanup, not an atomic filesystem transaction.
 
+For CI systems that ingest **JUnit XML** (such as GitLab and Jenkins), the
+standalone robots checker also accepts `--junit-file`. It records a passing
+testcase for a matched reviewed policy, or failing testcases for drift, a
+missing built `robots.txt`, or each missing explicitly required Sitemap URL.
+Run the checker once to archive both complete JSON evidence and a portable
+UTF-8, XML-safe test report:
+
+```sh
+uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist \
+  --json-file reports/robots.json --junit-file reports/robots.xml
+```
+
+Both destinations must be new files in existing directories outside the
+static build. The checker preflights both paths before creating either,
+then performs identity-checked best-effort cleanup after an interrupted
+write. `--junit-file` is incompatible with JSON **stdout**, but may be
+combined with `--json-file` and opt-in `--github-annotations`. Exit 0/1/2
+retains its existing pass/mismatch/input-error meaning. Producing an XML
+file does not upload it to a CI consumer or establish live search indexing.
+
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for
 explicitly reviewed build-to-repository source-file hints; it is valid only
