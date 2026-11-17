@@ -1378,6 +1378,10 @@ already exist, the destination must be new and outside the static build,
 and invalid policy or unsafe output paths return exit 2 without writing an
 artifact. It never replaces a prior report. This avoids platform-specific
 stdout redirection encodings, including PowerShell 5.1's UTF-16 default.
+If a write fails after creating the report, cleanup removes only the partial
+file whose identity still matches this invocation. A concurrent replacement
+is left untouched, and cleanup failures are reported with exit 2. This is
+best-effort cleanup, not an atomic filesystem transaction.
 
 HTML findings retain the standalone HTML SARIF artifact anchors and stable
 fingerprints. Optionally provide `--sarif-source-map sources.json` for

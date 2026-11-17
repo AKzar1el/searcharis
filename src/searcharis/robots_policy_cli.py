@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -137,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file:
+        created_identity: tuple[int, int] | None = None
+        created = False
         try:
             path = args.json_file
             if path.exists() or path.is_symlink():
@@ -147,9 +150,32 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("JSON report must be outside the static build")
             # Exclusive creation prevents concurrent CI jobs from overwriting a report.
             with path.open("x", encoding="utf-8", newline="\n") as artifact:
+                created = True
+                info = os.fstat(artifact.fileno())
+                created_identity = (info.st_dev, info.st_ino)
                 artifact.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            cleanup = ""
+            if created:
+                try:
+                    current = path.lstat()
+                    if (
+                        created_identity is None or not created_identity[1]
+                        or not current.st_ino
+                        or (current.st_dev, current.st_ino) != created_identity
+                    ):
+                        # A foreign replacement is not ours to delete.
+                        cleanup = "; partial report cleanup skipped: file identity changed or unavailable"
+                    else:
+                        path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_error:
+                    cleanup = (
+                        "; partial report cleanup failed: "
+                        f"{human_input_error(cleanup_error)}"
+                    )
+            print(f"Invalid input: {human_input_error(error)}{cleanup}", file=sys.stderr)
             return 2
     elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
