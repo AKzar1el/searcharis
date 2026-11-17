@@ -118,6 +118,50 @@ def build_current_sitemap_junit(sitemap: dict) -> str:
     ).decode("ascii")
 
 
+def build_current_robots_junit(robots: dict) -> str:
+    """Serialize current standalone robots policy failures for CI ingestion."""
+    failures: list[tuple[str, str, str]] = []
+    if robots["status"] == "fail":
+        if robots["reason"] == "sitemap_declaration_missing":
+            missing = robots.get("missing_sitemap_urls") or [robots["required_sitemap_url"]]
+            failures.extend((
+                f"required_sitemap_missing :: {url}",
+                "Reviewed robots.txt lacks required Sitemap URL",
+                f"Missing reviewed Sitemap: {_bounded(url, limit=1000)}",
+            ) for url in missing)
+        else:
+            failures.append((
+                f"robots_policy_{robots['reason']}",
+                "Built robots.txt differs from reviewed policy",
+                f"Reason: {_bounded(robots['reason'])}; "
+                f"reviewed SHA-256: {robots['expected_sha256']}; "
+                f"built SHA-256: {robots['observed_sha256'] or 'missing'}",
+            ))
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO current robots policy gate",
+        tests=str(len(failures) or 1), failures=str(len(failures)),
+        errors="0", skipped="0",
+    )
+    if not failures:
+        ET.SubElement(
+            suite, "testcase", classname="searcharis.robots",
+            name="current-robots-policy-passed",
+        )
+    else:
+        for index, (name, message, details) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.robots",
+                name=_bounded(f"[{index}] {name}", limit=300),
+            )
+            ET.SubElement(case, "failure", message=_bounded(message)).text = (
+                _bounded(details, limit=1100)
+            )
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
 def build_comparison_junit(
     comparison: dict, *, gate_new_unlisted: bool = False,
     gate_new_unverified_targets: bool = False,

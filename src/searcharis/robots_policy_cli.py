@@ -16,6 +16,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_canonical_url
+from searcharis.site_junit import build_current_robots_junit
 
 _MAX_POLICY_BYTES = 512_000
 _MAX_REQUIRED_SITEMAPS = 16
@@ -141,6 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Write complete JSON to a new UTF-8 file instead of stdout; never overwrite",
     )
     parser.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Write current blocking robots findings to a new UTF-8 JUnit XML file",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Emit escaped GitHub Actions errors for current blocking robots findings",
     )
@@ -151,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.json and args.github_annotations:
         parser.error("--github-annotations cannot be combined with JSON stdout")
+    if args.json and args.junit_file:
+        parser.error("--junit-file cannot be combined with JSON stdout")
 
     try:
         report = verify_reviewed_robots_policy(
@@ -164,26 +171,43 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file:
-        created_identity: tuple[int, int] | None = None
-        created = False
+    if args.json_file or args.junit_file:
+        created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
+        reports: list[tuple[Path, str, str]] = []
         try:
-            path = args.json_file
-            if path.exists() or path.is_symlink():
-                raise FileExistsError(f"JSON report already exists: {path}")
-            if not path.parent.is_dir():
-                raise ValueError(f"JSON report parent must be an existing directory: {path.parent}")
-            if path.resolve().is_relative_to(args.build_dir.resolve(strict=True)):
-                raise ValueError("JSON report must be outside the static build")
-            # Exclusive creation prevents concurrent CI jobs from overwriting a report.
-            with path.open("x", encoding="utf-8", newline="\n") as artifact:
-                created = True
-                info = os.fstat(artifact.fileno())
-                created_identity = (info.st_dev, info.st_ino)
-                artifact.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+            # Render all payloads before creating any report.
+            if args.json_file:
+                reports.append((
+                    args.json_file, "JSON", json.dumps(report, indent=2, sort_keys=True),
+                ))
+            if args.junit_file:
+                reports.append((
+                    args.junit_file, "JUnit", build_current_robots_junit(report),
+                ))
+            targets = [path.resolve() for path, _, _ in reports]
+            if len(set(targets)) != len(targets):
+                raise ValueError("All report destinations must be distinct files")
+            root = args.build_dir.resolve(strict=True)
+            for (path, label, _), target in zip(reports, targets, strict=True):
+                if target.is_relative_to(root):
+                    raise ValueError(f"{label} report must be outside the static build")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"{label} report already exists: {path}")
+                if not path.parent.is_dir():
+                    raise ValueError(
+                        f"{label} report parent must be an existing directory: {path.parent}"
+                    )
+            for path, _, payload in reports:
+                # Exclusive creation prevents concurrent CI jobs from overwriting reports.
+                with path.open("x", encoding="utf-8", newline="\n") as artifact:
+                    created_outputs.append((path, None))
+                    info = os.fstat(artifact.fileno())
+                    created_outputs[-1] = (path, (info.st_dev, info.st_ino))
+                    artifact.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            cleanup = ""
-            if created:
+            cleanup_errors: list[OSError] = []
+            cleanup_skipped = 0
+            for path, created_identity in reversed(created_outputs):
                 try:
                     current = path.lstat()
                     if (
@@ -192,16 +216,24 @@ def main(argv: list[str] | None = None) -> int:
                         or (current.st_dev, current.st_ino) != created_identity
                     ):
                         # A foreign replacement is not ours to delete.
-                        cleanup = "; partial report cleanup skipped: file identity changed or unavailable"
+                        cleanup_skipped += 1
                     else:
                         path.unlink()
                 except FileNotFoundError:
                     pass
                 except OSError as cleanup_error:
-                    cleanup = (
-                        "; partial report cleanup failed: "
-                        f"{human_input_error(cleanup_error)}"
-                    )
+                    cleanup_errors.append(cleanup_error)
+            cleanup = ""
+            if cleanup_skipped:
+                cleanup += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
+            if cleanup_errors:
+                cleanup += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
             print(f"Invalid input: {human_input_error(error)}{cleanup}", file=sys.stderr)
             return 2
         if args.github_annotations:
