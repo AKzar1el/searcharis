@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -188,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     gate_targets = args.fail_on_new_unverified_targets
     file_modes = (args.json_file, args.junit_file, args.markdown_file, args.sarif_file)
     if any(file_modes):
+        created_outputs: list[tuple[Path, tuple[int, int]]] = []
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((
@@ -234,9 +236,38 @@ def main(argv: list[str] | None = None) -> int:
                     )
             for path, _, payload in reports:
                 with path.open("x", encoding="utf-8", newline="\n") as report:
+                    created = os.fstat(report.fileno())
+                    created_outputs.append((path, (created.st_dev, created.st_ino)))
                     report.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            cleanup_errors: list[OSError] = []
+            cleanup_skipped = 0
+            for path, identity in reversed(created_outputs):
+                try:
+                    current = path.lstat()
+                    # A competing writer may have replaced our report.
+                    # Never remove a file whose identity cannot be verified.
+                    if (
+                        not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
+                    path.unlink()
+                except OSError as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            message = f"Invalid input: {human_input_error(error)}"
+            if cleanup_skipped:
+                message += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
+            if cleanup_errors:
+                message += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
+            print(message, file=sys.stderr)
             return 2
     elif args.sarif:
         sarif = build_comparison_sarif(

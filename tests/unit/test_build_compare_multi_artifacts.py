@@ -1,7 +1,9 @@
 """A single offline comparison can supply CI machines and human reviewers."""
 
 import json
+import os
 import socket
+from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
@@ -122,3 +124,100 @@ def test_combined_artifacts_with_reviewed_sarif_source_map(tmp_path, capsys, mon
     assert location["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/home.html"
     assert markdown.exists()
     assert capsys.readouterr().out == ""
+
+
+def _fail_report_write(monkeypatch, target, *, replace=False):
+    original_open = Path.open
+
+    class FailingReport:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            result = self.handle.__exit__(exc_type, exc_value, traceback)
+            if replace:
+                replacement = target.with_suffix(".replacement")
+                replacement.write_text("other writer's report", encoding="utf-8")
+                os.replace(replacement, target)
+            return result
+
+        def fileno(self):
+            return self.handle.fileno()
+
+        def write(self, text):
+            self.handle.write(text[:12])
+            self.handle.flush()
+            raise OSError("simulated comparison report write failure")
+
+    def intercepted_open(self, mode="r", *args, **kwargs):
+        handle = original_open(self, mode, *args, **kwargs)
+        if self == target and mode == "x":
+            return FailingReport(handle)
+        return handle
+
+    monkeypatch.setattr(Path, "open", intercepted_open)
+
+
+@pytest.mark.parametrize("flag,suffix", [
+    ("--json-file", ".json"), ("--sarif-file", ".sarif"),
+])
+@pytest.mark.parametrize("replaced", [False, True])
+def test_failed_comparison_report_write_preserves_only_foreign_replacements(
+    tmp_path, monkeypatch, capsys, flag, suffix, replaced,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    report = tmp_path / ("comparison" + suffix)
+    _fail_report_write(monkeypatch, report, replace=replaced)
+
+    assert _run(manifest, baseline, candidate, flag, report) == 2
+    output = capsys.readouterr()
+    assert "simulated comparison report write failure" in output.err
+    assert output.out == ""
+    if replaced:
+        assert report.read_text(encoding="utf-8") == "other writer's report"
+        assert "cleanup skipped" in output.err
+    else:
+        assert not report.exists(), "failed comparison retained its partial artifact"
+
+
+def test_late_comparison_report_failure_cleans_prior_successful_artifacts(
+    tmp_path, monkeypatch, capsys,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    earlier = tmp_path / "comparison.json"
+    later = tmp_path / "comparison.sarif"
+    _fail_report_write(monkeypatch, later)
+
+    assert _run(manifest, baseline, candidate,
+                "--json-file", earlier, "--sarif-file", later) == 2
+    assert "simulated comparison report write failure" in capsys.readouterr().err
+    assert not earlier.exists()
+    assert not later.exists()
+
+
+@pytest.mark.parametrize("flag,suffix", [
+    ("--json-file", ".json"), ("--sarif-file", ".sarif"),
+])
+def test_comparison_report_cleanup_denial_is_reported(
+    tmp_path, monkeypatch, capsys, flag, suffix,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    report = tmp_path / ("comparison" + suffix)
+    _fail_report_write(monkeypatch, report)
+    original_unlink = Path.unlink
+
+    def deny_unlink(self, *args, **kwargs):
+        if self == report:
+            raise PermissionError("simulated cleanup refusal")
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", deny_unlink)
+    assert _run(manifest, baseline, candidate, flag, report) == 2
+    output = capsys.readouterr()
+    assert "simulated comparison report write failure" in output.err
+    assert "partial report cleanup failed" in output.err
+    assert report.exists()
