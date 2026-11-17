@@ -1646,8 +1646,12 @@ output is created. The original `--json`, `--junit`, and `--sarif` stdout
 modes remain mutually exclusive and cannot be mixed with file modes. Outputs
 use UTF-8 and preserve the single comparison's regression-only 0/1/2 exit
 code. Preflight protects against invalid destinations, but an unexpected I/O
-failure after writing starts can leave an earlier artifact; CI should discard
-artifacts from exit 2. This performs no hosted upload or URL fetch.
+failure after writing starts triggers best-effort cleanup of artifacts created
+by that invocation, including partially written output. Cleanup compares file
+identity before deletion so a replacement from another process is preserved;
+skipped or denied cleanup is reported on stderr. This is not an atomic
+transaction, and CI should still discard artifacts from exit 2. This performs
+no hosted upload or URL fetch.
 
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
