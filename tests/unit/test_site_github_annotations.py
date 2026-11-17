@@ -94,17 +94,50 @@ def test_annotation_mode_remains_exclusive_and_input_errors_do_not_emit_commands
     tmp_path, capsys,
 ):
     root, manifest = _build(tmp_path)
-    for option in ("--json", "--sarif", "--json-file", "--sarif-file"):
+    for option in ("--json", "--sarif"):
         args = [str(manifest), str(root), "--github-annotations", option]
-        if option.endswith("-file"):
-            args.append(str(tmp_path / "report.json"))
         with pytest.raises(SystemExit) as exc:
             main(args)
         assert exc.value.code == 2
-        assert not (tmp_path / "report.json").exists()
         capsys.readouterr()
     manifest.write_text("{bad", encoding="utf-8")
     assert main([str(manifest), str(root), "--github-annotations"]) == 2
     output = capsys.readouterr()
     assert output.out == ""
     assert "Invalid input:" in output.err
+
+
+@pytest.mark.parametrize("file_option", ("--json-file", "--sarif-file"))
+def test_annotations_coexist_with_create_only_report_files(tmp_path, capsys, file_option):
+    root, manifest = _build(tmp_path, title_expected="Missing")
+    report_path = tmp_path / ("result.json" if file_option == "--json-file" else "result.sarif")
+    args = [str(manifest), str(root), "--github-annotations", file_option, str(report_path)]
+
+    assert main(args) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert len(output.out.splitlines()) == 1
+    assert output.out.startswith("::error title=SEO page issue::")
+    saved = json.loads(report_path.read_text(encoding="utf-8"))
+    if file_option == "--json-file":
+        assert saved["status"] == "fail"
+    else:
+        assert saved["version"] == "2.1.0"
+
+
+@pytest.mark.parametrize("file_option", ("--json-file", "--sarif-file"))
+def test_annotations_with_report_file_silent_on_pass_and_write_errors(
+    tmp_path, capsys, file_option,
+):
+    root, manifest = _build(tmp_path)
+    report_path = tmp_path / ("result.json" if file_option == "--json-file" else "result.sarif")
+    args = [str(manifest), str(root), "--github-annotations", file_option, str(report_path)]
+
+    assert main(args) == 0
+    assert capsys.readouterr().out == ""
+    before = report_path.read_bytes()
+    assert main(args) == 2
+    error = capsys.readouterr()
+    assert error.out == ""
+    assert "already exists" in error.err
+    assert report_path.read_bytes() == before

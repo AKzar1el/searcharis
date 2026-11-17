@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "--sarif-file", type=Path, metavar="PATH",
         help="Write SARIF 2.1.0 to a new UTF-8 file; never overwrite existing files",
     )
-    output.add_argument(
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Print bounded GitHub Actions error commands for blocking built-site checks",
     )
@@ -139,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional JSON map of built HTML to existing repository source files (SARIF only)",
     )
     args = parser.parse_args(argv)
+    if args.github_annotations and (args.json or args.sarif):
+        parser.error("--github-annotations cannot be combined with JSON or SARIF stdout")
     if args.sarif_source_map and not (args.sarif or args.sarif_file):
         parser.error("--sarif-source-map requires --sarif or --sarif-file")
 
@@ -185,6 +187,10 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
             return 2
+        if args.github_annotations:
+            # Emit commands only after the requested report was saved successfully.
+            for line in format_github_annotations(report):
+                print(line)
     elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.sarif:

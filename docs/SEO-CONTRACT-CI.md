@@ -572,6 +572,8 @@ site checker can print inline error annotations without a SARIF upload:
 ```sh
 uv run python -m searcharis.site_cli seo-manifest.json dist \
   --require-full-coverage --github-annotations
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --json-file seo-report.json --github-annotations
 ```
 
 `--github-annotations` is opt-in and emits at most 20 escaped workflow
@@ -582,8 +584,10 @@ comparison command, this checks the **current build**, so failures are not
 classified as newly introduced regressions. Passing runs emit no commands,
 invalid input returns exit 2 without annotations, and ordinary pass/fail
 status stays 0/1. GitHub renders the commands only when this CLI runs inside
-an Actions step. This stdout mode cannot be mixed with JSON or SARIF output
-modes; built HTML paths are not asserted to be repository source lines.
+an Actions step. Annotations can accompany create-only `--json-file` or
+`--sarif-file` in one verification run, and are printed only after the
+report file is saved successfully. They cannot be mixed with `--json` or
+`--sarif` **stdout** modes; built HTML paths are not asserted to be source lines.
 No workflow is edited and no public URL is fetched.
 
 ```sh
