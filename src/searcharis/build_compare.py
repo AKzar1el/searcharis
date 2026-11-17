@@ -9,7 +9,11 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
-from searcharis.report_compare import compare_reports, print_comparison
+from searcharis.report_compare import (
+    compare_reports,
+    format_github_annotations,
+    print_comparison,
+)
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_comparison_junit
 from searcharis.site_sarif import build_comparison_sarif
@@ -111,6 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         "--junit", action="store_true",
         help="Print JUnit XML test results only for new blocking regressions",
     )
+    stdout.add_argument(
+        "--github-annotations", action="store_true",
+        help="Print bounded GitHub Actions errors for only newly blocking regressions",
+    )
     parser.add_argument(
         "--junit-file", type=Path, metavar="PATH",
         help="Write JUnit XML directly to a new file; never overwrite existing files",
@@ -126,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.sarif_source_map and not (args.sarif or args.sarif_file):
         parser.error("--sarif-source-map requires --sarif or --sarif-file")
-    if (args.json or args.sarif or args.junit) and (
+    if (args.json or args.sarif or args.junit or args.github_annotations) and (
         args.json_file or args.sarif_file or args.junit_file or args.markdown_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
@@ -241,6 +249,12 @@ def main(argv: list[str] | None = None) -> int:
             result, gate_new_unlisted=gate_unlisted,
             gate_new_unverified_targets=gate_targets,
         ))
+    elif args.github_annotations:
+        for line in format_github_annotations(
+            result, gate_new_unlisted=gate_unlisted,
+            gate_new_unverified_targets=gate_targets,
+        ):
+            print(line)
     else:
         print_comparison(
             result, as_json=args.json,

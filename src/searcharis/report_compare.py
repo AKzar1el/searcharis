@@ -415,6 +415,57 @@ def _label(value: str, *, limit: int = 120) -> str:
     return display if len(display) <= limit else display[:limit - 3] + "..."
 
 
+def format_github_annotations(
+    result: dict, *, gate_new_unlisted: bool = False,
+    gate_new_unverified_targets: bool = False,
+) -> list[str]:
+    """Return bounded, new-only GitHub Actions error commands without fake source lines."""
+    groups = [
+        ("new issue", result["new_issues"]),
+        ("removed page", result["removed_pages"]),
+        ("new unlisted HTML", result["new_unlisted"] if gate_new_unlisted else []),
+        (
+            "new unverified target",
+            result["new_unverified_targets"] if gate_new_unverified_targets else [],
+        ),
+    ]
+
+    def snippet(value: object) -> str:
+        text = repr(value)
+        return text if len(text) <= 100 else text[:97] + "..."
+
+    annotations: list[str] = []
+    for index, (kind, items) in enumerate(groups):
+        # Reserve one example for each later category, even if issues dominate.
+        reserved = sum(bool(other) for _, other in groups[index + 1:])
+        take = max(0, _MAX_HUMAN_DETAILS - len(annotations) - reserved)
+        for item in items[:take]:
+            if kind == "new issue":
+                issue = item["issue"]
+                message = (
+                    f"{snippet(item['path'])} ({snippet(item['checked_url'])}): "
+                    f"{snippet(issue['code'])}; expected {snippet(issue['expected'])}, "
+                    f"observed {snippet(issue['actual'])}"
+                )
+            elif kind == "removed page":
+                message = f"{snippet(item['path'])} ({snippet(item['checked_url'])})"
+            elif kind == "new unlisted HTML":
+                message = snippet(item)
+            else:
+                message = (
+                    f"{snippet(item['check'])} {snippet(item['path'])}: "
+                    f"{snippet(item['target'])}"
+                )
+            # A built path is not a repository source location. Do not invent
+            # file/line metadata; escape workflow-command payload characters.
+            message = (
+                message.replace("%", "%25").replace("\r", "%0D")
+                .replace("\n", "%0A").replace("::", ": :")
+            )
+            annotations.append(f"::error title=SEO {kind}::{message}")
+    return annotations
+
+
 def _print_omitted(items: list, category: str) -> None:
     remaining = len(items) - _MAX_HUMAN_DETAILS
     if remaining > 0:
