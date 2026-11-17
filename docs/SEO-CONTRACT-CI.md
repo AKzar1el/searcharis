@@ -566,6 +566,26 @@ manifest; on invalid HTML input, no manifest is created. This is an optional
 initial feedback loop, not a replacement for checking the reviewed, committed
 manifest via `site_cli` on future CI builds. No network URLs are fetched.
 
+For a GitHub Actions job that checks a reviewed static build, the standalone
+site checker can print inline error annotations without a SARIF upload:
+
+```sh
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --github-annotations
+```
+
+`--github-annotations` is opt-in and emits at most 20 escaped workflow
+`::error` commands for failing reviewed-page assertions and, only with
+`--require-full-coverage`, unlisted built HTML. It reserves space for strict
+coverage findings even when many pages fail. Unlike the separate build
+comparison command, this checks the **current build**, so failures are not
+classified as newly introduced regressions. Passing runs emit no commands,
+invalid input returns exit 2 without annotations, and ordinary pass/fail
+status stays 0/1. GitHub renders the commands only when this CLI runs inside
+an Actions step. This stdout mode cannot be mixed with JSON or SARIF output
+modes; built HTML paths are not asserted to be repository source lines.
+No workflow is edited and no public URL is fetched.
+
 ```sh
 uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
   --check-built --output seo-manifest.json
