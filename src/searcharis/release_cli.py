@@ -201,9 +201,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--require-robots-sitemap requires --reviewed-robots")
     if args.sarif_source_map and not args.sarif_file:
         parser.error("--sarif-source-map requires --sarif-file")
-    if (args.json or args.junit or args.github_annotations) and (
-        args.json_file or args.junit_file or args.markdown_file or args.sarif_file
-    ):
+    report_files_requested = any((
+        args.json_file, args.junit_file, args.markdown_file, args.sarif_file,
+    ))
+    if (args.json or args.junit) and report_files_requested:
         parser.error("stdout report mode is not allowed with file report modes")
 
     try:
@@ -254,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     report = {"status": status, "site": site, "sitemap": sitemap}
     if robots is not None:
         report["robots"] = robots
-    if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
+    if report_files_requested:
         created_outputs: list[tuple[Path, tuple[int, int]]] = []
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
@@ -328,15 +329,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
             print(message, file=sys.stderr)
             return 2
+    if args.github_annotations:
+        # Emit commands only after every requested artifact has been written.
+        for line in _github_annotations(site, sitemap, robots):
+            print(line)
     elif args.junit:
         print(build_release_junit(site, sitemap, robots))
     elif args.json:
         serialized = json.dumps(report, indent=2, sort_keys=True)
         print(serialized)
-    elif args.github_annotations:
-        for line in _github_annotations(site, sitemap, robots):
-            print(line)
-    else:
+    elif not report_files_requested:
         pages = site["summary"]
         xml = sitemap["summary"]
         print(f"{site['status'].upper()} HTML: {pages['passed']}/{pages['checked']} "

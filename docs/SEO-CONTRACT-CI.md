@@ -1201,7 +1201,8 @@ release gate with `--github-annotations`:
 
 ```sh
 uv run python -m searcharis.release_cli manifest.json dist sitemap.xml \
-  --require-full-coverage --reject-unreviewed-urls --github-annotations
+  --require-full-coverage --reject-unreviewed-urls --github-annotations \
+  --json-file release.json --junit-file release.xml
 ```
 
 The flag writes only GitHub Actions `::error` workflow commands to stdout,
@@ -1210,10 +1211,14 @@ categories. A large HTML failure cannot hide a separate sitemap or optional
 robots.txt failure. Passing runs emit no annotations; unlisted built HTML or
 unreviewed sitemap URLs are *not* annotated unless their respective explicit
 gates are enabled. A reviewed robots policy is checked only with
-`--reviewed-robots`. Input errors still exit **2** to stderr; ordinary pass
-and policy-failure exit codes remain **0** and **1**. The new mode is mutually
-exclusive with `--json`, `--junit`, or report-file output. Use a structured
-report separately when all details are needed.
+`--reviewed-robots`. The flag can accompany create-only `--json-file`,
+`--junit-file`, `--markdown-file` and `--sarif-file` outputs in one offline
+check. Annotations are emitted only after every requested artifact was
+written successfully; input or artifact errors exit **2** to stderr without
+annotations. Ordinary pass and policy-failure exit codes remain **0** and
+**1**. `--json` and `--junit` stdout modes remain mutually exclusive with
+annotations and file output. Existing destinations are never overwritten;
+structured files retain findings beyond the 20-annotation cap.
 
 Only a configured GitHub Actions runner interprets these log commands as
 annotations. This option does not modify workflow files, upload a report,
