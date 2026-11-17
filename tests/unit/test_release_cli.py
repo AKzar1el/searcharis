@@ -927,12 +927,66 @@ def test_release_github_annotations_input_error_does_not_emit_commands(tmp_path,
     assert "Invalid input:" in output.err
 
 
-def test_release_github_annotations_excludes_file_modes(tmp_path, capsys):
+def test_release_github_annotations_and_four_artifacts_in_one_pass(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")
+    _sitemap(sitemap, ["https://example.test/draft"])
+    targets = [tmp_path / name for name in ("report.json", "report.xml", "report.md", "report.sarif")]
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--github-annotations", "--json-file", str(targets[0]),
+                 "--junit-file", str(targets[1]),
+                 "--markdown-file", str(targets[2]),
+                 "--sarif-file", str(targets[3])])
+    output = capsys.readouterr()
+    assert code == 1 and output.err == ""
+    assert output.out.splitlines()
+    assert all(line.startswith("::error title=SEO ") for line in output.out.splitlines())
+    assert json.loads(targets[0].read_text(encoding="utf-8"))["status"] == "fail"
+    assert "testsuite" in targets[1].read_text(encoding="utf-8")
+    assert "SEO" in targets[2].read_text(encoding="utf-8")
+    assert json.loads(targets[3].read_text(encoding="utf-8"))["version"] == "2.1.0"
+
+
+def test_release_github_annotations_and_artifact_pass_silently(tmp_path, capsys):
     manifest, build, sitemap = _fixture(tmp_path)
     target = tmp_path / "report.json"
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--github-annotations", "--json-file", str(target)]) == 0
+    output = capsys.readouterr()
+    assert output.out == "" and output.err == ""
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
+
+
+def test_release_github_annotations_suppress_stdout_on_late_artifact_failure(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    _sitemap(sitemap, ["https://example.test/draft"])
+    first = tmp_path / "report.json"
+    later = tmp_path / "report.xml"
+    real_open = Path.open
+
+    def fail_late_write(self, mode="r", *args, **kwargs):
+        if self == later and mode == "x":
+            raise OSError("simulated late artifact failure")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_late_write)
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--github-annotations", "--json-file", str(first),
+                 "--junit-file", str(later)]) == 2
+    output = capsys.readouterr()
+    assert output.out == "" and "simulated late artifact failure" in output.err
+    assert not first.exists() and not later.exists()
+
+
+@pytest.mark.parametrize("stdout_flag", ["--json", "--junit"])
+def test_release_github_annotations_still_exclude_other_stdout_modes(
+    tmp_path, capsys, stdout_flag,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
     with pytest.raises(SystemExit) as error:
         main([str(manifest), str(build), str(sitemap),
-              "--github-annotations", "--json-file", str(target)])
+              "--github-annotations", stdout_flag])
     assert error.value.code == 2
     assert "not allowed" in capsys.readouterr().err
-    assert not target.exists()
