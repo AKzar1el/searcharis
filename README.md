@@ -142,8 +142,9 @@ reachable from unreviewed or JavaScript-created navigation.
 
 For static XML sitemap coverage, the optional `sitemap_cli` checks one or more
 explicit local sitemap URL sets against reviewed `indexable: true/false` page
-contracts. It never fetches URLs, resolves sitemap indexes, or guesses which
-pages should be indexed.
+contracts. It can also read a locally supplied `--sitemap-index` and its
+adjacent XML/XML.gz shards. It never fetches URLs, discovers remote sitemaps,
+or guesses which pages should be indexed.
 Try the [offline HTML + sitemap release-gate demo](examples/seo-contract/release-demo/README.md)
 to check both policies together against a compiled two-page Vite snapshot
 with positive and negative acceptance tests; no cloud or site deployment is
