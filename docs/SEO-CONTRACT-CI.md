@@ -584,11 +584,29 @@ comparison command, this checks the **current build**, so failures are not
 classified as newly introduced regressions. Passing runs emit no commands,
 invalid input returns exit 2 without annotations, and ordinary pass/fail
 status stays 0/1. GitHub renders the commands only when this CLI runs inside
-an Actions step. Annotations can accompany create-only `--json-file` or
-`--sarif-file` in one verification run, and are printed only after the
-report file is saved successfully. They cannot be mixed with `--json` or
+an Actions step. Annotations can accompany create-only `--json-file`,
+`--sarif-file` or `--junit-file` in one verification run. Commands are printed
+only after the report file is saved. They cannot be mixed with `--json` or
 `--sarif` **stdout** modes; built HTML paths are not asserted to be source lines.
 No workflow is edited and no public URL is fetched.
+
+For GitLab, Jenkins or another CI system that ingests JUnit XML, use the
+standalone site checker without requiring a sitemap or robots.txt policy:
+
+```sh
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --junit-file reports/site.xml
+```
+
+Create the `reports/` directory beforehand. This produces one XML test suite
+for reviewed HTML assertions and, with strict coverage, unlisted local HTML.
+A passing run has one successful placeholder testcase; a failing run has one
+testcase per blocking finding. Exit 0/1/2 remains the authoritative CI gate.
+The create-only UTF-8-compatible file never overwrites an existing report,
+creates a missing parent, or writes inside `dist`. The option is exclusive
+with the other standalone report modes, but can accompany GitHub annotations.
+Neither CI upload nor workflow configuration is automatic; actual adoption
+and ingestion remain unmeasured until independently verified.
 
 ```sh
 uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \

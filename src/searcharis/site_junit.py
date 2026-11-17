@@ -31,6 +31,56 @@ def _bounded(value: object, *, limit: int = 480) -> str:
     return cleaned if len(cleaned) <= limit else cleaned[:limit - 3] + "..."
 
 
+def build_site_junit(site: dict) -> str:
+    """Serialize only blocking reviewed-page and strict-coverage findings."""
+    failures: list[tuple[str, str, str]] = []
+    for page in site["pages"]:
+        for issue in page["issues"]:
+            details = (
+                f"Built page: {_bounded(page['path'])}; "
+                f"URL: {_bounded(page['checked_url'])}; "
+                f"expected: {_bounded(issue.get('expected'))}; "
+                f"observed: {_bounded(issue.get('actual'))}"
+            )
+            if "target" in issue:
+                details += f"; linked target: {_bounded(issue['target'])}"
+            failures.append((
+                f"{page['path']} :: {issue['code']}",
+                f"HTML contract mismatch: {issue['code']}",
+                details,
+            ))
+    if site["coverage"]["require_full_coverage"]:
+        for path in site["coverage"]["unlisted"]:
+            failures.append((
+                f"{path} :: unlisted_html",
+                "Unlisted HTML artifact",
+                f"Built HTML missing from reviewed manifest: {_bounded(path)}",
+            ))
+
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO reviewed-site gate",
+        tests=str(len(failures) or 1), failures=str(len(failures)),
+        errors="0", skipped="0",
+    )
+    if not failures:
+        ET.SubElement(
+            suite, "testcase", classname="searcharis.site", name="reviewed-site-passed",
+        )
+    else:
+        for index, (name, message, details) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.site",
+                name=_bounded(f"[{index}] {name}", limit=300),
+            )
+            ET.SubElement(case, "failure", message=_bounded(message)).text = (
+                _bounded(details, limit=1100)
+            )
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
 def build_comparison_junit(
     comparison: dict, *, gate_new_unlisted: bool = False,
     gate_new_unverified_targets: bool = False,
