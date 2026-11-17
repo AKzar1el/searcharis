@@ -2,10 +2,12 @@
 
 import gzip
 import json
+import os
 import socket
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
@@ -590,6 +592,101 @@ def test_multi_artifact_preflight_rejects_unusable_later_parent_without_partial_
     assert not first.exists() and not later.exists()
     if parent_type == "file":
         assert unusable_parent.read_text(encoding="utf-8") == "keep this file"
+
+
+@pytest.mark.parametrize("replace_first", [False, True])
+def test_release_later_report_failure_rolls_back_only_owned_files(
+    tmp_path, capsys, monkeypatch, replace_first,
+):
+    manifest, build, sitemap = _fixture(tmp_path)
+    first = tmp_path / "result.json"
+    later = tmp_path / "result.xml"
+    replacement = tmp_path / "other-writer.tmp"
+    replacement.write_bytes(b"other writer report")
+    real_open = Path.open
+
+    def fail_later_open(self, mode="r", *args, **kwargs):
+        if self == later and mode == "x":
+            if replace_first:
+                os.replace(replacement, first)
+            raise OSError("simulated late report write failure")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_later_open)
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(first), "--junit-file", str(later)])
+    result = capsys.readouterr()
+    assert code == 2 and result.out == ""
+    assert "simulated late report write failure" in result.err
+    assert not later.exists()
+    if replace_first:
+        assert first.read_bytes() == b"other writer report"
+        assert "cleanup skipped" in result.err
+    else:
+        assert not first.exists()
+
+
+def test_release_partial_report_write_failure_removes_fragment(tmp_path, capsys, monkeypatch):
+    manifest, build, sitemap = _fixture(tmp_path)
+    first = tmp_path / "result.json"
+    real_open = Path.open
+
+    class PartialWriter:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def write(self, payload):
+            self.stream.write(payload[:12])
+            raise OSError("simulated partial output write")
+
+    def fail_partial_write(self, mode="r", *args, **kwargs):
+        stream = real_open(self, mode, *args, **kwargs)
+        return PartialWriter(stream) if self == first and mode == "x" else stream
+
+    monkeypatch.setattr(Path, "open", fail_partial_write)
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(first)])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == ""
+    assert "simulated partial output write" in output.err
+    assert not first.exists()
+
+
+def test_release_reports_denied_partial_cleanup(tmp_path, capsys, monkeypatch):
+    manifest, build, sitemap = _fixture(tmp_path)
+    first = tmp_path / "result.json"
+    later = tmp_path / "result.xml"
+    real_open = Path.open
+    real_unlink = Path.unlink
+
+    def fail_later_open(self, mode="r", *args, **kwargs):
+        if self == later and mode == "x":
+            raise OSError("simulated later report failure")
+        return real_open(self, mode, *args, **kwargs)
+
+    def deny_cleanup(self, *args, **kwargs):
+        if self == first:
+            raise PermissionError("simulated cleanup denial")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_later_open)
+    monkeypatch.setattr(Path, "unlink", deny_cleanup)
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--json-file", str(first), "--junit-file", str(later)])
+    output = capsys.readouterr()
+    assert code == 2 and output.out == ""
+    assert "partial report cleanup failed (1)" in output.err
+    assert first.exists() and not later.exists()
 
 
 def test_release_junit_strict_coverage_is_blocking_only_when_enabled(tmp_path, capsys):

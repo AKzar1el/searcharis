@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -198,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     if robots is not None:
         report["robots"] = robots
     if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
+        created_outputs: list[tuple[Path, tuple[int, int]]] = []
         reports: list[tuple[Path, str, str]] = []
         if args.json_file:
             reports.append((args.json_file, "JSON", json.dumps(
@@ -237,9 +239,38 @@ def main(argv: list[str] | None = None) -> int:
             for path, _, payload in reports:
                 # Exclusive creation still protects against a post-preflight race.
                 with path.open("x", encoding="utf-8", newline="\n") as output:
+                    created = os.fstat(output.fileno())
+                    created_outputs.append((path, (created.st_dev, created.st_ino)))
                     output.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            cleanup_errors: list[OSError] = []
+            cleanup_skipped = 0
+            for path, identity in reversed(created_outputs):
+                try:
+                    current = path.lstat()
+                    # A concurrent process may have replaced our report.
+                    # Never unlink an unknown or unverifiable file identity.
+                    if (
+                        not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
+                    path.unlink()
+                except OSError as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            message = f"Invalid input: {human_input_error(error)}"
+            if cleanup_skipped:
+                message += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
+            if cleanup_errors:
+                message += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
+            print(message, file=sys.stderr)
             return 2
     elif args.junit:
         print(build_release_junit(site, sitemap, robots))
