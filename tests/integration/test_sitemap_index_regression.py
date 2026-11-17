@@ -4,6 +4,7 @@ import json
 import os
 import socket
 from html import escape
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -558,6 +559,407 @@ def test_markdown_file_requires_existing_parent(tmp_path, capsys):
     assert main([str(manifest), str(baseline), str(candidate), "--markdown-file", str(artifact)]) == 2
     assert not artifact.exists()
     assert "existing directory" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("regression,code", [(False, 0), (True, 1)])
+def test_sitemap_comparison_writes_json_junit_and_markdown_in_one_pass(
+    tmp_path, capsys, monkeypatch, regression, code,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    urls = ["https://example.test/"]
+    if regression:
+        urls.append("https://example.test/draft")
+    candidate = _snapshot(tmp_path, "candidate", *urls)
+    targets = [tmp_path / "comparison.json", tmp_path / "comparison.xml", tmp_path / "review.md"]
+
+    def deny_network(*args, **kwargs):
+        raise AssertionError("Sitemap report creation must remain offline")
+
+    monkeypatch.setattr(socket, "socket", deny_network)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(targets[0]),
+        "--junit-file", str(targets[1]),
+        "--markdown-file", str(targets[2]),
+    ]) == code
+    assert capsys.readouterr().out == ""
+    result = json.loads(targets[0].read_text(encoding="utf-8"))
+    assert result["summary"]["new"] == int(regression)
+    assert ET.parse(targets[1]).getroot().attrib["failures"] == str(int(regression))
+    assert "# Searcharis SEO sitemap comparison" in targets[2].read_text(encoding="utf-8")
+    assert all(target.read_bytes().endswith(b"\n") for target in targets)
+
+
+def test_sitemap_sarif_stdout_contains_only_new_regressions(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+
+    def deny_network(*args, **kwargs):
+        raise AssertionError("SARIF export must remain fully offline")
+
+    monkeypatch.setattr(socket, "socket", deny_network)
+    args = [str(manifest), str(baseline), str(candidate), "--sarif"]
+    assert main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["version"] == "2.1.0"
+    results = report["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "sitemap_present_excluded"
+    assert "https://example.test/draft" in results[0]["message"]["text"]
+    assert "https://example.test/about" not in results[0]["message"]["text"]
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "reviewed.json"
+    assert len(results[0]["partialFingerprints"]["searcharis/issue/v1"]) == 64
+    assert main(args) == 1
+    assert json.loads(capsys.readouterr().out) == report
+
+
+def test_sitemap_sarif_stdout_inherited_only_is_clean(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    assert main([str(manifest), str(baseline), str(candidate), "--sarif"]) == 0
+    assert json.loads(capsys.readouterr().out)["runs"][0]["results"] == []
+
+
+def test_github_annotations_only_new_gated_findings_and_offline(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+    monkeypatch.setattr(socket, "socket", lambda *a, **kw: pytest.fail("Network attempted"))
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--github-annotations",
+    ]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("::error title=Sitemap present_excluded::")
+    assert "https://example.test/draft" in lines[0]
+    assert "https://example.test/about" not in lines[0]
+
+
+def test_github_annotations_inherited_debt_has_no_output(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--github-annotations",
+    ]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_github_annotations_escape_untrusted_percent_and_command_text(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    attack = "https://example.test/new?x=%0A::error%20title=forged::payload"
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/", attack)
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--reject-unreviewed-urls",
+        "--github-annotations",
+    ]) == 1
+    output = capsys.readouterr().out
+    assert output.count("::error title=") == 1
+    assert "%250A" in output and "%2520" in output
+    assert "\n::error" not in output
+
+
+def test_github_annotations_bounded_fair_and_escapes_literal_controls():
+    from searcharis.sitemap_compare import format_github_annotations
+
+    findings = {
+        "missing_required": [f"https://example.test/missing/{n}" for n in range(40)],
+        "present_excluded": ["https://example.test/noindex"],
+        "present_noncanonical": ["https://example.test/canonical"],
+        "unreviewed_urls": ["https://example.test/unsafe%\n::error\rmore"],
+    }
+    lines = format_github_annotations({"new": findings})
+    assert len(lines) == 20
+    assert {category for category in findings if any(category in line for line in lines)} == set(findings)
+    assert all(line.startswith("::error title=Sitemap ") for line in lines)
+    assert all("\n" not in line and "\r" not in line for line in lines)
+    assert "%25" in lines[-1] or any("%25" in line for line in lines)
+
+
+def test_github_annotations_cannot_mix_with_file_reports(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate), "--github-annotations",
+            "--json-file", str(tmp_path / "out.json"),
+        ])
+
+
+def test_sitemap_sarif_includes_all_four_new_gated_categories(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["pages"].append({
+        "path": "alias.html",
+        "contract": {
+            "url": "https://example.test/alias",
+            "canonical": "https://example.test/",
+            "indexable": True,
+        },
+    })
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    baseline = _snapshot(
+        tmp_path, "baseline", "https://example.test/", "https://example.test/about",
+    )
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+        "https://example.test/alias", "https://example.test/unreviewed?<test=1&x=2",
+    )
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--reject-noncanonical-urls", "--reject-unreviewed-urls", "--sarif",
+    ]) == 1
+    report = json.loads(capsys.readouterr().out)
+    run = report["runs"][0]
+    assert {item["ruleId"] for item in run["results"]} == {
+        "sitemap_missing_required",
+        "sitemap_present_excluded",
+        "sitemap_present_noncanonical",
+        "sitemap_unreviewed_urls",
+    }
+    assert len(run["results"]) == 4
+    assert all(
+        item["level"] == "error" and
+        item["locations"][0]["physicalLocation"]["region"]["startLine"] == 1
+        for item in run["results"]
+    )
+
+
+def test_sitemap_sarif_stdout_is_exclusive_with_file_reports(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate),
+            "--sarif", "--json-file", str(tmp_path / "review.json"),
+        ])
+
+
+def test_sitemap_sarif_file_combines_with_other_reports(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(
+        tmp_path, "candidate", "https://example.test/", "https://example.test/draft",
+    )
+    targets = [tmp_path / name for name in (
+        "review.json", "review.xml", "review.md", "review.sarif",
+    )]
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(targets[0]), "--junit-file", str(targets[1]),
+        "--markdown-file", str(targets[2]), "--sarif-file", str(targets[3]),
+    ]) == 1
+    assert capsys.readouterr().out == ""
+    assert all(path.exists() for path in targets)
+    assert json.loads(targets[0].read_text(encoding="utf-8"))["summary"]["new"] == 1
+    assert ET.parse(targets[1]).getroot().attrib["failures"] == "1"
+    assert "1 new" in targets[2].read_text(encoding="utf-8")
+    assert len(json.loads(targets[3].read_text(encoding="utf-8"))["runs"][0]["results"]) == 1
+
+
+def test_sitemap_sarif_file_refuses_overwrite_without_creating_other_reports(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    protected = tmp_path / "protected.sarif"
+    protected.write_bytes(b"other owner")
+    json_path = tmp_path / "review.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(json_path), "--sarif-file", str(protected),
+    ]) == 2
+    assert protected.read_bytes() == b"other owner"
+    assert not json_path.exists()
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("root", ["baseline", "candidate"])
+def test_sitemap_sarif_file_rejects_write_inside_snapshots(tmp_path, capsys, root):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    target = tmp_path / root / "review.sarif"
+    assert main([
+        str(manifest), str(baseline), str(candidate), "--sarif-file", str(target),
+    ]) == 2
+    assert not target.exists()
+    assert capsys.readouterr().out == ""
+
+
+def test_multiple_sitemap_outputs_preflight_all_destinations(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    invalid = tmp_path / "missing-parent" / "comparison.xml"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(invalid),
+    ]) == 2
+    assert not first.exists() and not invalid.exists()
+    assert "existing directory" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_reject_duplicate_and_existing_files(tmp_path, capsys):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(first),
+    ]) == 2
+    assert not first.exists()
+    assert "distinct" in capsys.readouterr().err
+
+    existing = tmp_path / "existing.xml"
+    existing.write_bytes(b"important existing content")
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(existing),
+    ]) == 2
+    assert not first.exists()
+    assert existing.read_bytes() == b"important existing content"
+
+
+def test_multiple_sitemap_outputs_cleanup_after_later_open_failure(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    real_open = Path.open
+
+    def fail_second_open(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            raise OSError("simulated second-report I/O failure")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert not first.exists() and not second.exists()
+    assert "simulated second-report I/O failure" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_do_not_delete_replaced_report(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    replacement = tmp_path / "external-owner.txt"
+    replacement.write_text("concurrent owner's data", encoding="utf-8")
+    real_open = Path.open
+
+    def replace_then_fail(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            os.replace(replacement, first)
+            raise OSError("second report failed after replacement")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replace_then_fail)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert first.read_text(encoding="utf-8") == "concurrent owner's data"
+    assert not second.exists()
+    assert "cleanup skipped" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_report_cleanup_denial(tmp_path, capsys, monkeypatch):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+    real_open = Path.open
+    real_unlink = Path.unlink
+
+    def fail_second_open(path, mode="r", *args, **kwargs):
+        if path == second and mode == "x":
+            raise OSError("second output failed")
+        return real_open(path, mode, *args, **kwargs)
+
+    def deny_first_cleanup(path, *args, **kwargs):
+        if path == first:
+            raise PermissionError("cleanup denied")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    monkeypatch.setattr(Path, "unlink", deny_first_cleanup)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert first.exists() and not second.exists()
+    assert "partial report cleanup failed" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_reject_build_directory_before_writing(
+    tmp_path, capsys,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    forbidden = candidate.parent / "comparison.xml"
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(forbidden),
+    ]) == 2
+    assert not first.exists() and not forbidden.exists()
+    assert "outside both sitemap directories" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_serialization_error_creates_nothing(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    first = tmp_path / "comparison.json"
+    second = tmp_path / "comparison.xml"
+
+    def broken_junit(_result):
+        raise OSError("injected serializer error")
+
+    monkeypatch.setattr("searcharis.sitemap_compare.build_sitemap_comparison_junit", broken_junit)
+    assert main([
+        str(manifest), str(baseline), str(candidate),
+        "--json-file", str(first), "--junit-file", str(second),
+    ]) == 2
+    assert not first.exists() and not second.exists()
+    assert "injected serializer error" in capsys.readouterr().err
+
+
+def test_multiple_sitemap_outputs_preserve_stdout_exclusivity(tmp_path):
+    manifest = _manifest(tmp_path)
+    baseline = _snapshot(tmp_path, "baseline", "https://example.test/")
+    candidate = _snapshot(tmp_path, "candidate", "https://example.test/")
+    with pytest.raises(SystemExit, match="2"):
+        main([
+            str(manifest), str(baseline), str(candidate), "--json",
+            "--json-file", str(tmp_path / "comparison.json"),
+            "--junit-file", str(tmp_path / "comparison.xml"),
+        ])
 
 
 def test_markdown_bounded_findings_preserve_all_new_categories():

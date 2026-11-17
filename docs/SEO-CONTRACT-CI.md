@@ -1918,12 +1918,43 @@ CI systems that ingest **JUnit XML** can use `--junit` for stdout or
 artifact. Each **new** gated missing/index-excluded/noncanonical/unreviewed
 URL becomes one failed testcase; inherited or resolved findings do not fail
 the suite. A no-regression comparison emits one passing testcase, even when
-the baseline has known defects. JUnit and JSON output modes are mutually
-exclusive per invocation; run the comparator separately to collect both.
-JUnit files observe the same existing-parent, no-overwrite, outside-both-builds
-and partial-new-artifact cleanup rules as JSON files. Report output does not
+the baseline has known defects. JSON, JUnit, Markdown and SARIF **stdout**
+modes are mutually exclusive. Their `--json-file`, `--junit-file`,
+`--markdown-file` and `--sarif-file` options can instead be combined in one
+invocation; stdout modes cannot be mixed with file modes. All report files observe the same
+existing-parent, no-overwrite, outside-both-builds and partial-new-artifact
+cleanup rules. Report output does not
 alter exit codes (0 pass, 1 new regression, 2 input/output error). A passing
 JUnit suite cannot establish public indexing, deployed URLs or customer usage.
+
+For SARIF 2.1.0 consumers, `--sarif` prints deterministic JSON to stdout;
+`--sarif-file reports/sitemap-regressions.sarif` creates a portable artifact.
+Only newly blocking URL findings become SARIF errors; inherited debt and
+resolved URLs are excluded. Findings reuse the offline release gate's stable
+SHA-256 fingerprints and anchor to line 1 of the **reviewed manifest**, not
+an invented XML or source-template line. They require a separately configured
+SARIF consumer; the checker does not upload results or edit CI workflows.
+
+GitHub Actions users can opt in to inline errors without SARIF upload or a
+third-party action by running the comparator directly in an Actions step:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --github-annotations
+```
+
+`--github-annotations` prints GitHub Actions `::error` workflow commands for
+**newly blocking** findings only. Inherited and resolved issues produce no
+annotations; a passing comparison emits no workflow commands. At most 20 URL
+examples are shown, reserving room for each populated category. URLs are
+bounded and escaped as untrusted log text (including percent and line endings),
+and no invented source-file or line annotations are attached. Exit codes stay
+0/1/2. This opt-in stdout mode is exclusive with JSON, JUnit, Markdown, SARIF
+stdout modes and all report-file options. Use `--json-file` or `--sarif-file`
+in a separate run when complete machine-readable results are needed. These
+commands are interpreted by GitHub Actions runners; they do not upload SARIF,
+fetch site URLs, or prove indexing, traffic, adoption or revenue.
 
 For human reviewers, use `--markdown` to print a bounded Markdown summary or
 `--markdown-file reports/sitemap-review.md` to create a portable UTF-8 artifact:
@@ -1937,12 +1968,27 @@ uv run python -m searcharis.sitemap_compare \
 The summary distinguishes **new blocking**, **inherited nonblocking**, and
 **resolved** sitemap findings, with up to 20 HTML-escaped URL examples and at
 least one example from each populated new-finding category. It gives fixed
-reviewer next steps without treating URL text as instructions. Markdown is
-mutually exclusive with other output formats in one invocation; use a second
-invocation for JSON or JUnit. File output is create-only, requires an existing
-parent, rejects both build directories and attempts cleanup of a new partial
-report on failure. The report is not evidence of live indexing or actual
-deployment and is not automatically uploaded.
+reviewer next steps without treating URL text as instructions. All file formats
+can be collected from one offline comparison, for example:
+
+```sh
+uv run python -m searcharis.sitemap_compare \
+  manifest.json baseline-dist/sitemap-index.xml candidate-dist/sitemap-index.xml \
+  --json-file reports/sitemap-comparison.json \
+  --junit-file reports/sitemap-comparison.xml \
+  --markdown-file reports/sitemap-review.md \
+  --sarif-file reports/sitemap-regressions.sarif
+```
+
+All destinations are preflighted before the first write, must be distinct and
+create-only with existing parents outside either build. A later write error
+returns exit 2 and attempts to remove only files created by this invocation;
+if cleanup is denied or a created path has been replaced by another process,
+the error explicitly reports the remaining risk rather than deleting a
+different file. Cleanup is best-effort, not atomic against concurrent changes;
+CI consumers must always honor exit code 2 rather than ingesting leftover files.
+Reports are not evidence of live
+indexing or deployment and are not automatically uploaded.
 
 Both inputs must be independent non-overlapping local build directories
 containing index XML and adjacent XML/XML.gz shards. Their public index site

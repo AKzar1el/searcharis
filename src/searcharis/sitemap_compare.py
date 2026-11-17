@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_sitemap_comparison_markdown
+from searcharis.release_sarif import build_sitemap_regression_sarif
 from searcharis.site_ci import _page_url_identity, read_manifest
 from searcharis.site_junit import build_sitemap_comparison_junit
 from searcharis.sitemap_ci import (
@@ -109,6 +111,27 @@ def compare_sitemap_reports(baseline: dict, candidate: dict) -> dict:
     }
 
 
+def format_github_annotations(result: dict) -> list[str]:
+    """Format bounded, regression-only GitHub Actions workflow commands."""
+    findings: list[str] = []
+    categories = (*_DEFAULT_CATEGORIES, "present_noncanonical", "unreviewed_urls")
+    for index, category in enumerate(categories):
+        urls = result["new"].get(category, [])
+        # Keep space for every later populated category before taking extras.
+        reserved = sum(bool(result["new"].get(key)) for key in categories[index + 1:])
+        take = max(0, _MAX_HUMAN_URLS - len(findings) - reserved)
+        for url in urls[:take]:
+            label = repr(url)
+            if len(label) > 200:
+                label = label[:197] + "..."
+            message = f"New sitemap regression ({category}): {label}"
+            # Workflow commands treat percent and line endings as escapes;
+            # URL content must never inject a second runner command.
+            message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            findings.append(f"::error title=Sitemap {category}::{message}")
+    return findings
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Gate new offline sitemap regressions, tolerating inherited debt",
@@ -140,29 +163,45 @@ def main(argv: list[str] | None = None) -> int:
         "--reject-unreviewed-urls", action="store_true",
         help="Gate newly introduced sitemap URLs absent from reviewed manifest",
     )
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json", action="store_true", help="Print full comparison as JSON")
-    output.add_argument(
+    stdout = parser.add_mutually_exclusive_group()
+    stdout.add_argument("--json", action="store_true", help="Print full comparison as JSON")
+    parser.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write complete JSON to a new UTF-8 file outside both builds",
     )
-    output.add_argument(
+    stdout.add_argument(
         "--junit", action="store_true",
         help="Print JUnit XML for only newly blocking sitemap regressions",
     )
-    output.add_argument(
+    parser.add_argument(
         "--junit-file", type=Path, metavar="PATH",
         help="Write regression-only JUnit XML to a new file outside both builds",
     )
-    output.add_argument(
+    stdout.add_argument(
         "--markdown", action="store_true",
         help="Print a bounded, reviewer-friendly Markdown regression summary",
     )
-    output.add_argument(
+    parser.add_argument(
         "--markdown-file", type=Path, metavar="PATH",
         help="Write a bounded UTF-8 Markdown summary to a new file outside both builds",
     )
+    stdout.add_argument(
+        "--sarif", action="store_true",
+        help="Print SARIF 2.1.0 for only newly blocking sitemap regressions",
+    )
+    stdout.add_argument(
+        "--github-annotations", action="store_true",
+        help="Print bounded GitHub Actions errors for only new sitemap regressions",
+    )
+    parser.add_argument(
+        "--sarif-file", type=Path, metavar="PATH",
+        help="Write regression-only SARIF to a new file outside both builds",
+    )
     args = parser.parse_args(argv)
+    if (args.json or args.junit or args.markdown or args.sarif or args.github_annotations) and (
+        args.json_file or args.junit_file or args.markdown_file or args.sarif_file
+    ):
+        parser.error("stdout report mode is not allowed with file report modes")
     baseline_single = args.single_sitemap or args.baseline_single_sitemap
     candidate_single = args.single_sitemap or args.candidate_single_sitemap
 
@@ -194,44 +233,82 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.junit_file or args.markdown_file:
-        path = args.json_file or args.junit_file or args.markdown_file
-        label = "JSON" if args.json_file else "JUnit" if args.junit_file else "Markdown"
-        created = False
+    if args.json_file or args.junit_file or args.markdown_file or args.sarif_file:
+        reports: list[tuple[Path, str, str]] = []
+        created_paths: list[tuple[Path, tuple[int, int]]] = []
         try:
-            if path.exists() or path.is_symlink():
-                raise FileExistsError(f"{label} comparison already exists: {path}")
-            if not path.parent.is_dir():
-                raise ValueError(
-                    f"{label} comparison parent must be an existing directory: {path.parent}"
-                )
-            # Comparing compiled site artifacts must never add a report to either build.
-            output_path = path.resolve()
-            if any(
-                output_path.is_relative_to(index.parent.resolve(strict=True))
-                for index in (args.baseline_index, args.candidate_index)
-            ):
-                raise ValueError(f"{label} comparison must be outside both sitemap directories")
-            with path.open("x", encoding="utf-8", newline="\n") as output_file:
-                created = True
-                payload = (
-                    json.dumps(result, indent=2, sort_keys=True) if args.json_file
-                    else build_sitemap_comparison_junit(result) if args.junit_file
-                    else build_sitemap_comparison_markdown(result)
-                )
-                output_file.write(payload + "\n")
+            # Serialize before creating anything: a later serializer failure
+            # must not leave an earlier format looking like a complete run.
+            if args.json_file:
+                reports.append((
+                    args.json_file, "JSON", json.dumps(result, indent=2, sort_keys=True),
+                ))
+            if args.junit_file:
+                reports.append((
+                    args.junit_file, "JUnit", build_sitemap_comparison_junit(result),
+                ))
+            if args.markdown_file:
+                reports.append((
+                    args.markdown_file, "Markdown", build_sitemap_comparison_markdown(result),
+                ))
+            if args.sarif_file:
+                reports.append((
+                    args.sarif_file, "SARIF", json.dumps(
+                        build_sitemap_regression_sarif(result, args.manifest),
+                        indent=2, sort_keys=True,
+                    ),
+                ))
+            targets = [path.resolve() for path, _, _ in reports]
+            if len(set(targets)) != len(targets):
+                raise ValueError("All comparison destinations must be distinct files")
+            build_roots = (
+                args.baseline_index.parent.resolve(strict=True),
+                args.candidate_index.parent.resolve(strict=True),
+            )
+            for (path, label, _), target in zip(reports, targets, strict=True):
+                if any(target.is_relative_to(root) for root in build_roots):
+                    raise ValueError(f"{label} comparison must be outside both sitemap directories")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"{label} comparison already exists: {path}")
+                if not path.parent.is_dir():
+                    raise ValueError(
+                        f"{label} comparison parent must be an existing directory: {path.parent}"
+                    )
+            for path, _, payload in reports:
+                # Exclusive creation protects against a post-preflight race.
+                with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                    created = os.fstat(output_file.fileno())
+                    created_paths.append((path, (created.st_dev, created.st_ino)))
+                    output_file.write(payload + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            if created:
+            cleanup_errors = []
+            cleanup_skipped = 0
+            for path, identity in reversed(created_paths):
                 try:
+                    current = path.lstat()
+                    # A concurrent process may have replaced this report.
+                    # Never unlink a file whose identity we cannot verify.
+                    if (
+                        not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
                     path.unlink()
                 except OSError as cleanup_error:
-                    print(
-                        f"Invalid input: {human_input_error(error)}; "
-                        f"partial report cleanup failed: {human_input_error(cleanup_error)}",
-                        file=sys.stderr,
-                    )
-                    return 2
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+                    cleanup_errors.append(cleanup_error)
+            message = f"Invalid input: {human_input_error(error)}"
+            if cleanup_skipped:
+                message += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
+            if cleanup_errors:
+                message += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
+            print(message, file=sys.stderr)
             return 2
     elif args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -239,6 +316,14 @@ def main(argv: list[str] | None = None) -> int:
         print(build_sitemap_comparison_junit(result))
     elif args.markdown:
         print(build_sitemap_comparison_markdown(result))
+    elif args.sarif:
+        print(json.dumps(
+            build_sitemap_regression_sarif(result, args.manifest),
+            indent=2, sort_keys=True,
+        ))
+    elif args.github_annotations:
+        for line in format_github_annotations(result):
+            print(line)
     else:
         summary = result["summary"]
         print(
