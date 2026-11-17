@@ -193,14 +193,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Write combined HTML and sitemap findings as new UTF-8 SARIF 2.1.0",
     )
     parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Create JSON, JUnit, Markdown and SARIF reports in an existing directory",
+    )
+    parser.add_argument(
         "--sarif-source-map", type=Path, metavar="PATH",
         help="Reviewed local build-to-source hints for HTML SARIF findings only",
     )
     args = parser.parse_args(argv)
     if args.require_robots_sitemap is not None and not args.reviewed_robots:
         parser.error("--require-robots-sitemap requires --reviewed-robots")
-    if args.sarif_source_map and not args.sarif_file:
-        parser.error("--sarif-source-map requires --sarif-file")
+    if args.sarif_source_map and not (args.sarif_file or args.report_dir):
+        parser.error("--sarif-source-map requires --sarif-file or --report-dir")
+    if args.report_dir:
+        if (args.json or args.junit or any((
+            args.json_file, args.junit_file, args.markdown_file, args.sarif_file,
+        ))):
+            parser.error("--report-dir is not allowed with other report output modes")
+        # Fixed create-only names keep CI upload paths predictable. All existing
+        # collision, build-tree and rollback checks still run on these targets.
+        args.json_file = args.report_dir / "seo-release.json"
+        args.junit_file = args.report_dir / "seo-release.xml"
+        args.markdown_file = args.report_dir / "seo-release.md"
+        args.sarif_file = args.report_dir / "seo-release.sarif"
     report_files_requested = any((
         args.json_file, args.junit_file, args.markdown_file, args.sarif_file,
     ))

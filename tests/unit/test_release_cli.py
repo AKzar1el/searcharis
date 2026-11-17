@@ -990,3 +990,101 @@ def test_release_github_annotations_still_exclude_other_stdout_modes(
               "--github-annotations", stdout_flag])
     assert error.value.code == 2
     assert "not allowed" in capsys.readouterr().err
+
+
+def test_release_report_dir_creates_four_ci_artifacts_in_one_pass(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports)])
+    output = capsys.readouterr()
+    assert code == 0 and output.out == "" and output.err == ""
+    assert sorted(path.name for path in reports.iterdir()) == [
+        "seo-release.json", "seo-release.md", "seo-release.sarif", "seo-release.xml",
+    ]
+    assert json.loads((reports / "seo-release.json").read_text(encoding="utf-8"))["status"] == "pass"
+    assert ET.parse(reports / "seo-release.xml").getroot().tag == "testsuite"
+    assert "SEO" in (reports / "seo-release.md").read_text(encoding="utf-8")
+    assert json.loads((reports / "seo-release.sarif").read_text(encoding="utf-8"))["version"] == "2.1.0"
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports)]) == 2
+    assert "already exists" in capsys.readouterr().err
+
+
+def test_release_report_dir_preserves_failure_exit_and_annotations(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    (build / "index.html").write_text("<html><head></head></html>", encoding="utf-8")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    code = main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports), "--github-annotations"])
+    output = capsys.readouterr()
+    assert code == 1 and output.err == ""
+    assert output.out.startswith("::error title=SEO ")
+    assert json.loads((reports / "seo-release.json").read_text(encoding="utf-8"))["status"] == "fail"
+    assert len(list(reports.iterdir())) == 4
+
+
+@pytest.mark.parametrize("directory", ["missing", "inside-build"])
+def test_release_report_dir_bad_destination_writes_nothing(tmp_path, capsys, directory):
+    manifest, build, sitemap = _fixture(tmp_path)
+    reports = tmp_path / "missing" if directory == "missing" else build / "reports"
+    if directory == "inside-build":
+        reports.mkdir()
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports), "--github-annotations"]) == 2
+    output = capsys.readouterr()
+    assert output.out == "" and "Invalid input:" in output.err
+    assert not reports.exists() or not list(reports.iterdir())
+
+
+def test_release_report_dir_preflights_existing_artifact(tmp_path, capsys):
+    manifest, build, sitemap = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    original = reports / "seo-release.sarif"
+    original.write_text("owner-data", encoding="utf-8")
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports)]) == 2
+    assert "already exists" in capsys.readouterr().err
+    assert original.read_text(encoding="utf-8") == "owner-data"
+    assert list(reports.iterdir()) == [original]
+
+
+def test_release_report_dir_late_failure_rolls_back_own_files(tmp_path, capsys, monkeypatch):
+    manifest, build, sitemap = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    later = reports / "seo-release.xml"
+    original_open = Path.open
+
+    def deny_second_report(self, mode="r", *args, **kwargs):
+        if self == later and mode == "x":
+            raise OSError("simulated report bundle failure")
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", deny_second_report)
+    assert main([str(manifest), str(build), str(sitemap),
+                 "--report-dir", str(reports), "--github-annotations"]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "simulated report bundle failure" in output.err
+    assert list(reports.iterdir()) == []
+
+
+@pytest.mark.parametrize("extra", [
+    ["--json"], ["--junit"], ["--json-file", "elsewhere.json"],
+    ["--junit-file", "elsewhere.xml"], ["--markdown-file", "elsewhere.md"],
+    ["--sarif-file", "elsewhere.sarif"],
+])
+def test_release_report_dir_rejects_ambiguous_modes(tmp_path, capsys, extra):
+    manifest, build, sitemap = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    with pytest.raises(SystemExit) as error:
+        main([str(manifest), str(build), str(sitemap), "--report-dir",
+              str(reports), *extra])
+    assert error.value.code == 2
+    assert "not allowed" in capsys.readouterr().err
+    assert list(reports.iterdir()) == []
