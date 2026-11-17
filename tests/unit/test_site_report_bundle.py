@@ -37,11 +37,12 @@ def _run(manifest, build, *args):
 
 
 def _bundle_paths(out):
-    return [out / "seo-site.json", out / "seo-site.xml", out / "seo-site.sarif"]
+    return [out / "seo-site.json", out / "seo-site.xml", out / "seo-site.md",
+            out / "seo-site.sarif"]
 
 
 @pytest.mark.parametrize("failing", [False, True])
-def test_bundle_writes_three_parseable_reports_one_pass(tmp_path, monkeypatch, capsys, failing):
+def test_bundle_writes_four_parseable_reports_one_pass(tmp_path, monkeypatch, capsys, failing):
     manifest, build, out = _inputs(tmp_path, failing=failing)
 
     def deny_network(*_args, **_kwargs):
@@ -50,12 +51,15 @@ def test_bundle_writes_three_parseable_reports_one_pass(tmp_path, monkeypatch, c
     monkeypatch.setattr(socket.socket, "connect", deny_network)
     assert _run(manifest, build, "--report-dir", out) == (1 if failing else 0)
     assert capsys.readouterr().out == ""
-    json_path, junit_path, sarif_path = _bundle_paths(out)
+    json_path, junit_path, markdown_path, sarif_path = _bundle_paths(out)
     findings = json.loads(json_path.read_text(encoding="utf-8"))
     suite = ET.fromstring(junit_path.read_bytes())
     sarif = json.loads(sarif_path.read_text(encoding="utf-8"))
     assert findings["status"] == ("fail" if failing else "pass")
     assert int(suite.attrib["failures"]) == (1 if failing else 0)
+    assert ("Result: FAIL" if failing else "Result: PASS") in markdown_path.read_text(
+        encoding="utf-8"
+    )
     assert sarif["version"] == "2.1.0"
     assert len(sarif["runs"][0]["results"]) == (1 if failing else 0)
     assert [p.name for p in sorted(out.iterdir())] == sorted(p.name for p in _bundle_paths(out))
@@ -162,7 +166,7 @@ def test_bundle_later_write_failure_cleans_owned_files_only(
         def write(self, text):
             self.handle.write(text[:10])
             self.handle.flush()
-            raise OSError("simulated third-report failure")
+            raise OSError("simulated later-report failure")
 
     def intercepted_open(self, mode="r", *args, **kwargs):
         handle = original_open(self, mode, *args, **kwargs)
@@ -174,7 +178,7 @@ def test_bundle_later_write_failure_cleans_owned_files_only(
     assert _run(manifest, build, "--report-dir", out, "--github-annotations") == 2
     output = capsys.readouterr()
     assert output.out == ""
-    assert "simulated third-report failure" in output.err
+    assert "simulated later-report failure" in output.err
     assert not (out / "seo-site.json").exists()
     assert not (out / "seo-site.xml").exists()
     if replace:

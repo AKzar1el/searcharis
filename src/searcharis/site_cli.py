@@ -12,6 +12,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.site_ci import read_manifest, verify_manifest
 from searcharis.site_junit import build_site_junit
+from searcharis.site_markdown import build_site_markdown
 from searcharis.site_sarif import build_sarif_report
 from searcharis.site_source_map import read_source_map
 
@@ -136,8 +137,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Write standalone reviewed-site JUnit XML to a new file for CI test reports",
     )
     parser.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write bounded HTML-escaped reviewer Markdown to a new file",
+    )
+    parser.add_argument(
         "--report-dir", type=Path, metavar="DIR",
-        help="Create JSON, JUnit and SARIF site reports in an existing directory",
+        help="Create JSON, JUnit, Markdown and SARIF site reports in an existing directory",
     )
     parser.add_argument(
         "--github-annotations", action="store_true",
@@ -150,11 +155,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.report_dir:
-        if any((args.json, args.sarif, args.json_file, args.sarif_file, args.junit_file)):
+        if any((args.json, args.sarif, args.json_file, args.sarif_file,
+                args.junit_file, args.markdown_file)):
             parser.error("--report-dir is not allowed with other report output modes")
         args.json_file = args.report_dir / "seo-site.json"
         args.junit_file = args.report_dir / "seo-site.xml"
+        args.markdown_file = args.report_dir / "seo-site.md"
         args.sarif_file = args.report_dir / "seo-site.sarif"
+    if args.markdown_file and (args.json or args.sarif):
+        parser.error("--markdown-file cannot be combined with JSON or SARIF stdout")
     if args.github_annotations and (args.json or args.sarif):
         parser.error("--github-annotations cannot be combined with JSON or SARIF stdout")
     if args.sarif_source_map and not (args.sarif or args.sarif_file):
@@ -186,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.sarif_file or args.junit_file:
+    if args.json_file or args.sarif_file or args.junit_file or args.markdown_file:
         created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
         reports: list[tuple[Path, str, str]] = []
         try:
@@ -196,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
                 ))
             if args.junit_file:
                 reports.append((args.junit_file, "JUnit", build_site_junit(report)))
+            if args.markdown_file:
+                reports.append((args.markdown_file, "Markdown", build_site_markdown(report)))
             if args.sarif_file:
                 reports.append((
                     args.sarif_file, "SARIF", json.dumps(
