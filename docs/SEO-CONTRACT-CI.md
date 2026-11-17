@@ -667,6 +667,12 @@ aliases). Keep the reviewed manifest outside immutable build artifacts; a
 new `.html` output inside the build would otherwise become an unreviewed page
 on the next CI run. Invalid output locations return exit 2 without creating a
 file. Omit `--output` to print JSON on stdout.
+If creating the starter manifest fails partway through writing, the CLI makes
+a best-effort attempt to remove only the file created by that invocation. It
+checks file identity first so another process's replacement is not removed;
+cleanup failures or identity uncertainty are reported on stderr. This is not
+an atomic write guarantee: always respect exit 2 and do not ingest a leftover
+partial manifest after a failed invocation.
 
 If your site deliberately uses **self-referencing canonical tags** on each
 static page, opt in to generating canonical assertions too:

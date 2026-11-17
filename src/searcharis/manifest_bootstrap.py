@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -399,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Also verify generated SEO assertions against local HTML, exiting 1 on mismatch",
     )
     args = parser.parse_args(argv)
+    created_output: tuple[Path, tuple[int, int] | None] | None = None
     try:
         manifest = generate_manifest(
             args.build_dir, args.site_base_url,
@@ -425,9 +427,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.output.resolve().is_relative_to(args.build_dir.resolve()):
                 raise ValueError("Starter manifest output must be outside the build directory")
             with args.output.open("x", encoding="utf-8", newline="\n") as output:
+                # Retain the newly created file's identity before attempting any write.
+                created_output = (args.output, None)
+                info = os.fstat(output.fileno())
+                created_output = (args.output, (info.st_dev, info.st_ino))
                 output.write(payload)
     except (OSError, UnicodeError, ValueError) as error:
-        print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+        cleanup_message = ""
+        if created_output is not None:
+            path, identity = created_output
+            try:
+                current = path.lstat()
+                if (
+                    identity is None or not identity[1]
+                    or not current.st_ino
+                    or (current.st_dev, current.st_ino) != identity
+                ):
+                    cleanup_message = "; partial manifest cleanup skipped: file identity changed or unavailable"
+                else:
+                    path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as cleanup_error:
+                cleanup_message = (
+                    f"; partial manifest cleanup failed: {human_input_error(cleanup_error)}"
+                )
+        print(f"Invalid input: {human_input_error(error)}{cleanup_message}", file=sys.stderr)
         return 2
     if args.output is None:
         print(payload, end="")
