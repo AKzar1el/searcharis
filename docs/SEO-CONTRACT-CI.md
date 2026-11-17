@@ -1189,9 +1189,14 @@ an existing parent directory, and a destination outside the supplied build.
 It may be combined with `--json-file`, `--junit-file` and `--markdown-file`
 from the *same* verification pass. Destinations must all be distinct and are
 preflighted before any file is written; an unexpected mid-write filesystem
-failure is not an atomic multi-file transaction. Stdout `--json` and
-`--junit` remain mutually exclusive with file report modes. Exit 0 still means
-both gates pass, 1 means a blocking mismatch, and 2 means an input/output error.
+failure triggers best-effort cleanup of reports created by that invocation.
+Cleanup checks file identity before unlinking, preserving an output replaced
+by another process and reporting skipped or denied cleanup on stderr. The
+identity check is not atomic against a subsequent replacement; CI consumers
+must inspect exit code 2 rather than assuming surviving files are complete.
+Stdout `--json` and `--junit` remain mutually exclusive with file report modes.
+Exit 0 still means both gates pass, 1 means a blocking mismatch, and 2 means
+an input/output error.
 
 For a reviewed immutable `robots.txt` artifact, add
 `--reviewed-robots policies/production-robots.txt` to this combined release
