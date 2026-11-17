@@ -2059,6 +2059,32 @@ It preserves files replaced by another process and reports any cleanup refusal;
 the output is not an atomic transaction. CI should treat exit 2 as an input or
 artifact failure even if a partial report remains on disk.
 
+For CI systems that ingest JUnit test results (including GitLab and Jenkins),
+opt in to a standalone current-build XML report, without executing the checker
+twice or changing the site's deployment pipeline:
+
+```sh
+uv run python -m searcharis.sitemap_cli manifest.json \
+  --sitemap-index dist/sitemap-index.xml \
+  --reject-noncanonical-urls --reject-unreviewed-urls \
+  --json-file reports/sitemap.json --junit-file reports/sitemap.xml
+```
+
+`--junit-file` emits one failed testcase for each **currently blocking** URL
+(missing required, reviewed noindex, and optionally noncanonical/unreviewed),
+or one passing testcase when no blockers exist. These are *not* baseline-to-
+candidate regressions: for inherited findings use `sitemap_compare` below.
+The JUnit artifact uses portable UTF-8 ASCII-compatible XML, with bounded
+XML-safe diagnostic strings, and may accompany `--json-file` and optional
+`--github-annotations`, but not `--json` stdout. Both destinations must be
+distinct, absent, have existing parent directories and be outside every
+supplied sitemap artifact directory; all destinations are preflighted before
+the first write. A failed write returns exit 2 and triggers identity-checked,
+best-effort cleanup of this invocation's output, without deleting files
+replaced by another process. Annotations are emitted only after both reports
+are successfully written. Neither the 0/1/2 exit codes nor offline no-fetch
+behavior changes. No actual CI consumer integration is asserted by this demo.
+
 For **current-build** failures in a GitHub Actions step, opt in to inline
 diagnostics without uploading a report or adding workflow permissions:
 

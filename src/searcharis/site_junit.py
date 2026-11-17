@@ -81,6 +81,43 @@ def build_site_junit(site: dict) -> str:
     ).decode("ascii")
 
 
+def build_current_sitemap_junit(sitemap: dict) -> str:
+    """Represent each current, blocking reviewed sitemap URL as one CI testcase."""
+    failures = [
+        (field, label, url)
+        for field, label in (
+            ("missing_required", "Required canonical URL missing"),
+            ("present_excluded", "Reviewed noindex URL present"),
+            ("present_noncanonical", "Reviewed noncanonical URL present"),
+            ("unreviewed_urls", "Unreviewed sitemap URL present"),
+        )
+        for url in sitemap.get(field, [])
+    ]
+    suite = ET.Element(
+        "testsuite", name="Searcharis SEO current sitemap gate",
+        tests=str(len(failures) or 1), failures=str(len(failures)),
+        errors="0", skipped="0",
+    )
+    if not failures:
+        ET.SubElement(
+            suite, "testcase", classname="searcharis.sitemap",
+            name="current-sitemap-passed",
+        )
+    else:
+        for index, (field, label, url) in enumerate(failures, start=1):
+            case = ET.SubElement(
+                suite, "testcase", classname="searcharis.sitemap",
+                name=_bounded(f"[{index}] {field} :: {url}", limit=300),
+            )
+            ET.SubElement(case, "failure", message=label).text = (
+                f"Sitemap finding: {field}; URL: {_bounded(url, limit=1000)}"
+            )
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
 def build_comparison_junit(
     comparison: dict, *, gate_new_unlisted: bool = False,
     gate_new_unverified_targets: bool = False,
