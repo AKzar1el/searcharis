@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from itertools import islice
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
@@ -15,6 +16,7 @@ from searcharis.site_source_map import read_source_map
 _MAX_UNLISTED_DISPLAY = 20
 _MAX_FAILED_PAGE_DISPLAY = 20
 _MAX_ISSUES_PER_PAGE = 8
+_MAX_GITHUB_ANNOTATIONS = 20
 
 
 def _label(value: str, *, limit: int = 120) -> str:
@@ -26,6 +28,42 @@ def _label(value: str, *, limit: int = 120) -> str:
 def _preview(value: object, *, limit: int = 120) -> str:
     display = repr(value)
     return display if len(display) <= limit else display[:limit - 3] + "..."
+
+
+def format_github_annotations(report: dict) -> list[str]:
+    """Annotate only blocking reviewed-site findings, without guessed source lines."""
+    page_issues = list(islice(
+        ((page, issue) for page in report["pages"] for issue in page["issues"]),
+        _MAX_GITHUB_ANNOTATIONS,
+    ))
+    unlisted = (
+        report["coverage"]["unlisted"]
+        if report["coverage"]["require_full_coverage"] else []
+    )
+    groups = [("page issue", page_issues), ("unlisted HTML", unlisted)]
+    commands: list[str] = []
+    for index, (kind, items) in enumerate(groups):
+        # Preserve room for a strict-coverage failure even with many page issues.
+        reserved = sum(bool(other) for _, other in groups[index + 1:])
+        take = max(0, _MAX_GITHUB_ANNOTATIONS - len(commands) - reserved)
+        for item in items[:take]:
+            if kind == "page issue":
+                page, issue = item
+                message = (
+                    f"{_preview(page['path'])} ({_preview(page['checked_url'])}): "
+                    f"{_preview(issue['code'])}; expected {_preview(issue['expected'])}, "
+                    f"observed {_preview(issue['actual'])}"
+                )
+            else:
+                message = f"Unreviewed built HTML: {_preview(item)}"
+            # Built paths do not identify repository source lines. Escaping also
+            # prevents untrusted contract values from injecting workflow commands.
+            message = (
+                message.replace("%", "%25").replace("\r", "%0D")
+                .replace("\n", "%0A").replace("::", ": :")
+            )
+            commands.append(f"::error title=SEO {kind}::{message}")
+    return commands
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         "--sarif-file", type=Path, metavar="PATH",
         help="Write SARIF 2.1.0 to a new UTF-8 file; never overwrite existing files",
     )
+    output.add_argument(
+        "--github-annotations", action="store_true",
+        help="Print bounded GitHub Actions error commands for blocking built-site checks",
+    )
     parser.add_argument(
         "--sarif-source-map",
         type=Path,
@@ -147,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.sarif:
         print(json.dumps(build_sarif_report(report, sources=sources), indent=2, sort_keys=True))
+    elif args.github_annotations:
+        for line in format_github_annotations(report):
+            print(line)
     else:
         summary = report["summary"]
         coverage = report["coverage"]
