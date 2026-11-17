@@ -129,13 +129,32 @@ def main(argv: list[str] | None = None) -> int:
         help="Write a bounded human-readable regression summary to a new UTF-8 file",
     )
     parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Create JSON, JUnit, Markdown and SARIF comparison reports in an existing directory",
+    )
+    parser.add_argument(
         "--sarif-source-map", type=Path,
         help="Optional reviewed build-to-repository source mapping (SARIF only)",
     )
     args = parser.parse_args(argv)
-    if args.sarif_source_map and not (args.sarif or args.sarif_file):
-        parser.error("--sarif-source-map requires --sarif or --sarif-file")
-    if (args.json or args.sarif or args.junit or args.github_annotations) and (
+    if args.sarif_source_map and not (
+        args.sarif or args.sarif_file or args.report_dir
+    ):
+        parser.error("--sarif-source-map requires --sarif, --sarif-file or --report-dir")
+    if args.report_dir:
+        if args.json or args.sarif or args.junit or any((
+            args.json_file, args.junit_file, args.markdown_file, args.sarif_file,
+        )):
+            parser.error("--report-dir is not allowed with other report output modes")
+        # Reuse the existing create-only preflight and cleanup for all four paths.
+        args.json_file = args.report_dir / "seo-comparison.json"
+        args.junit_file = args.report_dir / "seo-comparison.xml"
+        args.markdown_file = args.report_dir / "seo-comparison.md"
+        args.sarif_file = args.report_dir / "seo-comparison.sarif"
+    if (
+        args.json or args.sarif or args.junit
+        or (args.github_annotations and not args.report_dir)
+    ) and (
         args.json_file or args.sarif_file or args.junit_file or args.markdown_file
     ):
         parser.error("stdout report mode is not allowed with file report modes")
@@ -269,6 +288,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
             print(message, file=sys.stderr)
             return 2
+        if args.github_annotations:
+            # Emit runner commands only after all four outputs are complete.
+            for line in format_github_annotations(
+                result, gate_new_unlisted=gate_unlisted,
+                gate_new_unverified_targets=gate_targets,
+            ):
+                print(line)
     elif args.sarif:
         sarif = build_comparison_sarif(
             result, candidate, sources=sources,

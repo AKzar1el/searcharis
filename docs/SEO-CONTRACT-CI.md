@@ -1488,7 +1488,9 @@ unlisted HTML is annotated only with `--require-full-coverage` or
 reserves examples across populated categories, at most 20 in total, with
 bounded and escaped untrusted values. Build paths are not necessarily source
 paths, so no repository file/line anchors are invented. This stdout mode cannot
-be combined with JSON/JUnit/SARIF stdout or report-file outputs. Existing
+be combined with JSON/JUnit/SARIF stdout or individual report-file options;
+the one-flag `--report-dir` bundle below is the sole file-output exception.
+Existing
 0/1/2 exit codes, local-only inputs and no-network behavior remain unchanged.
 The GitHub runner interprets these commands only when invoked in an Actions
 step; this tool never edits workflows, uploads reports or measures indexing.
@@ -1561,8 +1563,9 @@ Existing baseline debt and resolved issues do not become SARIF alerts. New
 unlisted HTML is emitted only with `--require-full-coverage` or
 `--fail-on-new-unlisted`; new external canonical/hreflang targets are emitted
 only when `--fail-on-new-unverified-targets` is enabled alongside a cross-page
-check. Use `--sarif-source-map source-map.json` with either SARIF mode to anchor new findings to
-explicitly reviewed, existing repository sources as described below. Unmapped
+check. Use `--sarif-source-map source-map.json` with either SARIF mode or
+`--report-dir` to anchor new findings to explicitly reviewed, existing
+repository sources as described below. Unmapped
 results refer to built HTML; line 1 is a document-level anchor, not a guessed
 template line. Capture output as UTF-8 and do not treat it as evidence of
 deployed URLs, Google indexing, source provenance, or customer adoption.
@@ -1652,6 +1655,30 @@ identity before deletion so a replacement from another process is preserved;
 skipped or denied cleanup is reported on stderr. This is not an atomic
 transaction, and CI should still discard artifacts from exit 2. This performs
 no hosted upload or URL fetch.
+
+For a simpler CI job, use **one flag** to write all four reports in an already
+existing directory outside both trusted build snapshots:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --report-dir reports --github-annotations
+```
+
+This creates `reports/seo-comparison.json`, `seo-comparison.xml`,
+`seo-comparison.md` and `seo-comparison.sarif` from **one offline comparison**.
+`--github-annotations` is optional and emits only new blocking regressions,
+only after all four files were written successfully. The directory is never
+created automatically. It must exist and be fresh: a collision with any of
+the four fixed output names fails before writing anything, without overwriting
+the existing file. Paths within either build, duplicate destinations, I/O
+failures and partial-output cleanup retain the safeguards described above.
+`--report-dir` cannot be mixed with individual file outputs or JSON/JUnit/SARIF
+stdout modes, but it accepts the optional reviewed `--sarif-source-map`.
+Exit codes remain **0** for no new blockers, **1** for regressions and **2** for
+input/output errors. CI should retain the exit code while publishing artifacts
+on exit 0 or 1, and discard artifacts after exit 2. No workflow, live URL,
+cloud service or paid provider is accessed automatically; actual customer
+adoption or search-ranking impact has not been measured.
 
 For archived reports or separate pipeline stages, run the site checker
 with identical manifest and flag policies on the trusted baseline build and
