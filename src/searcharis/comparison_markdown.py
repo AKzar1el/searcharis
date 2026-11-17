@@ -159,3 +159,58 @@ def build_sitemap_comparison_markdown(result: dict) -> str:
         "not verify live indexing, search traffic, or adoption._",
     ])
     return "\n".join(lines)
+
+
+def build_current_sitemap_markdown(result: dict) -> str:
+    """Summarize all currently blocking sitemap findings for human review."""
+    summary = result["summary"]
+    labels = (
+        ("missing_required", "Missing reviewed indexable URL"),
+        ("present_excluded", "Reviewed noindex URL unexpectedly present"),
+        ("present_noncanonical", "Reviewed noncanonical URL unexpectedly present"),
+        ("unreviewed_urls", "Unreviewed sitemap URL unexpectedly present"),
+    )
+    lines = [
+        "# Searcharis SEO current sitemap",
+        "",
+        f"**Result: {result['status'].upper()}** (supplied local artifacts only)",
+        "",
+        f"- Reviewed indexable URLs required: {summary['required']}",
+        f"- Reviewed excluded URLs: {summary['excluded']}",
+        f"- Reviewed pages without indexability assertions: {summary['unasserted_pages']}",
+        f"- Local sitemap URLs: {summary['sitemap_urls']}",
+        "",
+        "## Current blocking findings",
+        "",
+    ]
+    findings: list[str] = []
+    total = sum(len(result.get(key, [])) for key, _ in labels)
+    for index, (key, label) in enumerate(labels):
+        urls = result.get(key, [])
+        # Reserve one example for each later populated blocking category.
+        reserved = sum(bool(result.get(k)) for k, _ in labels[index + 1:])
+        take = max(0, _MAX_FINDINGS - len(findings) - reserved)
+        findings.extend(
+            f"- {label} ({key}): {_code(url)}" for url in urls[:take]
+        )
+    lines.extend(findings or ["No blocking sitemap findings."])
+    if total > len(findings):
+        lines.append(
+            f"- ... and {total - len(findings)} more current findings; "
+            "inspect the JSON report for complete URLs"
+        )
+    if result["status"] == "fail":
+        lines.extend([
+            "",
+            "## Reviewer next steps",
+            "",
+            "- Compare the current sitemap against the reviewed indexability manifest.",
+            "- Correct the local build or explicitly review its policy, then rerun.",
+            "- For inherited baseline debt, use sitemap comparison instead of this gate.",
+        ])
+    lines.extend([
+        "",
+        "_Offline current-build verification only. No URLs are fetched; this does "
+        "not prove live routing, indexing, search traffic or adoption._",
+    ])
+    return "\n".join(lines)

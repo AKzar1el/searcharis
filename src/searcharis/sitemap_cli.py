@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
+from searcharis.comparison_markdown import build_current_sitemap_markdown
 from searcharis.site_ci import read_manifest
 from searcharis.site_junit import build_current_sitemap_junit
 from searcharis.sitemap_ci import verify_sitemap_manifest
@@ -91,14 +92,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Write current blocking sitemap URL findings as a create-only JUnit XML file",
     )
     parser.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write bounded HTML-escaped current-sitemap reviewer Markdown to a new file",
+    )
+    parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Create JSON, JUnit and Markdown current-sitemap reports in an existing directory",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Emit bounded current sitemap errors for GitHub Actions on stdout",
     )
     args = parser.parse_args(argv)
+    if args.report_dir:
+        if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
+            parser.error("--report-dir is not allowed with other report output modes")
+        args.json_file = args.report_dir / "seo-sitemap.json"
+        args.junit_file = args.report_dir / "seo-sitemap.xml"
+        args.markdown_file = args.report_dir / "seo-sitemap.md"
     if args.json and args.github_annotations:
         parser.error("--github-annotations cannot be combined with JSON stdout")
     if args.json and args.junit_file:
         parser.error("--junit-file cannot be combined with JSON stdout")
+    if args.json and args.markdown_file:
+        parser.error("--markdown-file cannot be combined with JSON stdout")
 
     try:
         report = verify_sitemap_manifest(
@@ -115,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.junit_file:
+    if args.json_file or args.junit_file or args.markdown_file:
         created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
         reports: list[tuple[Path, str, str]] = []
         try:
@@ -126,6 +143,10 @@ def main(argv: list[str] | None = None) -> int:
                 ))
             if args.junit_file:
                 reports.append((args.junit_file, "JUnit", build_current_sitemap_junit(report)))
+            if args.markdown_file:
+                reports.append((
+                    args.markdown_file, "Markdown", build_current_sitemap_markdown(report),
+                ))
             targets = [path.resolve() for path, _, _ in reports]
             if len(set(targets)) != len(targets):
                 raise ValueError("All report destinations must be distinct files")

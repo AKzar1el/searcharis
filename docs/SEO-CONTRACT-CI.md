@@ -2085,6 +2085,38 @@ replaced by another process. Annotations are emitted only after both reports
 are successfully written. Neither the 0/1/2 exit codes nor offline no-fetch
 behavior changes. No actual CI consumer integration is asserted by this demo.
 
+For a one-pass, reviewer-friendly current-sitemap CI artifact set, use an
+**existing empty report directory outside the local sitemap build**:
+
+```sh
+uv run python -m searcharis.sitemap_cli manifest.json \
+  --sitemap-index dist/sitemap-index.xml \
+  --reject-noncanonical-urls --reject-unreviewed-urls \
+  --report-dir reports --github-annotations
+```
+
+`--report-dir` creates `seo-sitemap.json` (complete structured findings),
+`seo-sitemap.xml` (JUnit current blocking URL testcases) and
+`seo-sitemap.md` (bounded HTML-escaped human review, at most 20 examples)
+from **one offline verification**. The reviewer summary distinguishes
+currently blocking findings from pages without indexability assertions and
+explains that an existing baseline may already fail; it does not label current
+failures as new regressions. For Markdown alone, use
+`--markdown-file reports/current-sitemap.md`; it can also accompany separate
+`--json-file` and `--junit-file` destinations.
+
+All report parents must exist. The checker never creates directories,
+overwrites existing files or writes inside any supplied local sitemap
+directory. It preflights every report target before the first creation;
+interrupted writes trigger identity-aware, best-effort cleanup of its own
+partial artifacts (not an atomic transaction). With optional
+`--github-annotations`, Actions commands appear only after all requested
+reports are successfully written. The bundle cannot be combined with
+`--json` stdout or individual report file flags; `--markdown-file` also
+cannot accompany JSON stdout. Exit codes remain 0/1/2, and no URL is fetched.
+CI artifact upload, external adoption and real search-indexing effects remain
+unverified.
+
 For **current-build** failures in a GitHub Actions step, opt in to inline
 diagnostics without uploading a report or adding workflow permissions:
 
