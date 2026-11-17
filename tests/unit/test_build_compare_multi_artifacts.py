@@ -221,3 +221,146 @@ def test_comparison_report_cleanup_denial_is_reported(
     assert "simulated comparison report write failure" in output.err
     assert "partial report cleanup failed" in output.err
     assert report.exists()
+
+
+def _bundle_paths(directory):
+    return [directory / f"seo-comparison.{suffix}" for suffix in (
+        "json", "xml", "md", "sarif",
+    )]
+
+
+def test_report_dir_writes_four_comparison_artifacts_in_one_offline_run(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("report bundle must not connect to a network")
+
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    assert _run(manifest, baseline, candidate, "--report-dir", reports_dir) == 1
+    paths = _bundle_paths(reports_dir)
+    assert all(path.is_file() for path in paths)
+    assert json.loads(paths[0].read_text(encoding="utf-8"))["status"] == "regression"
+    assert ElementTree.fromstring(paths[1].read_text(encoding="utf-8")).tag in (
+        "testsuite", "testsuites",
+    )
+    assert "title_presence" in paths[2].read_text(encoding="utf-8")
+    assert json.loads(paths[3].read_text(encoding="utf-8"))["version"] == "2.1.0"
+    assert capsys.readouterr().out == ""
+
+
+def test_report_dir_preserves_inherited_debt_and_zero_exit(tmp_path, capsys):
+    manifest, baseline, candidate = _fixture(
+        tmp_path, baseline_title="", candidate_title="",
+    )
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    assert _run(manifest, baseline, candidate, "--report-dir", reports_dir) == 0
+    json_path, _, markdown, sarif = _bundle_paths(reports_dir)
+    assert json.loads(json_path.read_text(encoding="utf-8"))["status"] != "regression"
+    assert "Inherited baseline issues: 1" in markdown.read_text(encoding="utf-8")
+    assert json.loads(sarif.read_text(encoding="utf-8"))["runs"][0]["results"] == []
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("problem", ["existing", "missing", "baseline", "candidate"])
+def test_report_dir_preflights_every_target_without_partial_bundle(
+    tmp_path, capsys, problem,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = {
+        "existing": tmp_path / "reports",
+        "missing": tmp_path / "missing",
+        "baseline": baseline / "reports",
+        "candidate": candidate / "reports",
+    }[problem]
+    if problem != "missing":
+        reports_dir.mkdir()
+    paths = _bundle_paths(reports_dir)
+    if problem == "existing":
+        paths[2].write_text("owner report", encoding="utf-8")
+
+    assert _run(manifest, baseline, candidate, "--report-dir", reports_dir) == 2
+    assert "Invalid input" in capsys.readouterr().err
+    assert [path.exists() for path in paths] == (
+        [False, False, True, False] if problem == "existing" else [False] * 4
+    )
+    if problem == "existing":
+        assert paths[2].read_text(encoding="utf-8") == "owner report"
+
+
+@pytest.mark.parametrize("conflict", [
+    ("--json-file", "explicit.json"),
+    ("--junit-file", "explicit.xml"),
+    ("--markdown-file", "explicit.md"),
+    ("--sarif-file", "explicit.sarif"),
+    ("--json", None), ("--junit", None), ("--sarif", None),
+])
+def test_report_dir_rejects_other_output_modes(tmp_path, conflict):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    args = ["--report-dir", reports_dir, conflict[0]]
+    if conflict[1]:
+        args.append(tmp_path / conflict[1])
+    with pytest.raises(SystemExit) as failure:
+        _run(manifest, baseline, candidate, *args)
+    assert failure.value.code == 2
+    assert not any(path.exists() for path in _bundle_paths(reports_dir))
+
+
+def test_report_dir_and_annotations_share_one_safe_comparison(tmp_path, capsys):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    assert _run(
+        manifest, baseline, candidate, "--report-dir", reports_dir,
+        "--github-annotations",
+    ) == 1
+    assert capsys.readouterr().out.count("::error title=SEO new issue::") == 1
+    assert all(path.exists() for path in _bundle_paths(reports_dir))
+
+
+def test_report_dir_failure_emits_no_annotations_and_cleans_owned_files(
+    tmp_path, capsys, monkeypatch,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    failing_path = _bundle_paths(reports_dir)[-1]
+    _fail_report_write(monkeypatch, failing_path)
+    assert _run(
+        manifest, baseline, candidate, "--report-dir", reports_dir,
+        "--github-annotations",
+    ) == 2
+    captured = capsys.readouterr()
+    assert "simulated comparison report write failure" in captured.err
+    assert captured.out == ""
+    assert all(not path.exists() for path in _bundle_paths(reports_dir))
+
+
+def test_report_dir_accepts_reviewed_sarif_source_map(
+    tmp_path, monkeypatch, capsys,
+):
+    manifest, baseline, candidate = _fixture(tmp_path)
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    src = tmp_path / "src" / "page.html"
+    src.parent.mkdir()
+    src.write_text("<h1>reviewed</h1>", encoding="utf-8")
+    mapping = tmp_path / "sources.json"
+    mapping.write_text(json.dumps({
+        "version": 1, "sources": {"index.html": "src/page.html"},
+    }), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert _run(
+        manifest, baseline, candidate, "--report-dir", reports_dir,
+        "--sarif-source-map", mapping,
+    ) == 1
+    sarif = json.loads(_bundle_paths(reports_dir)[-1].read_text(encoding="utf-8"))
+    source = sarif["runs"][0]["results"][0]["locations"][0]
+    assert source["physicalLocation"]["artifactLocation"]["uri"] == "src/page.html"
+    assert capsys.readouterr().out == ""
