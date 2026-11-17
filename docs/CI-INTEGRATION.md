@@ -1,8 +1,9 @@
 # Integrating the offline SEO contract checker into CI
 
-This guide covers **built HTML only**. It is not a production crawl or an
-indexing guarantee. Use the existing Searcharis hosted incident workflow
-separately when an external production audit is required.
+This guide starts with **built HTML** and then shows how to add reviewed local
+sitemap and robots.txt checks to the same release gate. None of these checks is
+a production crawl or an indexing guarantee. Use the existing Searcharis hosted
+incident workflow separately when an external production audit is required.
 
 ## 1. Build a known HTML artifact
 
@@ -66,9 +67,56 @@ uv run python -m searcharis.site_cli \
 The manifest declares relative HTML artifact paths under the build root and
 their inline SEO contracts. Unlisted HTML is visible in the JSON report but
 does not fail CI unless `--require-full-coverage` is supplied. Start with
-important routes before enforcing whole-site coverage. This is a local
-artifact check, not a production crawl; it does not validate cross-page
-reciprocal hreflang. CI does not mutate the production site.
+important routes before enforcing whole-site coverage. Cross-page checks are
+available **only when opted in**, including `--check-hreflang-reciprocity`,
+`--check-hreflang-clusters`, `--check-canonical-consistency` and
+`--check-reviewed-navigation`. They compare reviewed, locally built pages;
+they do not crawl deployed URLs. CI does not mutate the production site.
+
+### One-pass CI artifacts for reviewed builds
+
+After reviewing and committing your starter manifest, keep it fixed across
+builds. For a current-build HTML gate, create a **new, empty** report directory
+outside the build tree and run one verification:
+
+```sh
+mkdir -p seo-ci-reports
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --report-dir seo-ci-reports --github-annotations
+```
+
+This creates `seo-site.json` (complete findings), `seo-site.xml` (JUnit),
+`seo-site.md` (bounded reviewer summary) and `seo-site.sarif` (SARIF 2.1.0)
+without rechecking the same build four times. The directory must already
+exist; target files must not exist. Do not put reports under `dist/` or reuse
+stale report filenames. No uploads or workflow changes happen automatically.
+
+If you have also reviewed explicit indexability assertions and your static
+generator writes a local sitemap index, use the combined release checker
+instead of running independent HTML and sitemap gates:
+
+```sh
+mkdir -p seo-release-reports
+uv run python -m searcharis.release_cli seo-manifest.json dist \
+  --sitemap-index dist/sitemap-index.xml \
+  --require-full-coverage --require-indexability-coverage \
+  --check-canonical-consistency --report-dir seo-release-reports --github-annotations
+```
+
+This creates `seo-release.json`, `seo-release.xml`, `seo-release.md` and
+`seo-release.sarif`. Use explicit local sitemap XML paths instead of
+`--sitemap-index` when no index exists. A valid reviewed manifest and local
+sitemap are prerequisites; do not infer indexability from the generated file
+alone. [Run the checked-in offline release example](../examples/seo-contract/release-demo/README.md)
+before adapting these paths to your own static build.
+
+For either command, **preserve exit 0 (pass), 1 (policy mismatch), and 2
+(invalid input/output)** as the CI job result. Arrange separate, authorized
+CI artifact collection even when the policy gate exits 1; do not interpret
+missing or partial artifacts after exit 2 as a passing verification. JUnit
+and SARIF consumers must be configured separately, with their own provider
+permissions and pinned dependencies. Report generation itself performs no
+network requests and does not grant release/deployment authority.
 
 ## 5. Release checks
 
