@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from itertools import islice
 from pathlib import Path
@@ -171,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file or args.sarif_file:
+        created_output = False
+        created_identity: tuple[int, int] | None = None
         try:
             path = args.json_file or args.sarif_file
             format_name = "JSON" if args.json_file else "SARIF"
@@ -183,9 +186,42 @@ def main(argv: list[str] | None = None) -> int:
             payload = report if args.json_file else build_sarif_report(report, sources=sources)
             # Exclusive creation protects existing artifacts if another CI job races us.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                created_output = True
+                info = os.fstat(output_file.fileno())
+                created_identity = (info.st_dev, info.st_ino)
                 output_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            cleanup_message = ""
+            if created_output:
+                if created_identity is None:
+                    cleanup_message = (
+                        "; partial report cleanup skipped: report identity unavailable"
+                    )
+                else:
+                    try:
+                        current = path.lstat()
+                        if (
+                            not created_identity[1] or not current.st_ino
+                            or (current.st_dev, current.st_ino) != created_identity
+                        ):
+                            cleanup_message = (
+                                "; partial report cleanup skipped: "
+                                "report identity changed or unavailable"
+                            )
+                        else:
+                            path.unlink()
+                    except FileNotFoundError:
+                        # The file is already gone; never recreate it during rollback.
+                        pass
+                    except OSError as cleanup_error:
+                        cleanup_message = (
+                            "; partial report cleanup failed: "
+                            f"{human_input_error(cleanup_error)}"
+                        )
+            print(
+                f"Invalid input: {human_input_error(error)}{cleanup_message}",
+                file=sys.stderr,
+            )
             return 2
         if args.github_annotations:
             # Emit commands only after the requested report was saved successfully.

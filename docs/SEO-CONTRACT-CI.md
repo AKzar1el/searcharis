@@ -1671,8 +1671,12 @@ uv run python -m searcharis.report_compare baseline.json candidate.json \
 `--json-file PATH` writes the same structured report as `--json` to a new
 UTF-8 file without JSON on stdout. It cannot be combined with `--json`,
 `--sarif`, or `--sarif-file`. It will not overwrite an existing file and rejects
-destinations inside the immutable build directory. Input errors (exit 2) do not create a
-report; invalid output destinations also return 2. Use a fresh artifact path
+destinations inside the immutable build directory. Input validation errors (exit 2)
+do not create a report; invalid output destinations also return 2. If writing
+a newly created report fails, the CLI attempts to remove only its own partial
+artifact. A replaced or unidentifiable file is preserved, and denied cleanup
+is reported on stderr. This best-effort cleanup is not an atomic transaction.
+Use a fresh artifact path
 for each run. This avoids Windows PowerShell 5.1's default UTF-16LE `>`
 redirection, which `report_compare` cannot read as UTF-8. The original
 `--json` stdout mode remains available when your shell preserves UTF-8.
@@ -1841,8 +1845,9 @@ uv run python -m searcharis.site_cli manifest.json dist \
 ```
 
 The usual process exit codes are unchanged: 0 for pass, 1 for failed checks,
-2 for invalid input or an unsafe output destination. Such errors produce no
-report and are printed to stderr, **not** as a misleading valid SARIF run.
+2 for invalid input or an unsafe output destination. Validation failures produce
+no report. Interrupted writes use best-effort partial-file cleanup, with
+any skipped or failed cleanup reported on stderr; they are **not** valid SARIF runs.
 When capturing a report in a shell configured to
 abort on exit 1, explicitly retain its output and treat 2 as an input failure.
 
