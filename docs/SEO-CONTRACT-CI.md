@@ -608,9 +608,10 @@ with the other standalone report modes, but can accompany GitHub annotations.
 Neither CI upload nor workflow configuration is automatic; actual adoption
 and ingestion remain unmeasured until independently verified.
 
-For a standalone reviewed-site check that needs both CI test ingestion and
-machine-readable findings, generate all three reports from **one** offline
-verification instead of executing the site checker repeatedly:
+For a standalone reviewed-site check that needs CI test ingestion,
+machine-readable findings and a human-readable PR review, generate all four
+reports from **one** offline verification instead of executing the checker
+repeatedly:
 
 ```sh
 mkdir -p reports
@@ -618,9 +619,10 @@ uv run python -m searcharis.site_cli seo-manifest.json dist \
   --require-full-coverage --report-dir reports --github-annotations
 ```
 
-`--report-dir` creates `seo-site.json`, `seo-site.xml` (JUnit) and
-`seo-site.sarif` under an **existing** report directory outside the supplied
-build, with fixed names for CI artifact upload. It is mutually exclusive with
+`--report-dir` creates `seo-site.json`, `seo-site.xml` (JUnit), `seo-site.md`
+(bounded, escaped reviewer findings) and `seo-site.sarif` under an **existing**
+report directory outside the supplied build, with fixed names for CI artifact
+upload. It is mutually exclusive with
 the individual report modes and JSON/SARIF stdout, but supports optional
 `--sarif-source-map` and late GitHub annotations. All target paths are checked
 before any write; files are exclusively created, never overwritten, and a
@@ -628,6 +630,15 @@ failed later write triggers best-effort, identity-checked cleanup of only this
 invocation's artifacts. A replacement made by another job is preserved.
 Exit 0/1/2 keeps its existing meaning, no contract URL is fetched, and neither
 upload nor GitHub workflow changes happen automatically.
+
+For a human-readable standalone reviewer artifact without the bundle, use
+`--markdown-file reports/site-review.md` with an existing parent directory.
+This optional file may accompany one other file output and GitHub annotations
+without rerunning the verifier. It never overwrites an existing file, rejects
+destinations inside the build, and retains the same 0/1/2 exit codes. The
+Markdown distinguishes strict-coverage blocking from ungated unlisted HTML,
+escapes untrusted paths and values, and caps displayed findings at 20.
+It cannot accompany JSON/SARIF stdout or `--report-dir`.
 
 ```sh
 uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
