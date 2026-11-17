@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -78,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file:
+        created_output = False
+        created_identity: tuple[int, int] | None = None
         try:
             path = args.json_file
             if path.exists() or path.is_symlink():
@@ -93,9 +96,39 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("JSON report must be outside the supplied sitemap directory")
             # Exclusive creation prevents a concurrent CI job from replacing an artifact.
             with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                created_output = True
+                info = os.fstat(output_file.fileno())
+                created_identity = (info.st_dev, info.st_ino)
                 output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
         except (OSError, UnicodeError, ValueError) as error:
-            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            cleanup_message = ""
+            if created_output:
+                try:
+                    current = path.lstat()
+                    # Never unlink a report replaced by another process, or an
+                    # artifact whose original filesystem identity is unknown.
+                    if (
+                        created_identity is None or not created_identity[1]
+                        or not current.st_ino
+                        or (current.st_dev, current.st_ino) != created_identity
+                    ):
+                        cleanup_message = (
+                            "; partial report cleanup skipped: "
+                            "report identity changed or unavailable"
+                        )
+                    else:
+                        path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_error:
+                    cleanup_message = (
+                        "; partial report cleanup failed: "
+                        f"{human_input_error(cleanup_error)}"
+                    )
+            print(
+                f"Invalid input: {human_input_error(error)}{cleanup_message}",
+                file=sys.stderr,
+            )
             return 2
     elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

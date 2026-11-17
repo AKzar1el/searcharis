@@ -2051,6 +2051,14 @@ schema and indexability pass/fail interpretation remain unchanged. This
 checks build artifacts, not whether a public server serves them or a search
 engine discovers or indexes any page.
 
+For standalone sitemap CI, `--json-file reports/sitemap.json` creates a
+UTF-8 report only when that filename does not already exist and is outside the
+supplied local sitemap directory. If a write fails after file creation, the
+checker makes a best-effort attempt to remove only its own partial artifact.
+It preserves files replaced by another process and reports any cleanup refusal;
+the output is not an atomic transaction. CI should treat exit 2 as an input or
+artifact failure even if a partial report remains on disk.
+
 ### Gate only new sitemap regressions between local static builds
 
 When a trusted baseline sitemap already has known missing or excluded URLs,
