@@ -2059,6 +2059,27 @@ It preserves files replaced by another process and reports any cleanup refusal;
 the output is not an atomic transaction. CI should treat exit 2 as an input or
 artifact failure even if a partial report remains on disk.
 
+For **current-build** failures in a GitHub Actions step, opt in to inline
+diagnostics without uploading a report or adding workflow permissions:
+
+```sh
+uv run python -m searcharis.sitemap_cli manifest.json \
+  --sitemap-index dist/sitemap-index.xml \
+  --reject-noncanonical-urls --reject-unreviewed-urls \
+  --github-annotations
+```
+
+`--github-annotations` emits at most 20 escaped `::error` workflow commands,
+reserving an example for each populated blocking category (missing required,
+unexpected noindex, noncanonical, unreviewed). These reflect **all current**
+reviewed sitemap failures, not just new regressions; use `sitemap_compare` below
+if inherited failures should be tolerated. No XML source line or repository file
+is guessed. On pass or invalid input, no workflow errors are emitted; exit 0/1/2
+remains unchanged. The flag can accompany `--json-file` and emits annotations
+only **after** the complete create-only artifact is written. It cannot accompany
+`--json` stdout. GitHub renders these commands only when the invoking CI step
+actually runs on a GitHub Actions runner. No URLs are fetched.
+
 ### Gate only new sitemap regressions between local static builds
 
 When a trusted baseline sitemap already has known missing or excluded URLs,

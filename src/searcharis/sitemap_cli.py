@@ -30,6 +30,30 @@ def _bounded_human_lines(groups: tuple[list[str], ...]) -> tuple[list[str], int]
     return selected, sum(map(len, groups)) - len(selected)
 
 
+def format_github_annotations(report: dict) -> list[str]:
+    """Emit bounded current-build failures, without inventing XML source locations."""
+    groups = (
+        ("Missing required", report["missing_required"]),
+        ("Noindex URL", report["present_excluded"]),
+        ("Noncanonical URL", report.get("present_noncanonical", [])),
+        ("Unreviewed URL", report.get("unreviewed_urls", [])),
+    )
+    annotations: list[str] = []
+    for index, (title, urls) in enumerate(groups):
+        # Preserve at least one slot for every other populated blocking category.
+        reserved = sum(bool(other) for _, other in groups[index + 1:])
+        take = max(0, _MAX_HUMAN_FINDINGS - len(annotations) - reserved)
+        for url in urls[:take]:
+            message = _display(url)
+            message = (
+                message.replace("%", "%25").replace("\r", "%0D")
+                .replace("\n", "%0A").replace("::", ": :")
+                .replace("\u2028", " ").replace("\u2029", " ")
+            )
+            annotations.append(f"::error title=Sitemap {title}::{message}")
+    return annotations
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Check local XML sitemap against reviewed indexability assertions",
@@ -61,7 +85,13 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Write complete JSON to a new UTF-8 file instead of stdout; never overwrite",
     )
+    parser.add_argument(
+        "--github-annotations", action="store_true",
+        help="Emit bounded current sitemap errors for GitHub Actions on stdout",
+    )
     args = parser.parse_args(argv)
+    if args.json and args.github_annotations:
+        parser.error("--github-annotations cannot be combined with JSON stdout")
 
     try:
         report = verify_sitemap_manifest(
@@ -130,8 +160,14 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        if args.github_annotations:
+            for line in format_github_annotations(report):
+                print(line)
     elif args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.github_annotations:
+        for line in format_github_annotations(report):
+            print(line)
     else:
         summary = report["summary"]
         print(
