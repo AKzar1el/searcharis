@@ -136,6 +136,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Write standalone reviewed-site JUnit XML to a new file for CI test reports",
     )
     parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Create JSON, JUnit and SARIF site reports in an existing directory",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Print bounded GitHub Actions error commands for blocking built-site checks",
     )
@@ -145,6 +149,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional JSON map of built HTML to existing repository source files (SARIF only)",
     )
     args = parser.parse_args(argv)
+    if args.report_dir:
+        if any((args.json, args.sarif, args.json_file, args.sarif_file, args.junit_file)):
+            parser.error("--report-dir is not allowed with other report output modes")
+        args.json_file = args.report_dir / "seo-site.json"
+        args.junit_file = args.report_dir / "seo-site.xml"
+        args.sarif_file = args.report_dir / "seo-site.sarif"
     if args.github_annotations and (args.json or args.sarif):
         parser.error("--github-annotations cannot be combined with JSON or SARIF stdout")
     if args.sarif_source_map and not (args.sarif or args.sarif_file):
@@ -177,61 +187,76 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json_file or args.sarif_file or args.junit_file:
-        created_output = False
-        created_identity: tuple[int, int] | None = None
+        created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
+        reports: list[tuple[Path, str, str]] = []
         try:
-            path = args.json_file or args.sarif_file or args.junit_file
-            format_name = (
-                "JSON" if args.json_file else "SARIF" if args.sarif_file else "JUnit"
-            )
-            if path.resolve().is_relative_to(args.build_dir.resolve()):
-                raise ValueError(f"{format_name} report must be outside the build directory")
-            if path.exists() or path.is_symlink():
-                raise FileExistsError(f"{format_name} report already exists: {path}")
-            if not path.parent.is_dir():
-                raise ValueError(f"{format_name} report parent must be an existing directory: {path.parent}")
             if args.json_file:
-                content = json.dumps(report, indent=2, sort_keys=True) + "\n"
-            elif args.sarif_file:
-                content = json.dumps(
-                    build_sarif_report(report, sources=sources), indent=2, sort_keys=True,
-                ) + "\n"
-            else:
-                content = build_site_junit(report) + "\n"
-            # Exclusive creation protects existing artifacts if another CI job races us.
-            with path.open("x", encoding="utf-8", newline="\n") as output_file:
-                created_output = True
-                info = os.fstat(output_file.fileno())
-                created_identity = (info.st_dev, info.st_ino)
-                output_file.write(content)
+                reports.append((
+                    args.json_file, "JSON", json.dumps(report, indent=2, sort_keys=True),
+                ))
+            if args.junit_file:
+                reports.append((args.junit_file, "JUnit", build_site_junit(report)))
+            if args.sarif_file:
+                reports.append((
+                    args.sarif_file, "SARIF", json.dumps(
+                        build_sarif_report(report, sources=sources), indent=2,
+                        sort_keys=True,
+                    ),
+                ))
         except (OSError, UnicodeError, ValueError) as error:
-            cleanup_message = ""
-            if created_output:
-                if created_identity is None:
-                    cleanup_message = (
-                        "; partial report cleanup skipped: report identity unavailable"
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            return 2
+        try:
+            build_root = args.build_dir.resolve()
+            targets = [path.resolve() for path, _, _ in reports]
+            if len(set(targets)) != len(targets):
+                raise ValueError("All report destinations must be distinct files")
+            # Preflight the entire bundle before writing the first report.
+            for (path, label, _), target in zip(reports, targets, strict=True):
+                if target.is_relative_to(build_root):
+                    raise ValueError(f"{label} report must be outside the build directory")
+                if path.exists() or path.is_symlink():
+                    raise FileExistsError(f"{label} report already exists: {path}")
+                if not path.parent.is_dir():
+                    raise ValueError(
+                        f"{label} report parent must be an existing directory: {path.parent}"
                     )
-                else:
-                    try:
-                        current = path.lstat()
-                        if (
-                            not created_identity[1] or not current.st_ino
-                            or (current.st_dev, current.st_ino) != created_identity
-                        ):
-                            cleanup_message = (
-                                "; partial report cleanup skipped: "
-                                "report identity changed or unavailable"
-                            )
-                        else:
-                            path.unlink()
-                    except FileNotFoundError:
-                        # The file is already gone; never recreate it during rollback.
-                        pass
-                    except OSError as cleanup_error:
-                        cleanup_message = (
-                            "; partial report cleanup failed: "
-                            f"{human_input_error(cleanup_error)}"
-                        )
+            for path, _, payload in reports:
+                # Exclusive creation still protects against post-preflight races.
+                with path.open("x", encoding="utf-8", newline="\n") as output_file:
+                    created_outputs.append((path, None))
+                    info = os.fstat(output_file.fileno())
+                    created_outputs[-1] = (path, (info.st_dev, info.st_ino))
+                    output_file.write(payload + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            cleanup_errors: list[OSError] = []
+            cleanup_skipped = 0
+            for path, identity in reversed(created_outputs):
+                try:
+                    current = path.lstat()
+                    # Another job may have replaced our report after creation.
+                    if (
+                        identity is None or not identity[1] or not current.st_ino
+                        or (current.st_dev, current.st_ino) != identity
+                    ):
+                        cleanup_skipped += 1
+                        continue
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            cleanup_message = ""
+            if cleanup_skipped:
+                cleanup_message += (
+                    f"; partial report cleanup skipped ({cleanup_skipped}): "
+                    "report identity changed or unavailable"
+                )
+            if cleanup_errors:
+                cleanup_message += (
+                    f"; partial report cleanup failed ({len(cleanup_errors)}): "
+                    f"{human_input_error(cleanup_errors[0])}"
+                )
             print(
                 f"Invalid input: {human_input_error(error)}{cleanup_message}",
                 file=sys.stderr,

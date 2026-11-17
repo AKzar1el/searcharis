@@ -608,6 +608,27 @@ with the other standalone report modes, but can accompany GitHub annotations.
 Neither CI upload nor workflow configuration is automatic; actual adoption
 and ingestion remain unmeasured until independently verified.
 
+For a standalone reviewed-site check that needs both CI test ingestion and
+machine-readable findings, generate all three reports from **one** offline
+verification instead of executing the site checker repeatedly:
+
+```sh
+mkdir -p reports
+uv run python -m searcharis.site_cli seo-manifest.json dist \
+  --require-full-coverage --report-dir reports --github-annotations
+```
+
+`--report-dir` creates `seo-site.json`, `seo-site.xml` (JUnit) and
+`seo-site.sarif` under an **existing** report directory outside the supplied
+build, with fixed names for CI artifact upload. It is mutually exclusive with
+the individual report modes and JSON/SARIF stdout, but supports optional
+`--sarif-source-map` and late GitHub annotations. All target paths are checked
+before any write; files are exclusively created, never overwritten, and a
+failed later write triggers best-effort, identity-checked cleanup of only this
+invocation's artifacts. A replacement made by another job is preserved.
+Exit 0/1/2 keeps its existing meaning, no contract URL is fetched, and neither
+upload nor GitHub workflow changes happen automatically.
+
 ```sh
 uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
   --check-built --output seo-manifest.json
