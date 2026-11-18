@@ -193,6 +193,10 @@ from unnoticed build loss, but does not parse rules or validate live response
 headers. **Pages Functions / SSR / `_worker.js` responses do not use this file**;
 verify those in their application code. See the [offline headers guide](OFFLINE-HEADERS-CI.md)
 for checked-in pass/fail fixtures and limitations.
+For GitLab/Jenkins or PowerShell 5.1 CI, use
+`--json-file reports/pages-headers.json` with an existing `reports/`
+directory to write a new create-only UTF-8 report directly. Exit 0/1 keeps
+the report, while invalid input exits 2 without creating an artifact.
 
 ## Optional reviewed `robots.txt` release safety
 
