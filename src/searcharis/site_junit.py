@@ -81,6 +81,37 @@ def build_site_junit(site: dict) -> str:
     ).decode("ascii")
 
 
+def build_pages_policy_junit(report: dict) -> str:
+    """Represent each reviewed Pages static artifact as its own CI testcase."""
+    checks = report["checks"]
+    suite = ET.Element(
+        "testsuite", name="Searcharis Cloudflare Pages static policy gate",
+        tests=str(len(checks)), failures=str(sum(
+            item["status"] == "fail" for item in checks
+        )), errors="0", skipped="0",
+    )
+    for item in checks:
+        artifact = item["artifact"]
+        case = ET.SubElement(
+            suite, "testcase", classname="searcharis.pages_policy",
+            name=_bounded(artifact, limit=100),
+        )
+        if item["status"] == "fail":
+            reason = item["reason"]
+            failure = ET.SubElement(
+                case, "failure",
+                message=_bounded(f"Reviewed {artifact} {reason} from static build"),
+            )
+            failure.text = (
+                f"Reviewed SHA-256: {_bounded(item['expected_sha256'])}; "
+                f"built SHA-256: {_bounded(item['observed_sha256'] or 'missing')}"
+            )
+    return ET.tostring(
+        suite, encoding="us-ascii", xml_declaration=True,
+        short_empty_elements=True,
+    ).decode("ascii")
+
+
 def build_current_sitemap_junit(sitemap: dict) -> str:
     """Represent each current, blocking reviewed sitemap URL as one CI testcase."""
     failures = [

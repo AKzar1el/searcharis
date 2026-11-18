@@ -15,6 +15,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.headers_policy_cli import verify_reviewed_headers_policy
 from searcharis.redirects_policy_cli import verify_reviewed_redirects_policy
+from searcharis.site_junit import build_pages_policy_junit
 
 
 def format_github_annotations(report: dict) -> list[str]:
@@ -57,43 +58,53 @@ def verify_reviewed_pages_policies(
     }
 
 
-def _write_json_file(target: Path, build_dir: Path, report: dict) -> None:
-    """Create a report without replacing a prior CI artifact."""
-    created = False
-    created_identity: tuple[int, int] | None = None
+def _write_report_files(
+    reports: list[tuple[Path, str, str]], build_dir: Path,
+) -> None:
+    """Preflight all destinations and create only the files owned by this run."""
+    created: list[tuple[Path, tuple[int, int]]] = []
     try:
-        if target.resolve().is_relative_to(build_dir.resolve(strict=True)):
-            raise ValueError("JSON report must be outside the static build")
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f"JSON report already exists: {target}")
-        if not target.parent.is_dir():
-            raise ValueError(f"JSON report parent must be an existing directory: {target.parent}")
-        with target.open("x", encoding="utf-8", newline="\n") as output:
-            created = True
-            info = os.fstat(output.fileno())
-            created_identity = (info.st_dev, info.st_ino)
-            output.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        build_root = build_dir.resolve(strict=True)
+        resolved = [target.resolve() for target, _, _ in reports]
+        if len(set(resolved)) != len(resolved):
+            raise ValueError("Report destinations must be distinct files")
+        for (target, label, _), path in zip(reports, resolved, strict=True):
+            if path.is_relative_to(build_root):
+                raise ValueError(f"{label} report must be outside the static build")
+            if target.exists() or target.is_symlink():
+                raise FileExistsError(f"{label} report already exists: {target}")
+            if not target.parent.is_dir():
+                raise ValueError(
+                    f"{label} report parent must be an existing directory: {target.parent}"
+                )
+        for target, _, payload in reports:
+            with target.open("x", encoding="utf-8", newline="\n") as output:
+                info = os.fstat(output.fileno())
+                created.append((target, (info.st_dev, info.st_ino)))
+                output.write(payload + "\n")
     except (OSError, UnicodeError, ValueError) as error:
-        cleanup = ""
-        if created:
+        cleanup_notes: list[str] = []
+        for target, identity in reversed(created):
             try:
                 current = target.lstat()
                 if (
-                    created_identity is None
-                    or not created_identity[1]
+                    not identity[1]
                     or not current.st_ino
-                    or (current.st_dev, current.st_ino) != created_identity
+                    or (current.st_dev, current.st_ino) != identity
                 ):
-                    cleanup = "; partial report cleanup skipped: identity changed or unavailable"
+                    cleanup_notes.append(
+                        "partial report cleanup skipped: identity changed or unavailable"
+                    )
                 else:
                     target.unlink()
             except FileNotFoundError:
                 pass
             except OSError as cleanup_error:
-                cleanup = (
-                    f"; partial report cleanup failed: {human_input_error(cleanup_error)}"
+                cleanup_notes.append(
+                    f"partial report cleanup failed: {human_input_error(cleanup_error)}"
                 )
-        raise ValueError(f"{human_input_error(error)}{cleanup}") from error
+        suffix = "".join(f"; {note}" for note in cleanup_notes)
+        raise ValueError(f"{human_input_error(error)}{suffix}") from error
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -110,12 +121,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Create a UTF-8 JSON report outside the build without overwriting",
     )
     parser.add_argument(
+        "--junit-file", type=Path, metavar="PATH",
+        help="Create a JUnit XML report for both artifacts (can combine with --json-file)",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Emit GitHub Actions error annotations for drift (not with --json)",
     )
     args = parser.parse_args(argv)
     if args.json and args.github_annotations:
         parser.error("--github-annotations cannot be combined with JSON stdout")
+    if args.json and args.junit_file:
+        parser.error("JSON stdout cannot be combined with file reports")
 
     report = verify_reviewed_pages_policies(
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
@@ -131,10 +148,17 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 2
 
-    if args.json_file:
+    if args.json_file or args.junit_file:
         try:
-            _write_json_file(args.json_file, args.build_dir, report)
-        except ValueError as error:
+            files: list[tuple[Path, str, str]] = []
+            if args.json_file:
+                files.append((
+                    args.json_file, "JSON", json.dumps(report, indent=2, sort_keys=True),
+                ))
+            if args.junit_file:
+                files.append((args.junit_file, "JUnit", build_pages_policy_junit(report)))
+            _write_report_files(files, args.build_dir)
+        except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
             return 2
     elif args.json:
