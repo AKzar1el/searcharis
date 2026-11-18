@@ -156,6 +156,11 @@ required.
 See the [offline sitemap CI guide](docs/OFFLINE-SITEMAP-CI.md) for a runnable
 pass/fail fixture and limitations.
 
+If you deploy on Cloudflare Pages, the opt-in
+[offline `_redirects` drift check](docs/OFFLINE-REDIRECTS-CI.md) compares an
+approved file against the final build-root `_redirects` bytes and blocks
+missing or changed artifacts. It does not simulate hosting or fetch URLs.
+
 For regression-only CI on a legacy site, compare a trusted baseline build and
 the candidate directly with `python -m searcharis.build_compare`; it tolerates
 unchanged known defects without writing intermediate JSON reports. See the

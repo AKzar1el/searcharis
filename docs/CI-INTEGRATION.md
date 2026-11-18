@@ -157,6 +157,22 @@ For reproducible Astro-style multilingual and Vite-style static multipage
 examples, see the [offline generator fixtures](../examples/seo-contract/generator-fixtures/README.md).
 The checked-in snapshots are illustrative; always test your own actual build.
 
+## Optional Cloudflare Pages `_redirects` artifact drift check
+
+For Cloudflare Pages projects, compare a source-controlled reviewed `_redirects`
+file with the final build-root artifact before deployment:
+
+```sh
+uv run python -m searcharis.redirects_policy_cli \
+  policies/pages-redirects.txt dist --json
+```
+
+The reviewed file must be outside `dist`. Exit 0 means the bytes match, exit 1
+means the built file is missing or differs, and exit 2 means invalid input.
+This does not evaluate redirect syntax, fetch URLs or verify live routing.
+See the [offline redirects guide](OFFLINE-REDIRECTS-CI.md) for a tested local
+pass/fail fixture and Pages Functions/Bulk Redirects limitations.
+
 ## Optional reviewed `robots.txt` release safety
 
 Before publishing a static build, compare its root `robots.txt` against a

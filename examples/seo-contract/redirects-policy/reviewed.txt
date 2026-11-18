@@ -1,0 +1,3 @@
+# Reviewed redirect policy (illustrative only)
+/old-services /services/ 301
+/outdated /guides/ 302
