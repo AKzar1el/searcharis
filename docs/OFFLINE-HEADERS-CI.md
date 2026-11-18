@@ -75,3 +75,6 @@ Source: [Cloudflare Pages custom headers](https://developers.cloudflare.com/page
 
 This is a local pre-deployment test only. It neither deploys the application nor
 modifies configuration, credentials, schedules, or CI workflows.
+
+For a **single combined offline exit code** covering both reviewed Cloudflare
+Pages static artifacts, see [the Pages policy gate](OFFLINE-PAGES-CI.md).

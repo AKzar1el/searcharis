@@ -96,3 +96,6 @@ for limits and routing details.
 The checked-in [passing/failing examples](../examples/seo-contract/redirects-policy/README.md)
 demonstrate behavior only. Before using it as a release gate, test your own
 compiler's output path and ask a reviewer to approve the exact policy.
+
+For a **single combined offline exit code** covering both reviewed Cloudflare
+Pages static artifacts, see [the Pages policy gate](OFFLINE-PAGES-CI.md).
