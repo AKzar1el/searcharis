@@ -1,0 +1,3 @@
+# Regressed: preview Pages static assets no longer carry noindex
+/*
+  X-Content-Type-Options: nosniff

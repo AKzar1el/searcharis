@@ -1,0 +1,5 @@
+# Reviewed static Pages response headers
+/*
+  X-Content-Type-Options: nosniff
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
