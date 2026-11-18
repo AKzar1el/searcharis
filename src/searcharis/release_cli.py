@@ -72,6 +72,8 @@ def _github_annotations(site: dict, sitemap: dict, robots: dict | None) -> list[
                 f"Missing reviewed Sitemap: {_preview(url)}"
                 for url in missing[:_MAX_HUMAN_FINDINGS]
             ]
+        elif robots.get("reason") == "root_crawl_block":
+            messages = ["Reviewed robots.txt explicitly blocks Googlebot at site root"]
         else:
             messages = [f"Reviewed robots.txt: {_preview(robots['reason'])}"]
         groups.append(("robots.txt", messages))
@@ -166,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
         "--require-robots-sitemap", metavar="URL", action="append",
         help="Require a reviewed robots.txt Sitemap URL (repeatable, up to 16)",
     )
+    parser.add_argument(
+        "--check-root-crawl-block", action="store_true",
+        help="Flag a basic reviewed Googlebot Disallow: / at the static site root",
+    )
     stdout = parser.add_mutually_exclusive_group()
     stdout.add_argument("--json", action="store_true", help="Print both reports as JSON")
     stdout.add_argument(
@@ -203,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.require_robots_sitemap is not None and not args.reviewed_robots:
         parser.error("--require-robots-sitemap requires --reviewed-robots")
+    if args.check_root_crawl_block and not args.reviewed_robots:
+        parser.error("--check-root-crawl-block requires --reviewed-robots")
     if args.sarif_source_map and not (args.sarif_file or args.report_dir):
         parser.error("--sarif-source-map requires --sarif-file or --report-dir")
     if args.report_dir:
@@ -249,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             verify_reviewed_robots_policy(
                 args.reviewed_robots, args.build_dir,
                 required_sitemap_url=args.require_robots_sitemap,
+                check_root_crawl_block=args.check_root_crawl_block,
             )
             if args.reviewed_robots is not None else None
         )
@@ -409,6 +418,9 @@ def main(argv: list[str] | None = None) -> int:
                           f"{_preview(url)}")
                 if len(missing) > 3:
                     print(f"  ... and {len(missing) - 3} more; use --json for all")
+            elif robots["reason"] == "root_crawl_block":
+                print("FAIL robots.txt: reviewed policy explicitly blocks Googlebot "
+                      "at site root")
             else:
                 print(
                     f"FAIL robots.txt {robots['reason']}: reviewed SHA-256 "

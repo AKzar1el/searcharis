@@ -54,6 +54,82 @@ def test_opt_in_policy_passes_offline_without_changing_default_json(inputs, caps
     assert report["robots"]["artifact"] == "robots.txt"
 
 
+@pytest.mark.parametrize("policy,blocked", [
+    (b"User-agent: *\nDisallow: /\n", True),
+    (b"User-agent: Googlebot\nDisallow: /\n", True),
+    (b"User-agent: *\nDisallow: /\nAllow: /\n", False),
+    (b"User-agent: *\nDisallow: /\nUser-agent: Googlebot\nAllow: /\n", False),
+    (b"User-agent: *\nDisallow: /private/\n", False),
+])
+def test_combined_release_opt_in_root_crawl_guard_matches_standalone_semantics(
+    inputs, capsys, monkeypatch, policy, blocked,
+):
+    def no_network(*args, **kwargs):
+        raise AssertionError("combined root crawl guard must not open sockets")
+
+    monkeypatch.setattr(socket, "socket", no_network)
+    inputs[3].write_bytes(policy)
+    (inputs[1] / "robots.txt").write_bytes(policy)
+
+    assert _run(inputs, "--reviewed-robots", inputs[3], "--json") == 0
+    assert json.loads(capsys.readouterr().out)["robots"]["status"] == "pass"
+
+    assert _run(
+        inputs, "--reviewed-robots", inputs[3], "--check-root-crawl-block", "--json",
+    ) == (1 if blocked else 0)
+    report = json.loads(capsys.readouterr().out)
+    assert report["site"]["status"] == report["sitemap"]["status"] == "pass"
+    assert report["status"] == ("fail" if blocked else "pass")
+    assert report["robots"]["reason"] == ("root_crawl_block" if blocked else None)
+    assert report["robots"]["expected_sha256"] == report["robots"]["observed_sha256"]
+
+
+def test_combined_root_crawl_guard_requires_reviewed_robots(inputs):
+    with pytest.raises(SystemExit) as error:
+        _run(inputs, "--check-root-crawl-block")
+    assert error.value.code == 2
+
+
+def test_combined_root_crawl_guard_preserves_drift_priority(inputs, capsys):
+    inputs[3].write_bytes(b"User-agent: *\nDisallow: /\n")
+    assert _run(
+        inputs, "--reviewed-robots", inputs[3], "--check-root-crawl-block", "--json",
+    ) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["robots"]["reason"] == "changed"
+
+
+def test_combined_root_crawl_guard_reports_actionable_distinct_failure(
+    inputs, tmp_path, capsys,
+):
+    policy = b"User-agent: *\nDisallow: /\n"
+    inputs[3].write_bytes(policy)
+    (inputs[1] / "robots.txt").write_bytes(policy)
+    reports = tmp_path / "ci"
+    reports.mkdir()
+    assert _run(
+        inputs, "--reviewed-robots", inputs[3], "--check-root-crawl-block",
+        "--report-dir", reports, "--github-annotations",
+    ) == 1
+    stdout = capsys.readouterr().out
+    assert "::error" in stdout and "blocks Googlebot at site root" in stdout
+    json_report = json.loads((reports / "seo-release.json").read_text(encoding="utf-8"))
+    assert json_report["robots"]["reason"] == "root_crawl_block"
+    suite = ET.parse(reports / "seo-release.xml").getroot()
+    assert suite.attrib["failures"] == "1"
+    assert "robots_policy_root_crawl_block" in suite.find("testcase").attrib["name"]
+    assert "Googlebot" in suite.find("testcase/failure").attrib["message"]
+    markdown = (reports / "seo-release.md").read_text(encoding="utf-8")
+    assert "root_crawl_block" in markdown
+    assert "Googlebot" in markdown
+    sarif = json.loads((reports / "seo-release.sarif").read_text(encoding="utf-8"))
+    assert any(
+        result["ruleId"] == "robots_policy_root_crawl_block"
+        and "Googlebot" in result["message"]["text"]
+        for result in sarif["runs"][0]["results"]
+    )
+
+
 def test_staging_robots_drift_blocks_even_when_html_and_sitemap_pass(inputs, capsys):
     (inputs[1] / "robots.txt").write_bytes(b"User-agent: *\nDisallow: /\n")
     assert _run(inputs, "--reviewed-robots", inputs[3], "--json") == 1
