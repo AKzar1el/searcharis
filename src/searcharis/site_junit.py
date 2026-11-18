@@ -101,6 +101,8 @@ def build_pages_policy_junit(report: dict) -> str:
             description = (
                 f"Reviewed {artifact} exceeds a Pages limit"
                 if reason == "limit_exceeded"
+                else f"Reviewed {artifact} declares broad X-Robots-Tag noindex"
+                if reason == "sitewide_noindex"
                 else f"Reviewed {artifact} {reason} from static build"
             )
             failure = ET.SubElement(
@@ -113,6 +115,10 @@ def build_pages_policy_junit(report: dict) -> str:
             )
             if reason == "limit_exceeded":
                 failure.text += f"; Pages limit: {_bounded(item['limit_issue'])}"
+            if reason == "sitewide_noindex":
+                failure.text += (
+                    f"; indexability guard: {_bounded(item['indexability_issue'])}"
+                )
             if "drift_location" in item:
                 location = item["drift_location"]
                 failure.text += (
