@@ -107,3 +107,94 @@ def test_human_guard_failure_does_not_claim_policy_drift(tmp_path, capsys):
     assert "PASS _redirects" in out
     assert "FAIL _headers" in out and "noindex" in out.lower()
     assert "changed" not in out.lower()
+
+
+@pytest.mark.parametrize("directive", [
+    "noindex", "NONE", "googlebot: noindex", "googlebot: nofollow, noindex",
+])
+def test_opt_in_production_host_rule_blocks_noindex(tmp_path, capsys, directive):
+    paths = _policies(
+        tmp_path,
+        "https://preview.pages.dev/*\n  X-Robots-Tag: noindex\n"
+        f"https://EXAMPLE.COM/*\n  X-Robots-Tag: {directive}\n",
+    )
+    flags = ("--check-sitewide-noindex", "--production-host", "example.com", "--json")
+    status, out, err = _run(capsys, paths, "--check-sitewide-noindex", "--json")
+    assert status == 0 and err == "" and json.loads(out)["status"] == "pass"
+
+    status, out, err = _run(capsys, paths, *flags)
+    report = json.loads(out)
+    assert status == 1 and err == "" and report["status"] == "fail"
+    issue = report["checks"][1]
+    assert issue["reason"] == "sitewide_noindex"
+    assert "line 4" in issue["indexability_issue"]
+    assert "example.com" in issue["indexability_issue"].lower()
+    assert "preview.pages.dev" not in issue["indexability_issue"]
+
+
+@pytest.mark.parametrize("text", [
+    "https://preview.pages.dev/*\n  X-Robots-Tag: noindex\n",
+    "https://sub.example.com/*\n  X-Robots-Tag: noindex\n",
+    "https://example.com.evil.net/*\n  X-Robots-Tag: noindex\n",
+    "https://example.com/private/*\n  X-Robots-Tag: noindex\n",
+    "https://example.com/\n  X-Robots-Tag: noindex\n",
+    "https://example.com/*\n  X-Robots-Tag: otherbot: noindex\n",
+    "https://example.com/*\n  ! X-Robots-Tag\n",
+    "# https://example.com/*\n  X-Robots-Tag: noindex\n",
+])
+def test_production_host_guard_ignores_unrelated_rules(tmp_path, capsys, text):
+    paths = _policies(tmp_path, text)
+    code, out, err = _run(
+        capsys, paths, "--check-sitewide-noindex", "--production-host", "example.com",
+        "--json",
+    )
+    assert code == 0 and err == "" and json.loads(out)["status"] == "pass"
+
+
+@pytest.mark.parametrize("host", [
+    "https://example.com", "example.com/path", "example.com:443",
+    "example.com.evil/", "*.example.com", "example..com", "-example.com",
+    "example.com\n::error::fake", "example_com", "localhost", "",
+])
+def test_production_host_rejects_invalid_names(tmp_path, capsys, host):
+    paths = _policies(tmp_path, "https://example.com/*\n  X-Robots-Tag: noindex\n")
+    with pytest.raises(SystemExit) as error:
+        _run(capsys, paths, "--check-sitewide-noindex", "--production-host", host)
+    assert error.value.code == 2
+
+
+def test_production_host_requires_opt_in_guard(tmp_path, capsys):
+    paths = _policies(tmp_path, "https://example.com/*\n  X-Robots-Tag: noindex\n")
+    with pytest.raises(SystemExit) as error:
+        _run(capsys, paths, "--production-host", "example.com")
+    assert error.value.code == 2
+
+
+def test_production_host_works_with_existing_sitewide_rule_and_reports(
+    tmp_path, capsys, monkeypatch,
+):
+    paths = _policies(
+        tmp_path,
+        "https://preview.pages.dev/*\n  X-Robots-Tag: noindex\n"
+        "/*\n  X-Robots-Tag: index\n"
+        "https://example.com/*\n  X-Robots-Tag: googlebot: noindex\n",
+    )
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    monkeypatch.setattr(
+        socket, "socket", lambda *args, **kwargs: pytest.fail("no network allowed"),
+    )
+    code, out, err = _run(
+        capsys, paths, "--check-sitewide-noindex", "--production-host", "EXAMPLE.COM",
+        "--report-dir", str(reports), "--github-annotations",
+    )
+    assert code == 1 and err == "" and out.count("::error") == 1
+    assert "example.com" in out.lower()
+    issue = json.loads((reports / "seo-pages.json").read_text(encoding="utf-8"))[
+        "checks"
+    ][1]
+    assert issue["reason"] == "sitewide_noindex"
+    assert "line 6" in issue["indexability_issue"]
+    assert "example.com" in (reports / "seo-pages.md").read_text(encoding="utf-8").lower()
+    failure = ET.parse(reports / "seo-pages.xml").getroot().find(".//failure")
+    assert failure is not None and "example.com" in (failure.text or "").lower()
