@@ -169,6 +169,28 @@ the annotation flag with JSON stdout. This checks only local build artifacts,
 does not fetch URLs or infer source file/line locations, and does not upload
 or deploy anything. Preserve process exit status 0/1/2 in the CI job.
 
+For a single offline run that saves reviewer-friendly Markdown alongside
+machine-readable JSON and JUnit XML, create an empty reports directory first
+and use the opt-in report bundle:
+
+```sh
+mkdir -p reports
+uv run python -m searcharis.robots_policy_cli \
+  policies/production-robots.txt dist --report-dir reports
+```
+
+This writes create-only `seo-robots.json`, `seo-robots.xml` and
+`seo-robots.md` inside `reports/`, including on a drift failure (exit 1).
+Alternatively, `--markdown-file reports/robots.md` can be paired with
+explicit `--json-file`, `--junit-file` and `--github-annotations` output.
+The checker rejects an existing artifact, a report path inside `dist`, a
+missing parent directory, and overlapping destinations before writing any
+report. Unexpected interrupted writes attempt identity-checked cleanup of
+only the current invocation's artifacts; cleanup is best-effort, not atomic.
+CI must preserve the command exit code and explicitly collect artifacts or
+append the Markdown to its step summary: no automatic upload occurs. These
+are current robots.txt findings, not baseline-regression comparisons.
+
 Run this after generating `dist`, alongside the existing HTML and sitemap
 checks, and preserve its exit status in CI. Exit 0 means the bytes match, 1
 means the built policy differs or is missing, and 2 means invalid input.
