@@ -5,6 +5,12 @@ sitemap and robots.txt checks to the same release gate. None of these checks is
 a production crawl or an indexing guarantee. Use the existing Searcharis hosted
 incident workflow separately when an external production audit is required.
 
+Windows teams using PowerShell 5.1 or PowerShell 7 can start with the
+[tested Windows CI quickstart](WINDOWS-SEO-CI.md). It includes native command
+syntax, a checked-in passing and failing static-build fixture, portable
+UTF-8 artifacts and exact CI exit-code propagation without Bash or output
+redirection.
+
 ## 1. Build a known HTML artifact
 
 For Astro, a standard static build produces files under `dist/`. Choose one
