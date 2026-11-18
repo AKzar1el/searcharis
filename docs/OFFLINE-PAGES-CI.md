@@ -82,6 +82,14 @@ combine annotations with `--json` stdout. The messages refer to compiled
 artifacts, not invented source-line locations; other CI systems can omit the
 flag and consume JSON or JUnit instead.
 
+For a drifting compiled artifact, add `--locate-drift` to identify its **first
+differing byte** relative to the reviewed reference. This opt-in local-only
+diagnostic adds a zero-based byte offset and one-based LF-delimited line/byte
+column to JSON; the same position appears in human, Markdown, JUnit and
+GitHub error text. It never prints rule contents and does not forge a GitHub
+source-file location. A missing artifact has no position. This diagnoses
+byte differences (including whitespace and line endings), not Pages behavior.
+
 | Exit | Meaning | CI action |
 | --- | --- | --- |
 | 0 | Both compiled files match the reviewed references byte-for-byte | Pass |

@@ -35,8 +35,18 @@ def format_github_annotations(report: dict) -> list[str]:
             message = f"Reviewed {artifact} exceeds a documented Pages limit: {item['limit_issue']}"
         else:
             message = f"Compiled {artifact} changed from the reviewed reference"
+            if "drift_location" in item:
+                message += f"; {_drift_location_note(item)}"
         annotations.append(f"::error title=SEO Pages {artifact}::{message}")
     return annotations
+
+
+def _drift_location_note(item: dict) -> str:
+    location = item["drift_location"]
+    return (
+        f"first differing byte at line {location['line']}, "
+        f"column {location['byte_column']} (offset {location['byte_offset']})"
+    )
 
 
 def _format_human_check(item: dict) -> str:
@@ -44,11 +54,14 @@ def _format_human_check(item: dict) -> str:
         return f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}"
     if item["reason"] == "limit_exceeded":
         return f"FAIL {item['artifact']} Pages limit: {item['limit_issue']}"
-    return (
+    message = (
         f"FAIL {item['artifact']} {item['reason']}: "
         f"expected SHA-256 {item['expected_sha256']}, "
         f"observed SHA-256 {item['observed_sha256'] or 'missing'}"
     )
+    if "drift_location" in item:
+        message += f"; {_drift_location_note(item)}"
+    return message
 
 
 def build_pages_policy_markdown(report: dict) -> str:
@@ -70,11 +83,14 @@ def build_pages_policy_markdown(report: dict) -> str:
         elif item["reason"] == "limit_exceeded":
             lines.append(f"- **{artifact}: FAIL** - {item['limit_issue']}")
         else:
-            lines.append(
+            description = (
                 f"- **{artifact}: FAIL** - {item['reason']}; "
                 f"reviewed SHA-256 `{item['expected_sha256'][:12]}`, "
                 f"built SHA-256 `{(item['observed_sha256'] or 'missing')[:12]}`"
             )
+            if "drift_location" in item:
+                description += f"; {_drift_location_note(item)}"
+            lines.append(description)
     if passed:
         lines.extend(["", "No static policy drift in the supplied build."])
     else:
@@ -137,9 +153,38 @@ def _basic_pages_limit_issue(reviewed: Path, artifact: str, digest: str) -> str 
     return None
 
 
+def _locate_drift(
+    reviewed: Path, built: Path, artifact: str,
+    expected_sha256: str, observed_sha256: str,
+) -> dict[str, int]:
+    """Locate a byte difference without printing policy contents or fetching URLs."""
+    if built.is_symlink() or not built.is_file():
+        raise ValueError(f"Built {artifact} changed while locating drift")
+
+    def read_verified(path: Path, digest: str) -> bytes:
+        with path.open("rb") as source:
+            data = source.read(8_500_001)
+        if len(data) > 8_500_000 or hashlib.sha256(data).hexdigest() != digest:
+            raise ValueError(f"{artifact} changed while locating drift")
+        return data
+
+    expected = read_verified(reviewed, expected_sha256)
+    observed = read_verified(built, observed_sha256)
+    shared = min(len(expected), len(observed))
+    offset = next((i for i in range(shared) if expected[i] != observed[i]), shared)
+    if offset == shared and len(expected) == len(observed):
+        raise ValueError(f"{artifact} changed while locating drift")
+    prefix = expected[:offset]
+    return {
+        "line": prefix.count(b"\n") + 1,
+        "byte_column": offset - prefix.rfind(b"\n"),
+        "byte_offset": offset,
+    }
+
+
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
-    *, check_policy_limits: bool = False,
+    *, check_policy_limits: bool = False, locate_drift: bool = False,
 ) -> dict:
     """Check both static policy artifacts even if one is missing or invalid."""
     checks: list[dict] = []
@@ -150,6 +195,11 @@ def verify_reviewed_pages_policies(
     ):
         try:
             result = check(reviewed, build_dir)
+            if locate_drift and result["reason"] == "changed":
+                result["drift_location"] = _locate_drift(
+                    reviewed, build_dir.resolve(strict=True) / artifact, artifact,
+                    result["expected_sha256"], result["observed_sha256"],
+                )
             if check_policy_limits and result["status"] == "pass":
                 issue = _basic_pages_limit_issue(
                     reviewed, artifact, result["expected_sha256"],
@@ -252,6 +302,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-policy-limits", action="store_true",
         help="Also enforce basic published Pages line and aggregate rule limits (offline)",
     )
+    parser.add_argument(
+        "--locate-drift", action="store_true",
+        help="Locate first changed byte/line in drifted artifacts without printing contents",
+    )
     args = parser.parse_args(argv)
     if args.report_dir:
         if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
@@ -266,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = verify_reviewed_pages_policies(
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
-        check_policy_limits=args.check_policy_limits,
+        check_policy_limits=args.check_policy_limits, locate_drift=args.locate_drift,
     )
     if report["status"] == "error":
         if args.json:
