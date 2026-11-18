@@ -98,14 +98,21 @@ def build_pages_policy_junit(report: dict) -> str:
         )
         if item["status"] == "fail":
             reason = item["reason"]
+            description = (
+                f"Reviewed {artifact} exceeds a Pages limit"
+                if reason == "limit_exceeded"
+                else f"Reviewed {artifact} {reason} from static build"
+            )
             failure = ET.SubElement(
                 case, "failure",
-                message=_bounded(f"Reviewed {artifact} {reason} from static build"),
+                message=_bounded(description),
             )
             failure.text = (
                 f"Reviewed SHA-256: {_bounded(item['expected_sha256'])}; "
                 f"built SHA-256: {_bounded(item['observed_sha256'] or 'missing')}"
             )
+            if reason == "limit_exceeded":
+                failure.text += f"; Pages limit: {_bounded(item['limit_issue'])}"
     return ET.tostring(
         suite, encoding="us-ascii", xml_declaration=True,
         short_empty_elements=True,

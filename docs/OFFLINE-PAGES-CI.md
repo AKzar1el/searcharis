@@ -109,5 +109,24 @@ applies to static assets, not Pages Functions/SSR/`_worker.js` responses;
 and fuller limitations, see [headers](OFFLINE-HEADERS-CI.md) and
 [redirects](OFFLINE-REDIRECTS-CI.md).
 
+### Optional Pages policy size limits
+
+Exact byte parity can pass even if a reviewed rule is too long for Cloudflare
+Pages to accept. Add `--check-policy-limits` to the combined command to
+fail CI when a matching, reviewed static policy violates basic published limits:
+1,000 characters per `_redirects` declaration; 2,000 static and 100 dynamic
+redirect rules (2,100 total); 2,000 characters per `_headers` line; and 100
+top-level header rule blocks. The default remains byte-only. Opt-in failures retain exit
+1 and identify the artifact and offending line or rule count in JSON, JUnit,
+Markdown, human output and GitHub annotations.
+
+This checks **basic bounds only**; redirect rules are classified as dynamic if
+the source token contains a wildcard or `:[A-Za-z]...` placeholder. It does not
+validate full redirect/header syntax, proxying or status codes, emulate
+precedence or claim that Pages will accept the policy.
+The check reads only local UTF-8 text and never fetches URLs.
+See Cloudflare's [redirect limits](https://developers.cloudflare.com/pages/configuration/redirects/)
+and [header limits](https://developers.cloudflare.com/pages/configuration/headers/).
+
 This command makes no deployments, paid API calls or production network
 requests. Customer adoption and false-positive rates have not been measured.

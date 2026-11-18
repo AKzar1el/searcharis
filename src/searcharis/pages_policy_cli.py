@@ -7,8 +7,10 @@ Cloudflare routing, Pages Functions, SSR, or live HTTP response behavior.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +31,8 @@ def format_github_annotations(report: dict) -> list[str]:
             continue
         if item.get("reason") == "missing":
             message = f"Compiled {artifact} missing from the static build"
+        elif item.get("reason") == "limit_exceeded":
+            message = f"Reviewed {artifact} exceeds a documented Pages limit: {item['limit_issue']}"
         else:
             message = f"Compiled {artifact} changed from the reviewed reference"
         annotations.append(f"::error title=SEO Pages {artifact}::{message}")
@@ -38,6 +42,8 @@ def format_github_annotations(report: dict) -> list[str]:
 def _format_human_check(item: dict) -> str:
     if item["status"] == "pass":
         return f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}"
+    if item["reason"] == "limit_exceeded":
+        return f"FAIL {item['artifact']} Pages limit: {item['limit_issue']}"
     return (
         f"FAIL {item['artifact']} {item['reason']}: "
         f"expected SHA-256 {item['expected_sha256']}, "
@@ -61,6 +67,8 @@ def build_pages_policy_markdown(report: dict) -> str:
                 f"- **{artifact}: PASS** - matches reviewed SHA-256 "
                 f"`{item['expected_sha256'][:12]}`"
             )
+        elif item["reason"] == "limit_exceeded":
+            lines.append(f"- **{artifact}: FAIL** - {item['limit_issue']}")
         else:
             lines.append(
                 f"- **{artifact}: FAIL** - {item['reason']}; "
@@ -85,8 +93,53 @@ def build_pages_policy_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _basic_pages_limit_issue(reviewed: Path, artifact: str, digest: str) -> str | None:
+    """Check published basic text limits, not complete Pages syntax or routing."""
+    # The individual byte-parity verifiers already enforce this bounded read.
+    with reviewed.open("rb") as source:
+        content = source.read(8_500_001)
+    if len(content) > 8_500_000:
+        raise ValueError(f"Reviewed {artifact} exceeds the local input byte limit")
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise ValueError(f"Reviewed {artifact} changed while checking policy limits")
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError(f"Reviewed {artifact} is not UTF-8 text") from error
+
+    limit = 1_000 if artifact == "_redirects" else 2_000
+    static_redirects = 0
+    dynamic_redirects = 0
+    header_rules = 0
+    for line_number, line in enumerate(lines, start=1):
+        if artifact == "_redirects":
+            if not line.strip() or line.startswith("#"):
+                continue
+            source = line.split()[0]
+            if "*" in source or re.search(r":[A-Za-z]\w*", source):
+                dynamic_redirects += 1
+            else:
+                static_redirects += 1
+        elif line.strip() and not line.startswith("#") and not line[0].isspace():
+            header_rules += 1
+        if len(line) > limit:
+            return f"line {line_number} has {len(line)} characters; maximum {limit}"
+
+    if artifact == "_redirects":
+        if static_redirects > 2_000:
+            return f"{static_redirects} static redirect rules; maximum 2000"
+        if dynamic_redirects > 100:
+            return f"{dynamic_redirects} dynamic redirect rules; maximum 100"
+        if static_redirects + dynamic_redirects > 2_100:
+            return f"{static_redirects + dynamic_redirects} redirect rules; maximum 2100"
+    elif header_rules > 100:
+        return f"{header_rules} header rules; maximum 100"
+    return None
+
+
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
+    *, check_policy_limits: bool = False,
 ) -> dict:
     """Check both static policy artifacts even if one is missing or invalid."""
     checks: list[dict] = []
@@ -96,7 +149,16 @@ def verify_reviewed_pages_policies(
         ("_headers", verify_reviewed_headers_policy, reviewed_headers),
     ):
         try:
-            checks.append(check(reviewed, build_dir))
+            result = check(reviewed, build_dir)
+            if check_policy_limits and result["status"] == "pass":
+                issue = _basic_pages_limit_issue(
+                    reviewed, artifact, result["expected_sha256"],
+                )
+                if issue:
+                    result.update(
+                        status="fail", reason="limit_exceeded", limit_issue=issue,
+                    )
+            checks.append(result)
         except (OSError, ValueError) as error:
             errors.append({"artifact": artifact, "error": str(error)})
 
@@ -186,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
         "--github-annotations", action="store_true",
         help="Emit GitHub Actions error annotations for drift (not with --json)",
     )
+    parser.add_argument(
+        "--check-policy-limits", action="store_true",
+        help="Also enforce basic published Pages line and aggregate rule limits (offline)",
+    )
     args = parser.parse_args(argv)
     if args.report_dir:
         if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
@@ -200,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = verify_reviewed_pages_policies(
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
+        check_policy_limits=args.check_policy_limits,
     )
     if report["status"] == "error":
         if args.json:
