@@ -5,6 +5,11 @@ retain both a reviewed `_redirects` file and a reviewed `_headers` file.
 Running one command prevents a CI script from losing the first check's failure
 exit code while running the second. It does not fetch URLs or call Cloudflare.
 
+New to this check? Run the [checked-in synthetic quickstart](../examples/pages-policy/README.md)
+first. It verifies the actual offline CLI, a passing local static build,
+portable report artifacts, and isolated drift/missing-input regressions without
+requiring a Cloudflare account or modifying your site's build.
+
 ## CI use
 
 First commit **separate, reviewer-approved** reference files outside the output
