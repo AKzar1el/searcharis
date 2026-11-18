@@ -1370,6 +1370,29 @@ invalid URLs or duplicates fail with exit 2, and existing calls without this
 option keep their original output. It never fetches the declared URLs or
 establishes production HTTP/crawler behavior.
 
+For a separate, **opt-in** indexing-risk check on the standalone robots gate,
+add `--check-root-crawl-block`. A reviewed `robots.txt` that exactly matches its
+compiled copy may still explicitly block Googlebot at the site root. This flag
+fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
+`Googlebot` group declares `Disallow: /` without a basic root `Allow: /`,
+`Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. Googlebot-specific groups
+take precedence over the wildcard group, and multiple matching groups are
+combined. By default this additional check is off; existing parity-only runs
+are unchanged. Failure details appear in JSON, JUnit, Markdown, human output
+and GitHub annotations without reproducing reviewed file contents.
+
+```sh
+uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dist \
+  --check-root-crawl-block --report-dir reports
+```
+
+This is a deliberately **narrow static rule check**, not a complete robots.txt
+interpreter: it does not assess arbitrary URL paths, wildcard `Disallow` forms,
+all crawler identifiers, deployed HTTP responses, or actual Google indexing.
+Review the full policy if it flags an intentional exception. Google documents
+the [basic whole-site block](https://developers.google.com/crawling/docs/robots-txt/useful-robots-txt-rules)
+and [user-agent group precedence](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec).
+
 For a portable archived CI artifact, use `--json-file reports/robots.json`
 instead of `--json` with the standalone command. It writes the same complete
 PASS/FAIL result as UTF-8 JSON with a trailing newline, including any requested

@@ -1,7 +1,7 @@
 """Fail closed on unreviewed built robots.txt drift, without fetching any URL.
 
-This deliberately compares exact artifact bytes instead of attempting to
-approximate Googlebot's user-agent grouping and rule precedence.
+Default behavior is exact artifact-byte parity. An optional, narrow root-crawl
+guard inspects explicit reviewed rules without evaluating arbitrary paths.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ def format_github_annotations(report: dict) -> list[str]:
     if report["reason"] == "sitemap_declaration_missing":
         missing = report.get("missing_sitemap_urls") or [report["required_sitemap_url"]]
         messages = [f"Missing reviewed Sitemap: {url!r}" for url in missing[:16]]
+    elif report["reason"] == "root_crawl_block":
+        messages = ["Reviewed robots.txt explicitly blocks Googlebot at site root"]
     else:
         messages = [f"Reviewed robots.txt {report['reason']}"]
     annotations: list[str] = []
@@ -62,9 +64,54 @@ def _declares_sitemap(policy: bytes, required_url: str) -> bool:
     return False
 
 
+def _explicit_googlebot_root_block(policy: bytes) -> bool:
+    """Detect a basic Googlebot root block, not arbitrary REP path matching."""
+    groups: list[tuple[tuple[str, ...], tuple[tuple[str, str], ...]]] = []
+    agents: list[str] = []
+    rules: list[tuple[str, str]] = []
+    has_rule = False
+
+    for raw_line in policy.decode("utf-8-sig").splitlines():
+        active = raw_line.partition("#")[0].strip()
+        name, colon, value = active.partition(":")
+        if not colon:
+            continue
+        name, value = name.strip().casefold(), value.strip()
+        if name == "user-agent":
+            if has_rule:
+                groups.append((tuple(agents), tuple(rules)))
+                agents, rules, has_rule = [], [], False
+            if value:
+                # Google treats `googlebot*` and `googlebot/1.2` as Googlebot.
+                agent = value.casefold().split()[0].split("/", 1)[0]
+                if agent != "*":
+                    agent = agent.rstrip("*")
+                agents.append(agent)
+        elif name in {"allow", "disallow"} and agents:
+            has_rule = True
+            rules.append((name, value))
+    if agents:
+        groups.append((tuple(agents), tuple(rules)))
+
+    # Googlebot-specific groups override wildcard groups, not combine with them.
+    specific = [rules for agents, rules in groups if "googlebot" in agents]
+    selected = specific if specific else [
+        rules for agents, rules in groups if "*" in agents
+    ]
+    applicable = [rule for group in selected for rule in group]
+    if not any(name == "disallow" and value == "/" for name, value in applicable):
+        return False
+    # Only these simple allow rules can explicitly admit the homepage itself.
+    return not any(
+        name == "allow" and value in {"/", "/$", "/*", "/*$"}
+        for name, value in applicable
+    )
+
+
 def verify_reviewed_robots_policy(
     reviewed_policy: Path, build_dir: Path,
     *, required_sitemap_url: str | Sequence[str] | None = None,
+    check_root_crawl_block: bool = False,
 ) -> dict:
     """Compare reviewed source policy to the exact build-root robots.txt artifact."""
     if required_sitemap_url is None:
@@ -109,13 +156,22 @@ def verify_reviewed_robots_policy(
         url for url in required_urls if not _declares_sitemap(reviewed_bytes, url)
     ]
     sitemap_declared = not missing_sitemaps
-    reason = (
-        None if matches and sitemap_declared else
-        "missing" if observed_digest is None else
-        "changed" if not matches else "sitemap_declaration_missing"
+    root_blocked = (
+        matches and sitemap_declared and check_root_crawl_block
+        and _explicit_googlebot_root_block(reviewed_bytes)
     )
+    if observed_digest is None:
+        reason = "missing"
+    elif not matches:
+        reason = "changed"
+    elif not sitemap_declared:
+        reason = "sitemap_declaration_missing"
+    elif root_blocked:
+        reason = "root_crawl_block"
+    else:
+        reason = None
     result = {
-        "status": "pass" if matches and sitemap_declared else "fail",
+        "status": "pass" if matches and sitemap_declared and not root_blocked else "fail",
         "artifact": "robots.txt",
         "reason": reason,
         "expected_sha256": expected_digest,
@@ -162,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         "--require-robots-sitemap", action="append", metavar="URL",
         help="Require a reviewed Sitemap URL (repeatable, up to 16; no URL fetch)",
     )
+    parser.add_argument(
+        "--check-root-crawl-block", action="store_true",
+        help="Flag basic reviewed Googlebot Disallow: / blocking the static site root",
+    )
     args = parser.parse_args(argv)
     if args.report_dir:
         if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
@@ -180,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         report = verify_reviewed_robots_policy(
             args.reviewed_policy, args.build_dir,
             required_sitemap_url=args.require_robots_sitemap,
+            check_root_crawl_block=args.check_root_crawl_block,
         )
     except (OSError, ValueError) as error:
         if args.json:
@@ -274,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         rest = f" (+{len(missing) - 2} more)" if len(missing) > 2 else ""
         print(f"FAIL robots.txt missing reviewed Sitemap declaration(s): {samples}{rest}")
+    elif report["reason"] == "root_crawl_block":
+        print("FAIL robots.txt reviewed rules explicitly block Googlebot at site root")
     else:
         observed = report["observed_sha256"]
         actual = observed[:12] if observed else "missing"

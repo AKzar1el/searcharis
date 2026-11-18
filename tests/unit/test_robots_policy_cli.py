@@ -53,6 +53,68 @@ def test_staging_disallow_all_drift_blocks_release_without_interpreting_rules(
     assert "Disallow" not in json.dumps(report)
 
 
+@pytest.mark.parametrize("policy,should_block", [
+    ("User-agent: *\nDisallow: /\n", True),
+    ("User-agent: Googlebot\nDisallow: /\n", True),
+    ("user-agent: *\nSitemap: https://example.test/map.xml\n disallow : / # staging\n", True),
+    ("User-agent: Bingbot\nDisallow: /\n", False),
+    ("User-agent: *\nDisallow: /private/\n", False),
+    ("User-agent: *\n# Disallow: /\nAllow: /\n", False),
+    ("User-agent: *\nDisallow: /\nAllow: /\n", False),
+    ("User-agent: *\nDisallow: /\nAllow: /$\n", False),
+    ("User-agent: *\nDisallow: /\nAllow: /*$\n", False),
+    ("User-agent: *\nDisallow: /\nAllow: /public/\n", True),
+    ("User-agent: *\nDisallow: /\nUser-agent: Googlebot\nAllow: /\n", False),
+    ("User-agent: *\nDisallow: /\nUser-agent: Googlebot\nDisallow: /news/\n", False),
+    ("User-agent: Googlebot\nDisallow: /\nUser-agent: Googlebot\nAllow: /\n", False),
+    ("User-agent: Bingbot\nUser-agent: Googlebot\nDisallow: /\n", True),
+    ("User-agent: Googlebot*\nDisallow: /\n", True),
+    ("User-agent: Googlebot/1.2\nDisallow: /\n", True),
+    ("User-agent: *\nDisallow: /*\n", False),
+])
+def test_optional_googlebot_root_block_from_identical_reviewed_policy(
+    tmp_path, capsys, monkeypatch, policy, should_block,
+):
+    reviewed, build = _fixture(tmp_path)
+    content = policy.encode("utf-8")
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+    monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: (
+        (_ for _ in ()).throw(AssertionError("offline guard must not open sockets"))
+    ))
+
+    default_code, default, _ = _run(capsys, reviewed, build)
+    assert default_code == 0 and default["reason"] is None
+    code, result, stderr = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert stderr == ""
+    assert code == (1 if should_block else 0)
+    assert result["status"] == ("fail" if should_block else "pass")
+    assert result["reason"] == ("root_crawl_block" if should_block else None)
+    assert result["expected_sha256"] == result["observed_sha256"]
+
+
+def test_root_crawl_block_reports_and_preserves_existing_drift_priority(tmp_path, capsys):
+    reviewed, build = _fixture(tmp_path)
+    content = b"User-agent: *\nDisallow: /\n"
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    assert main([
+        str(reviewed), str(build), "--check-root-crawl-block",
+        "--report-dir", str(reports), "--github-annotations",
+    ]) == 1
+    output = capsys.readouterr()
+    assert "::error" in output.out and "root" in output.out.lower()
+    saved = json.loads((reports / "seo-robots.json").read_text(encoding="utf-8"))
+    assert saved["reason"] == "root_crawl_block"
+    assert "root" in (reports / "seo-robots.xml").read_text(encoding="utf-8").lower()
+    assert "root" in (reports / "seo-robots.md").read_text(encoding="utf-8").lower()
+    (build / "robots.txt").write_bytes(b"User-agent: *\nAllow: /\n")
+    code, result, _ = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert code == 1 and result["reason"] == "changed"
+
+
 def test_missing_built_robots_file_is_a_release_mismatch(tmp_path, capsys):
     reviewed, build = _fixture(tmp_path)
     (build / "robots.txt").unlink()

@@ -181,6 +181,13 @@ def build_current_robots_junit(robots: dict) -> str:
                 "Reviewed robots.txt lacks required Sitemap URL",
                 f"Missing reviewed Sitemap: {_bounded(url, limit=1000)}",
             ) for url in missing)
+        elif robots["reason"] == "root_crawl_block":
+            failures.append((
+                "robots_policy_root_crawl_block",
+                "Reviewed robots.txt explicitly blocks Googlebot at site root",
+                "Basic Disallow: / applies to Googlebot without a root Allow override; "
+                "verify the reviewed policy before release",
+            ))
         else:
             failures.append((
                 f"robots_policy_{robots['reason']}",
