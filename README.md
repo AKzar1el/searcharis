@@ -100,6 +100,10 @@ Searcharis can check **already-built HTML** for SEO regressions before release.
 It does not fetch public URLs, run your site generator, need Google Cloud
 credentials, or change the original live incident workflow.
 
+On Windows, use the [PowerShell 5.1/7 offline CI quickstart](docs/WINDOWS-SEO-CI.md)
+for copy/paste commands, verified passing and failing fixtures, and
+create-only UTF-8 JSON/JUnit/Markdown/SARIF reports with preserved exit codes.
+
 Try the one-command first-use check on the repository's **compiled Vite**
 two-page example (prints a reviewable starter manifest and a PASS/FAIL
 summary; requires Python 3.11+ and `uv`):
