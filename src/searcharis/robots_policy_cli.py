@@ -16,6 +16,7 @@ from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.contract_ci import _is_canonical_url
+from searcharis.robots_markdown import build_current_robots_markdown
 from searcharis.site_junit import build_current_robots_junit
 
 _MAX_POLICY_BYTES = 512_000
@@ -146,6 +147,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Write current blocking robots findings to a new UTF-8 JUnit XML file",
     )
     parser.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write escaped bounded reviewer Markdown to a new UTF-8 file",
+    )
+    parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Write current robots JSON, JUnit and Markdown to an existing directory",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Emit escaped GitHub Actions errors for current blocking robots findings",
     )
@@ -154,10 +163,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Require a reviewed Sitemap URL (repeatable, up to 16; no URL fetch)",
     )
     args = parser.parse_args(argv)
+    if args.report_dir:
+        if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
+            parser.error("--report-dir is not allowed with other report output modes")
+        args.json_file = args.report_dir / "seo-robots.json"
+        args.junit_file = args.report_dir / "seo-robots.xml"
+        args.markdown_file = args.report_dir / "seo-robots.md"
     if args.json and args.github_annotations:
         parser.error("--github-annotations cannot be combined with JSON stdout")
     if args.json and args.junit_file:
         parser.error("--junit-file cannot be combined with JSON stdout")
+    if args.json and args.markdown_file:
+        parser.error("--markdown-file cannot be combined with JSON stdout")
 
     try:
         report = verify_reviewed_robots_policy(
@@ -171,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.junit_file:
+    if args.json_file or args.junit_file or args.markdown_file:
         created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
         reports: list[tuple[Path, str, str]] = []
         try:
@@ -183,6 +200,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.junit_file:
                 reports.append((
                     args.junit_file, "JUnit", build_current_robots_junit(report),
+                ))
+            if args.markdown_file:
+                reports.append((
+                    args.markdown_file, "Markdown", build_current_robots_markdown(report),
                 ))
             targets = [path.resolve() for path, _, _ in reports]
             if len(set(targets)) != len(targets):
