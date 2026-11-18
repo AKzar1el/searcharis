@@ -19,7 +19,7 @@ uv run python -m searcharis.pages_policy_cli \
 In native Windows PowerShell 5.1/7, the same invocation is a single line:
 
 ```powershell
-uv run python -m searcharis.pages_policy_cli policies/approved-redirects.txt policies/approved-headers.txt dist --json-file reports/pages.json
+uv run python -m searcharis.pages_policy_cli policies/approved-redirects.txt policies/approved-headers.txt dist --json-file reports/pages.json --github-annotations
 $code = $LASTEXITCODE
 exit $code
 ```
@@ -29,6 +29,15 @@ Create `reports/` before invoking the command. `--json-file PATH` writes one
 file. On Unix, preserve the exit status with the shell's standard command
 handling; do not append `|| true`. Use `--json` instead when consuming JSON
 from stdout; the two output options are mutually exclusive.
+
+`--github-annotations` is optional for GitHub Actions jobs. On exit 1 it
+prints one GitHub `::error` annotation for each missing or changed artifact,
+so reviewers can identify `_redirects` and `_headers` failures separately.
+Exit 0 prints no annotations. With `--json-file`, annotations are printed only
+after the report is successfully created, never when that write fails. Do not
+combine annotations with `--json` stdout. The messages refer to compiled
+artifacts, not invented source-line locations; other CI systems can omit the
+flag and consume the JSON report instead.
 
 | Exit | Meaning | CI action |
 | --- | --- | --- |
@@ -42,6 +51,8 @@ stdout `--json` form includes the completed checks and separately identified
 `errors` instead of hiding the other result. The `--json-file` form does not
 create a report on exit 2; never treat an older report as current. Partial-write
 cleanup is identity-checked and best-effort, **not atomic**.
+Invalid inputs still exit 2 with stderr diagnostics, without success or drift
+annotations.
 
 Byte parity intentionally treats whitespace, rule order and line endings as
 reviewed content. It is not a syntax checker, runtime redirect emulator,

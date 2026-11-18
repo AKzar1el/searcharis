@@ -17,6 +17,23 @@ from searcharis.headers_policy_cli import verify_reviewed_headers_policy
 from searcharis.redirects_policy_cli import verify_reviewed_redirects_policy
 
 
+def format_github_annotations(report: dict) -> list[str]:
+    """Create bounded workflow errors for failing static artifacts only."""
+    if report["status"] != "fail":
+        return []
+    annotations: list[str] = []
+    for item in report["checks"]:
+        artifact = item.get("artifact")
+        if item.get("status") != "fail" or artifact not in {"_redirects", "_headers"}:
+            continue
+        if item.get("reason") == "missing":
+            message = f"Compiled {artifact} missing from the static build"
+        else:
+            message = f"Compiled {artifact} changed from the reviewed reference"
+        annotations.append(f"::error title=SEO Pages {artifact}::{message}")
+    return annotations
+
+
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
 ) -> dict:
@@ -92,7 +109,13 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Create a UTF-8 JSON report outside the build without overwriting",
     )
+    parser.add_argument(
+        "--github-annotations", action="store_true",
+        help="Emit GitHub Actions error annotations for drift (not with --json)",
+    )
     args = parser.parse_args(argv)
+    if args.json and args.github_annotations:
+        parser.error("--github-annotations cannot be combined with JSON stdout")
 
     report = verify_reviewed_pages_policies(
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
@@ -126,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"expected SHA-256 {item['expected_sha256']}, "
                     f"observed SHA-256 {item['observed_sha256'] or 'missing'}"
                 )
+    if args.github_annotations:
+        for annotation in format_github_annotations(report):
+            print(annotation)
     return 0 if report["status"] == "pass" else 1
 
 
