@@ -198,3 +198,113 @@ def test_production_host_works_with_existing_sitewide_rule_and_reports(
     assert "example.com" in (reports / "seo-pages.md").read_text(encoding="utf-8").lower()
     failure = ET.parse(reports / "seo-pages.xml").getroot().find(".//failure")
     assert failure is not None and "example.com" in (failure.text or "").lower()
+
+
+@pytest.mark.parametrize("pattern,flags", [
+    ("/", ()),
+    ("/", ("--production-host", "example.com")),
+    ("https://EXAMPLE.COM/", ("--production-host", "example.com")),
+    ("/*", ()),
+    ("https://example.com/*", ("--production-host", "example.com")),
+])
+@pytest.mark.parametrize("directive", ["noindex", "none", "googlebot: noindex"])
+def test_homepage_opt_in_blocks_only_matching_homepage_rules(
+    tmp_path, capsys, pattern, flags, directive,
+):
+    paths = _policies(tmp_path, f"{pattern}\n  X-Robots-Tag: {directive}\n")
+    status, out, err = _run(capsys, paths, "--json")
+    assert status == 0 and err == "" and json.loads(out)["status"] == "pass"
+    if pattern in {"/", "https://EXAMPLE.COM/"}:
+        status, out, err = _run(
+            capsys, paths, "--check-sitewide-noindex", *flags, "--json",
+        )
+        assert status == 0 and err == "" and json.loads(out)["status"] == "pass"
+
+    status, out, err = _run(
+        capsys, paths, "--check-homepage-noindex", *flags, "--json",
+    )
+    report = json.loads(out)
+    assert status == 1 and err == "" and report["status"] == "fail"
+    check = report["checks"][1]
+    assert check["reason"] == "homepage_noindex"
+    assert "line 2" in check["indexability_issue"]
+    assert check["expected_sha256"] == check["observed_sha256"]
+
+
+@pytest.mark.parametrize("text", [
+    "https://preview.pages.dev/\n  X-Robots-Tag: noindex\n",
+    "https://sub.example.com/\n  X-Robots-Tag: noindex\n",
+    "https://example.com.evil.net/\n  X-Robots-Tag: noindex\n",
+    "https://example.com/private/\n  X-Robots-Tag: noindex\n",
+    "/blog/\n  X-Robots-Tag: noindex\n",
+    "/\n  X-Robots-Tag: otherbot: noindex\n",
+    "/\n  ! X-Robots-Tag\n",
+    "# /\n  X-Robots-Tag: noindex\n",
+])
+def test_homepage_opt_in_ignores_preview_or_narrow_rules(tmp_path, capsys, text):
+    paths = _policies(tmp_path, text)
+    code, out, err = _run(
+        capsys, paths, "--check-homepage-noindex", "--production-host",
+        "example.com", "--json",
+    )
+    assert code == 0 and err == "" and json.loads(out)["status"] == "pass"
+
+
+def test_homepage_host_requires_explicit_guard(tmp_path, capsys):
+    paths = _policies(tmp_path, "https://example.com/\n  X-Robots-Tag: noindex\n")
+    with pytest.raises(SystemExit) as error:
+        _run(capsys, paths, "--production-host", "example.com")
+    assert error.value.code == 2
+
+
+def test_homepage_noindex_is_reported_offline_in_all_formats(
+    tmp_path, capsys, monkeypatch,
+):
+    paths = _policies(
+        tmp_path,
+        "https://preview.pages.dev/\n  X-Robots-Tag: noindex\n"
+        "https://example.com/\n  X-Robots-Tag: googlebot: none\n",
+    )
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    monkeypatch.setattr(
+        socket, "socket", lambda *args, **kwargs: pytest.fail("no fetch allowed"),
+    )
+    code, out, err = _run(
+        capsys, paths, "--check-homepage-noindex", "--production-host",
+        "example.com", "--report-dir", str(reports), "--github-annotations",
+    )
+    assert code == 1 and err == "" and out.count("::error") == 1
+    assert "homepage" in out.lower() and "example.com" in out
+    report = json.loads((reports / "seo-pages.json").read_text(encoding="utf-8"))
+    assert report["checks"][1]["reason"] == "homepage_noindex"
+    assert "line 4" in report["checks"][1]["indexability_issue"]
+    markdown = (reports / "seo-pages.md").read_text(encoding="utf-8")
+    assert "homepage" in markdown.lower() and "example.com" in markdown
+    failure = ET.parse(reports / "seo-pages.xml").getroot().find(".//failure")
+    assert failure is not None and "example.com" in (failure.text or "")
+
+
+def test_combined_homepage_and_sitewide_modes_keep_distinct_reasons(tmp_path, capsys):
+    paths = _policies(tmp_path, "/\n  X-Robots-Tag: noindex\n")
+    code, out, err = _run(
+        capsys, paths, "--check-sitewide-noindex", "--check-homepage-noindex",
+        "--json",
+    )
+    assert code == 1 and err == ""
+    assert json.loads(out)["checks"][1]["reason"] == "homepage_noindex"
+
+    (tmp_path / "broad").mkdir()
+    broad_paths = _policies(tmp_path / "broad", "/*\n  X-Robots-Tag: noindex\n")
+    code, out, err = _run(
+        capsys, broad_paths, "--check-sitewide-noindex", "--check-homepage-noindex",
+        "--json",
+    )
+    assert code == 1 and err == ""
+    assert json.loads(out)["checks"][1]["reason"] == "sitewide_noindex"
+
+
+def test_homepage_host_rule_is_not_guessed_without_host_opt_in(tmp_path, capsys):
+    paths = _policies(tmp_path, "https://example.com/\n  X-Robots-Tag: noindex\n")
+    code, out, err = _run(capsys, paths, "--check-homepage-noindex", "--json")
+    assert code == 0 and err == "" and json.loads(out)["status"] == "pass"
