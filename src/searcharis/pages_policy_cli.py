@@ -35,6 +35,16 @@ def format_github_annotations(report: dict) -> list[str]:
     return annotations
 
 
+def _format_human_check(item: dict) -> str:
+    if item["status"] == "pass":
+        return f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}"
+    return (
+        f"FAIL {item['artifact']} {item['reason']}: "
+        f"expected SHA-256 {item['expected_sha256']}, "
+        f"observed SHA-256 {item['observed_sha256'] or 'missing'}"
+    )
+
+
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
 ) -> dict:
@@ -141,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps(report, sort_keys=True))
         else:
+            for item in report["checks"]:
+                print(f"Partial result: {_format_human_check(item)}", file=sys.stderr)
             for error in report["errors"]:
                 print(
                     f"Invalid input ({error['artifact']}): {human_input_error(error['error'])}",
@@ -165,14 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, sort_keys=True))
     else:
         for item in report["checks"]:
-            if item["status"] == "pass":
-                print(f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}")
-            else:
-                print(
-                    f"FAIL {item['artifact']} {item['reason']}: "
-                    f"expected SHA-256 {item['expected_sha256']}, "
-                    f"observed SHA-256 {item['observed_sha256'] or 'missing'}"
-                )
+            print(_format_human_check(item))
     if args.github_annotations:
         for annotation in format_github_annotations(report):
             print(annotation)

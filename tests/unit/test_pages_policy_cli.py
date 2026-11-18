@@ -163,6 +163,36 @@ def test_combined_preserves_drift_evidence_when_other_input_is_invalid(tmp_path,
     assert report["errors"][0]["artifact"] == "_headers"
 
 
+@pytest.mark.parametrize("invalid,drifted", [
+    ("_redirects", "_headers"),
+    ("_headers", "_redirects"),
+])
+def test_human_input_error_still_displays_other_artifact_drift(
+    tmp_path, capsys, invalid, drifted,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    (redirects if invalid == "_redirects" else headers).unlink()
+    (build / drifted).write_bytes(b"changed policy\n")
+
+    code, out, err = _run(capsys, redirects, headers, build)
+
+    assert code == 2 and out == ""
+    assert f"Invalid input ({invalid}):" in err
+    assert f"Partial result: FAIL {drifted} changed:" in err
+    assert "expected SHA-256" in err and "observed SHA-256" in err
+
+
+def test_human_input_error_labels_other_artifact_pass_as_partial(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    headers.unlink()
+
+    code, out, err = _run(capsys, redirects, headers, build)
+
+    assert code == 2 and out == ""
+    assert "Partial result: PASS _redirects reviewed SHA-256" in err
+    assert "Invalid input (_headers):" in err
+
+
 def test_combined_interrupted_report_creation_cleans_only_its_file(
     tmp_path, capsys, monkeypatch,
 ):
