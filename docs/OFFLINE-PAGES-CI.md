@@ -35,6 +35,35 @@ outside the build, under existing parent directories and checked before the
 first write. Interrupted writes receive identity-checked, best-effort cleanup,
 not transactional multi-file atomicity.
 
+For a reviewer-friendly **one-flag report bundle**, create an empty reports
+directory and run the same offline verification once:
+
+```sh
+mkdir -p reports
+uv run python -m searcharis.pages_policy_cli \
+  policies/approved-redirects.txt policies/approved-headers.txt dist \
+  --report-dir reports
+```
+
+This creates `seo-pages.json`, `seo-pages.xml` and `seo-pages.md` under
+`reports/`. The Markdown summary gives a bounded PASS/FAIL for each static
+artifact, with short reviewed/observed hashes and an actionable failure hint.
+Alternatively, `--markdown-file reports/pages.md` can accompany explicit
+`--json-file` and `--junit-file` destinations. `--report-dir` cannot be
+combined with those explicit file options or `--json` stdout, but it can
+be used with `--github-annotations`. All three outputs are preflighted as
+create-only before the first write; a pre-existing report, an absent parent
+directory or any destination inside the build blocks the entire bundle with
+exit 2. If a later write fails, cleanup of already created files is
+best-effort and identity-checked rather than atomic.
+
+In GitHub Actions, upload the artifacts explicitly and, if desired, append
+`seo-pages.md` to `GITHUB_STEP_SUMMARY` after retaining the check's original
+exit code. Searcharis never uploads reports or silently changes a failing CI
+exit to success. On PowerShell, create the directory with
+`New-Item -ItemType Directory -Path reports` and capture `$LASTEXITCODE`
+immediately after the checker.
+
 On Unix, preserve the exit status with the shell's standard command handling;
 do not append `|| true`. Use `--json` instead when consuming JSON from stdout;
 stdout JSON cannot be combined with either file report mode.

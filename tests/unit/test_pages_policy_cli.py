@@ -420,3 +420,136 @@ def test_invalid_input_does_not_create_junit_or_json(tmp_path, capsys):
     )
     assert code == 2 and out == "" and "Invalid input" in err
     assert not json_target.exists() and not junit_target.exists()
+
+
+@pytest.mark.parametrize("drift", [False, True])
+def test_pages_markdown_is_actionable_and_create_only(tmp_path, capsys, drift):
+    redirects, headers, build = _fixture(tmp_path)
+    if drift:
+        (build / "_redirects").unlink()
+    target = tmp_path / "pages.md"
+    code, out, err = _run(capsys, redirects, headers, build, "--markdown-file", str(target))
+    assert code == (1 if drift else 0) and out == err == ""
+    body = target.read_text(encoding="utf-8")
+    assert "# Searcharis Pages static policy check" in body
+    assert f"**Result: {'FAIL' if drift else 'PASS'}**" in body
+    assert "_redirects" in body and "_headers" in body
+    if drift:
+        assert "Rebuild" in body and "missing" in body
+    else:
+        assert "No static policy drift" in body
+    code, out, err = _run(capsys, redirects, headers, build, "--markdown-file", str(target))
+    assert code == 2 and out == "" and "already exists" in err
+    assert body == target.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("drift", [False, True])
+def test_pages_report_bundle_one_verification_and_annotations(
+    tmp_path, capsys, monkeypatch, drift,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    if drift:
+        (build / "_headers").write_bytes(b"/*\n  X-Robots-Tag: index\n")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    monkeypatch.setattr(
+        socket, "socket",
+        lambda *a, **kw: pytest.fail("Pages report bundle must never fetch URLs"),
+    )
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--report-dir", str(reports), "--github-annotations",
+    )
+    assert code == (1 if drift else 0) and err == ""
+    assert sorted(p.name for p in reports.iterdir()) == [
+        "seo-pages.json", "seo-pages.md", "seo-pages.xml",
+    ]
+    data = json.loads((reports / "seo-pages.json").read_text(encoding="utf-8"))
+    assert data["status"] == ("fail" if drift else "pass")
+    suite = ET.parse(reports / "seo-pages.xml").getroot()
+    assert suite.attrib["tests"] == "2"
+    assert suite.attrib["failures"] == str(int(drift))
+    markdown = (reports / "seo-pages.md").read_text(encoding="utf-8")
+    assert f"**Result: {'FAIL' if drift else 'PASS'}**" in markdown
+    if drift:
+        assert out.count("::error") == 1 and "_headers" in out
+    else:
+        assert out == ""
+
+
+@pytest.mark.parametrize("bad", ["existing", "in_build", "missing_directory"])
+def test_bundle_preflights_every_destination_without_partial_output(
+    tmp_path, capsys, bad,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    directory = tmp_path / "reports"
+    if bad == "in_build":
+        directory = build / "reports"
+        directory.mkdir()
+    elif bad == "missing_directory":
+        directory = tmp_path / "missing"
+    else:
+        directory.mkdir()
+        (directory / "seo-pages.md").write_text("other job", encoding="utf-8")
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--report-dir", str(directory), "--github-annotations",
+    )
+    assert code == 2 and out == "" and "Invalid input" in err
+    assert not (directory / "seo-pages.json").exists()
+    assert not (directory / "seo-pages.xml").exists()
+    if bad == "existing":
+        assert (directory / "seo-pages.md").read_text(encoding="utf-8") == "other job"
+    else:
+        assert not (directory / "seo-pages.md").exists()
+
+
+def test_bundle_late_markdown_write_failure_cleans_owned_reports(
+    tmp_path, capsys, monkeypatch,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    original_open = Path.open
+
+    def fail_markdown_open(self, mode="r", *args, **kwargs):
+        if self == reports / "seo-pages.md" and mode == "x":
+            raise OSError("simulated Markdown artifact failure")
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_markdown_open)
+    (build / "_headers").unlink()
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--report-dir", str(reports), "--github-annotations",
+    )
+    assert code == 2 and out == "" and "simulated Markdown" in err
+    assert list(reports.iterdir()) == []
+
+
+def test_invalid_pages_input_creates_no_bundle(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    code, out, err = _run(
+        capsys, tmp_path / "missing-policy", headers, build,
+        "--report-dir", str(reports),
+    )
+    assert code == 2 and out == "" and "Invalid input" in err
+    assert list(reports.iterdir()) == []
+
+
+@pytest.mark.parametrize("extra", [
+    ("--json",),
+    ("--json-file", "other.json"),
+    ("--markdown-file", "other.md"),
+    ("--junit-file", "other.xml"),
+])
+def test_bundle_rejects_conflicting_explicit_report_modes(tmp_path, extra):
+    redirects, headers, build = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as result:
+        main([
+            str(redirects), str(headers), str(build),
+            "--report-dir", str(tmp_path), *extra,
+        ])
+    assert result.value.code == 2
