@@ -64,6 +64,72 @@ def test_one_or_both_drifts_block_without_masking_other_check(tmp_path, capsys, 
         assert by_name[name]["reason"] == ("missing" if drift == "both_missing" else "changed")
 
 
+@pytest.mark.parametrize("artifact", ["_redirects", "_headers"])
+def test_opt_in_drift_location_reports_line_column_and_byte_offset(
+    tmp_path, capsys, artifact,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    original = (build / artifact).read_bytes()
+    marker = b"noindex" if artifact == "_headers" else b"new"
+    position = original.index(marker)
+    replacement = b"index" if artifact == "_headers" else b"bad"
+    (build / artifact).write_bytes(
+        original[:position] + replacement + original[position + len(marker):]
+    )
+
+    code, out, err = _run(capsys, redirects, headers, build, "--json", "--locate-drift")
+    assert code == 1 and err == ""
+    checks = {item["artifact"]: item for item in json.loads(out)["checks"]}
+    assert checks[artifact]["drift_location"] == {
+        "line": original[:position].count(b"\n") + 1,
+        "byte_column": position - original.rfind(b"\n", 0, position),
+        "byte_offset": position,
+    }
+    other = "_headers" if artifact == "_redirects" else "_redirects"
+    assert "drift_location" not in checks[other]
+
+
+def test_opt_in_drift_location_handles_trailing_bytes_and_missing_artifact(
+    tmp_path, capsys,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    old = (build / "_redirects").read_bytes()
+    (build / "_redirects").write_bytes(old + b"/extra /target 301\n")
+    (build / "_headers").unlink()
+
+    code, out, err = _run(capsys, redirects, headers, build, "--json", "--locate-drift")
+    assert code == 1 and err == ""
+    redir, header = json.loads(out)["checks"]
+    assert redir["drift_location"] == {
+        "line": 2, "byte_column": 1, "byte_offset": len(old),
+    }
+    assert header["reason"] == "missing" and "drift_location" not in header
+
+
+def test_drift_location_is_opt_in_and_reports_without_file_contents(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / "_headers").write_bytes(b"/*\n  X-Robots-Tag: index\n")
+    code, out, err = _run(capsys, redirects, headers, build, "--json")
+    assert code == 1 and err == ""
+    assert all("drift_location" not in item for item in json.loads(out)["checks"])
+
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    code, out, err = _run(
+        capsys, redirects, headers, build, "--report-dir", str(reports),
+        "--github-annotations", "--locate-drift",
+    )
+    assert code == 1 and err == ""
+    assert "first differing byte at line 2" in out
+    assert "noindex" not in out and "index\n" not in out
+    data = json.loads((reports / "seo-pages.json").read_text(encoding="utf-8"))
+    assert data["checks"][1]["drift_location"]["line"] == 2
+    assert "first differing byte at line 2" in (reports / "seo-pages.md").read_text(encoding="utf-8")
+    junit = ET.parse(reports / "seo-pages.xml").getroot()
+    failure = junit.findall("testcase")[1].find("failure")
+    assert "first differing byte at line 2" in (failure.text or "")
+
+
 def test_plain_output_covers_both_checks_and_preserves_failure(tmp_path, capsys):
     redirects, headers, build = _fixture(tmp_path)
     (build / "_headers").unlink()

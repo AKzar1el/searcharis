@@ -113,6 +113,12 @@ def build_pages_policy_junit(report: dict) -> str:
             )
             if reason == "limit_exceeded":
                 failure.text += f"; Pages limit: {_bounded(item['limit_issue'])}"
+            if "drift_location" in item:
+                location = item["drift_location"]
+                failure.text += (
+                    f"; first differing byte at line {location['line']}, "
+                    f"column {location['byte_column']} (offset {location['byte_offset']})"
+                )
     return ET.tostring(
         suite, encoding="us-ascii", xml_declaration=True,
         short_empty_elements=True,
