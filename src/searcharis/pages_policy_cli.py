@@ -130,9 +130,12 @@ def _read_reviewed_policy_lines(reviewed: Path, artifact: str, digest: str) -> l
         raise ValueError(f"Reviewed {artifact} is not UTF-8 text") from error
 
 
-def _sitewide_noindex_issue(reviewed: Path, digest: str) -> str | None:
-    """Flag explicit broad header declarations, not effective hosted header behavior."""
+def _sitewide_noindex_issue(
+    reviewed: Path, digest: str, production_host: str | None = None,
+) -> str | None:
+    """Flag exact broad static rules, not effective hosted header behavior."""
     broad_rule = False
+    scope = "/*"
     for line_number, line in enumerate(
         _read_reviewed_policy_lines(reviewed, "_headers", digest), start=1,
     ):
@@ -140,7 +143,14 @@ def _sitewide_noindex_issue(reviewed: Path, digest: str) -> str | None:
         if not stripped or stripped.startswith("#"):
             continue
         if not line[0].isspace():
-            broad_rule = stripped == "/*"
+            # An absolute Pages rule may target one hostname, including a
+            # production domain distinct from intentionally noindexed previews.
+            broad_rule = stripped == "/*" or (
+                production_host is not None
+                and stripped.lower() == f"https://{production_host}/*"
+            )
+            if broad_rule:
+                scope = "/*" if stripped == "/*" else f"https://{production_host}/*"
             continue
         if not broad_rule or stripped.startswith("!"):
             continue
@@ -156,9 +166,17 @@ def _sitewide_noindex_issue(reviewed: Path, digest: str) -> str | None:
             if crawler in {"all", "googlebot"} and directive in {"noindex", "none"}:
                 return (
                     f"line {line_number} has an X-Robots-Tag noindex/none "
-                    "declaration under /* (all static paths)"
+                    f"declaration under {scope} (all matching static paths)"
                 )
     return None
+
+
+def _validated_production_host(value: str) -> str:
+    """Accept only an explicit ASCII DNS name, not a URL or path pattern."""
+    label = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    if len(value) > 253 or not re.fullmatch(rf"{label}(?:\.{label})+", value):
+        raise ValueError("--production-host must be a DNS hostname (not URL, port or wildcard)")
+    return value.lower()
 
 
 def _basic_pages_limit_issue(reviewed: Path, artifact: str, digest: str) -> str | None:
@@ -227,7 +245,7 @@ def _locate_drift(
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
     *, check_policy_limits: bool = False, locate_drift: bool = False,
-    check_sitewide_noindex: bool = False,
+    check_sitewide_noindex: bool = False, production_host: str | None = None,
 ) -> dict:
     """Check both static policy artifacts even if one is missing or invalid."""
     checks: list[dict] = []
@@ -255,7 +273,9 @@ def verify_reviewed_pages_policies(
                 check_sitewide_noindex and artifact == "_headers"
                 and result["status"] == "pass"
             ):
-                issue = _sitewide_noindex_issue(reviewed, result["expected_sha256"])
+                issue = _sitewide_noindex_issue(
+                    reviewed, result["expected_sha256"], production_host,
+                )
                 if issue:
                     result.update(
                         status="fail", reason="sitewide_noindex",
@@ -360,10 +380,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Block explicit /* X-Robots-Tag noindex/none in reviewed static _headers",
     )
     parser.add_argument(
+        "--production-host", metavar="HOST",
+        help="With --check-sitewide-noindex, also inspect exact https://HOST/* rules",
+    )
+    parser.add_argument(
         "--locate-drift", action="store_true",
         help="Locate first changed byte/line in drifted artifacts without printing contents",
     )
     args = parser.parse_args(argv)
+    if args.production_host is not None:
+        if not args.check_sitewide_noindex:
+            parser.error("--production-host requires --check-sitewide-noindex")
+        try:
+            args.production_host = _validated_production_host(args.production_host)
+        except ValueError as error:
+            parser.error(str(error))
     if args.report_dir:
         if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
             parser.error("--report-dir is not allowed with other report output modes")
@@ -379,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
         check_policy_limits=args.check_policy_limits, locate_drift=args.locate_drift,
         check_sitewide_noindex=args.check_sitewide_noindex,
+        production_host=args.production_host,
     )
     if report["status"] == "error":
         if args.json:

@@ -157,11 +157,32 @@ and appears as a distinct `sitewide_noindex` reason with a safe line-number
 hint in human output, JSON, JUnit, Markdown and GitHub annotations. The default
 byte-parity check remains unchanged.
 
+For a production hostname with a different policy from preview deployments,
+extend that opt-in check with `--production-host example.com`:
+
+```sh
+uv run python -m searcharis.pages_policy_cli \
+  policies/approved-redirects.txt policies/approved-headers.txt dist \
+  --check-sitewide-noindex --production-host example.com --report-dir reports
+```
+
+The additional check flags an exact top-level `https://example.com/*` rule
+declaring `X-Robots-Tag: noindex` or `none`, without treating an intentionally
+noindexed `https://preview.pages.dev/*`, a different hostname, or a narrower
+production path as a blanket production-site restriction. The hostname is an
+ASCII DNS name without a scheme, port, path or wildcard; internationalized
+names must use their ASCII/punycode form. `--production-host` requires the
+explicit `--check-sitewide-noindex` opt-in. Both checks stay local, read the
+reviewed static file only, and retain the same report outputs and exit codes.
+Cloudflare Pages supports absolute `https://` URL rules in `_headers`, with
+protocol and port ignored when matching incoming requests.
+
 This is a deliberately narrow static safeguard, **not** a complete
 `_headers` parser or an effective-response/indexing simulator. It cannot
 account for Pages Functions/SSR, all overlapping rules, later header
-detachment, or whether the directive was intentionally approved. It never
-fetches a URL or alters an indexing setting. If you intentionally noindex
+detachment, broader wildcard host patterns, or whether the directive was
+intentionally approved. It never fetches a URL or alters an indexing setting.
+If you intentionally noindex
 every static path, leave this opt-in guard disabled. See Cloudflare's
 [header behavior](https://developers.cloudflare.com/pages/configuration/headers/)
 and Google's [X-Robots-Tag rules](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag).
