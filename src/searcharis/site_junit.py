@@ -380,17 +380,22 @@ def build_release_junit(site: dict, sitemap: dict, robots: dict | None = None) -
 
     if robots is not None and robots["status"] == "fail":
         sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
+        root_blocked = robots["reason"] == "root_crawl_block"
         missing_urls = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]) if sitemap_missing else []
         missing_message = ", ".join(_bounded(url) for url in missing_urls[:3])
         if len(missing_urls) > 3:
             missing_message += f" (and {len(missing_urls) - 3} more missing Sitemap URLs)"
         failures.append((
             "robots.txt :: robots_sitemap_declaration_missing" if sitemap_missing
+            else "robots.txt :: robots_policy_root_crawl_block" if root_blocked
             else "robots.txt :: robots_policy_drift",
             "Reviewed robots.txt lacks required Sitemap URL" if sitemap_missing
+            else "Reviewed robots.txt explicitly blocks Googlebot at site root" if root_blocked
             else "Built robots.txt differs from reviewed local policy",
             f"Expected Sitemap URL: {missing_message}"
             if sitemap_missing else
+            "Reviewed policy contains a basic Googlebot root Disallow: /"
+            if root_blocked else
             f"Reason: {_bounded(robots['reason'])}; "
             f"reviewed SHA-256: {robots['expected_sha256']}; "
             f"built SHA-256: {robots['observed_sha256'] or 'missing'}",

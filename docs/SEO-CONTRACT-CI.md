@@ -1386,6 +1386,26 @@ uv run python -m searcharis.robots_policy_cli policies/production-robots.txt dis
   --check-root-crawl-block --report-dir reports
 ```
 
+The same opt-in `--check-root-crawl-block` now works with the **combined**
+`searcharis.release_cli` when `--reviewed-robots` is supplied. This avoids
+running a second CI job solely to catch a matching but accidentally
+Googlebot-blocking `robots.txt` while checking reviewed HTML and sitemap URLs:
+
+```sh
+uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
+  --reviewed-robots policies/production-robots.txt \
+  --check-root-crawl-block --report-dir reports
+```
+
+An identical reviewed and built policy with a basic root `Disallow: /`
+now fails the combined gate (exit 1, `root_crawl_block`), while HTML and
+sitemap results remain independently reported. Its JSON, JUnit, Markdown,
+SARIF and GitHub annotations identify a distinct root-crawl failure rather
+than incorrectly claiming byte drift. Without the flag, the combined gate
+keeps byte-parity-only behavior. The flag requires `--reviewed-robots` (input
+error 2 otherwise), never fetches URLs, and does not evaluate a complete
+robots.txt policy or actual production crawling.
+
 This is a deliberately **narrow static rule check**, not a complete robots.txt
 interpreter: it does not assess arbitrary URL paths, wildcard `Disallow` forms,
 all crawler identifiers, deployed HTTP responses, or actual Google indexing.

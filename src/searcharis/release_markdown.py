@@ -170,6 +170,9 @@ def build_release_markdown(
                 "Add the required Sitemap declaration to the reviewed robots.txt policy "
                 "and rebuild the static site."
                 if robots["reason"] == "sitemap_declaration_missing" else
+                "Review the Googlebot root Disallow rule in the approved robots.txt policy "
+                "before rebuilding; confirm any intentional staging restriction."
+                if robots["reason"] == "root_crawl_block" else
                 "Review and rebuild root robots.txt against the approved local policy."
             )
         lines.extend(["", "## Suggested reviewer actions", ""])

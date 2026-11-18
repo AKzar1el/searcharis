@@ -69,7 +69,12 @@ def build_release_sarif(
 
     if robots is not None and robots["status"] == "fail":
         sitemap_missing = robots["reason"] == "sitemap_declaration_missing"
-        rule_id = "robots_sitemap_declaration_missing" if sitemap_missing else "robots_policy_drift"
+        root_blocked = robots["reason"] == "root_crawl_block"
+        rule_id = (
+            "robots_sitemap_declaration_missing" if sitemap_missing
+            else "robots_policy_root_crawl_block" if root_blocked
+            else "robots_policy_drift"
+        )
         identity_values = [
             "robots", robots["reason"], robots["expected_sha256"],
             robots["observed_sha256"],
@@ -88,6 +93,8 @@ def build_release_sarif(
             message = f"Reviewed robots.txt omits required Sitemap URL(s): {examples}"
             if len(missing) > 3:
                 message += f" (and {len(missing) - 3} more; see JSON report)"
+        elif root_blocked:
+            message = "Reviewed robots.txt explicitly blocks Googlebot at site root"
         else:
             message = (
                 f"Built robots.txt {robots['reason']}; "
