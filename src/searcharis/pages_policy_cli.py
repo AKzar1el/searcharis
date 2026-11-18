@@ -45,6 +45,46 @@ def _format_human_check(item: dict) -> str:
     )
 
 
+def build_pages_policy_markdown(report: dict) -> str:
+    """Summarize only verified local static artifacts in reviewer-safe Markdown."""
+    passed = report["status"] == "pass"
+    lines = [
+        "# Searcharis Pages static policy check",
+        "",
+        f"**Result: {'PASS' if passed else 'FAIL'}** (supplied local artifacts only)",
+        "",
+    ]
+    for item in report["checks"]:
+        artifact = item["artifact"]  # A fixed _redirects/_headers verifier label.
+        if item["status"] == "pass":
+            lines.append(
+                f"- **{artifact}: PASS** - matches reviewed SHA-256 "
+                f"`{item['expected_sha256'][:12]}`"
+            )
+        else:
+            lines.append(
+                f"- **{artifact}: FAIL** - {item['reason']}; "
+                f"reviewed SHA-256 `{item['expected_sha256'][:12]}`, "
+                f"built SHA-256 `{(item['observed_sha256'] or 'missing')[:12]}`"
+            )
+    if passed:
+        lines.extend(["", "No static policy drift in the supplied build."])
+    else:
+        lines.extend([
+            "",
+            "## Suggested reviewer action",
+            "",
+            "Rebuild the static site with the approved _redirects and _headers "
+            "artifacts, or review and approve intended policy changes first.",
+        ])
+    lines.extend([
+        "",
+        "Offline byte comparison only; this does not test deployed routing, "
+        "Functions/SSR headers, search indexing or customer outcomes.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
 ) -> dict:
@@ -135,13 +175,27 @@ def main(argv: list[str] | None = None) -> int:
         help="Create a JUnit XML report for both artifacts (can combine with --json-file)",
     )
     parser.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Create an actionable Markdown summary outside the build",
+    )
+    parser.add_argument(
+        "--report-dir", type=Path, metavar="DIR",
+        help="Create JSON, JUnit and Markdown in an existing directory",
+    )
+    parser.add_argument(
         "--github-annotations", action="store_true",
         help="Emit GitHub Actions error annotations for drift (not with --json)",
     )
     args = parser.parse_args(argv)
+    if args.report_dir:
+        if any((args.json, args.json_file, args.junit_file, args.markdown_file)):
+            parser.error("--report-dir is not allowed with other report output modes")
+        args.json_file = args.report_dir / "seo-pages.json"
+        args.junit_file = args.report_dir / "seo-pages.xml"
+        args.markdown_file = args.report_dir / "seo-pages.md"
     if args.json and args.github_annotations:
         parser.error("--github-annotations cannot be combined with JSON stdout")
-    if args.json and args.junit_file:
+    if args.json and (args.junit_file or args.markdown_file):
         parser.error("JSON stdout cannot be combined with file reports")
 
     report = verify_reviewed_pages_policies(
@@ -160,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 2
 
-    if args.json_file or args.junit_file:
+    if args.json_file or args.junit_file or args.markdown_file:
         try:
             files: list[tuple[Path, str, str]] = []
             if args.json_file:
@@ -169,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
                 ))
             if args.junit_file:
                 files.append((args.junit_file, "JUnit", build_pages_policy_junit(report)))
+            if args.markdown_file:
+                files.append((
+                    args.markdown_file, "Markdown", build_pages_policy_markdown(report),
+                ))
             _write_report_files(files, args.build_dir)
         except (OSError, UnicodeError, ValueError) as error:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
