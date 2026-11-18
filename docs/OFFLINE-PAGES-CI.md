@@ -62,7 +62,10 @@ reports on invalid checker input (exit 2); never treat an older report as
 current. Destination or write failures may leave partial files if cleanup
 cannot safely identify them; this is **not atomic**.
 Invalid inputs still exit 2 with stderr diagnostics, without success or drift
-annotations.
+annotations. In the default human-readable mode, any other artifact that was
+successfully checked is also reported on stderr as a **Partial result** (PASS
+or FAIL). It does not change the overall exit 2, but prevents a separately
+detected drift from disappearing behind the invalid-input message.
 
 Byte parity intentionally treats whitespace, rule order and line endings as
 reviewed content. It is not a syntax checker, runtime redirect emulator,
