@@ -183,3 +183,94 @@ def test_json_stdout_and_json_file_are_mutually_exclusive(tmp_path):
     with pytest.raises(SystemExit) as raised:
         main([str(redirects), str(headers), str(build), "--json", "--json-file", str(tmp_path / "x")])
     assert raised.value.code == 2
+
+
+def test_github_annotations_pass_emits_no_commands(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    code, out, err = _run(capsys, redirects, headers, build, "--github-annotations")
+    assert code == 0 and err == ""
+    assert "PASS _redirects" in out and "PASS _headers" in out
+    assert "::error" not in out
+
+
+def test_github_annotations_pass_with_report_is_quiet(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    target = tmp_path / "pages.json"
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(target), "--github-annotations",
+    )
+    assert code == 0 and out == err == ""
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "pass"
+
+
+@pytest.mark.parametrize("artifact", ["_redirects", "_headers"])
+def test_github_annotations_identify_only_the_drifting_artifact(tmp_path, capsys, artifact):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / artifact).unlink()
+    code, out, err = _run(capsys, redirects, headers, build, "--github-annotations")
+    assert code == 1 and err == ""
+    commands = [line for line in out.splitlines() if line.startswith("::error")]
+    assert len(commands) == 1
+    assert commands[0].startswith(f"::error title=SEO Pages {artifact}::")
+    assert "missing" in commands[0].lower()
+    other = "_headers" if artifact == "_redirects" else "_redirects"
+    assert other not in commands[0]
+
+
+def test_github_annotations_report_both_changes_without_forged_lines(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / "_redirects").write_bytes(b"/wrong /changed 301\n")
+    (build / "_headers").write_bytes(b"/*\n X-Robots-Tag: index\n")
+    code, out, err = _run(capsys, redirects, headers, build, "--github-annotations")
+    assert code == 1 and err == ""
+    commands = [line for line in out.splitlines() if line.startswith("::error")]
+    assert len(commands) == 2
+    assert "_redirects" in commands[0] and "changed" in commands[0].lower()
+    assert "_headers" in commands[1] and "changed" in commands[1].lower()
+    assert all(line.count("::") == 2 for line in commands)
+
+
+def test_github_annotations_and_utf8_json_file_coexist_after_write(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / "_headers").unlink()
+    target = tmp_path / "pages.json"
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(target), "--github-annotations",
+    )
+    assert code == 1 and err == ""
+    assert out.splitlines() == [
+        "::error title=SEO Pages _headers::Compiled _headers missing from the static build"
+    ]
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "fail"
+
+
+def test_github_annotations_not_emitted_when_json_report_write_fails(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / "_redirects").unlink()
+    target = tmp_path / "pages.json"
+    target.write_text("preserve me", encoding="utf-8")
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(target), "--github-annotations",
+    )
+    assert code == 2 and out == "" and "already exists" in err
+    assert target.read_text(encoding="utf-8") == "preserve me"
+
+
+def test_github_annotations_invalid_input_does_not_fake_drift(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    code, out, err = _run(
+        capsys, tmp_path / "missing-reviewed-redirects", headers, build,
+        "--github-annotations",
+    )
+    assert code == 2 and out == "" and "Invalid input (_redirects)" in err
+    assert "::error" not in err
+
+
+def test_github_annotations_rejects_json_stdout_mode(tmp_path):
+    redirects, headers, build = _fixture(tmp_path)
+    with pytest.raises(SystemExit) as raised:
+        main([str(redirects), str(headers), str(build), "--json", "--github-annotations"])
+    assert raised.value.code == 2

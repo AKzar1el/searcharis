@@ -198,6 +198,12 @@ For GitLab/Jenkins or PowerShell 5.1 CI, use
 directory to write a new create-only UTF-8 report directly. Exit 0/1 keeps
 the report, while invalid input exits 2 without creating an artifact.
 
+To check both reviewed Pages static policy files in one CI command, use
+`searcharis.pages_policy_cli` as shown in the [combined Pages guide](OFFLINE-PAGES-CI.md).
+It can emit a single create-only UTF-8 JSON report and opt-in GitHub Actions
+`::error` annotations for each missing or changed artifact, preserving the
+combined exit 0/1/2 result. The gate remains offline and static-assets-only.
+
 ## Optional reviewed `robots.txt` release safety
 
 Before publishing a static build, compare its root `robots.txt` against a
