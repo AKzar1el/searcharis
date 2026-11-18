@@ -39,6 +39,11 @@ def build_current_robots_markdown(report: dict) -> str:
     if report["reason"] in ("missing", "changed"):
         findings.append(f"- Built robots.txt: {_safe_code(report['reason'])}; "
                         "its bytes differ from the reviewed policy")
+    if report["reason"] == "root_crawl_block":
+        findings.append(
+            "- Reviewed robots.txt has an explicit Googlebot root crawl block "
+            "(basic Disallow: / without a root Allow override)."
+        )
     if report["reason"] == "sitemap_declaration_missing":
         missing = report.get("missing_sitemap_urls", [
             report["required_sitemap_url"],
@@ -66,6 +71,8 @@ def build_current_robots_markdown(report: dict) -> str:
             "- Correct the built artifact or explicitly review and update the policy.",
             "- Confirm required Sitemap declarations before rerunning this offline gate.",
         ])
+        if report["reason"] == "root_crawl_block":
+            lines.append("- Review Googlebot and wildcard groups before publishing the policy.")
     lines.extend([
         "",
         "_Offline robots.txt artifact verification only. No URLs are fetched; this "
