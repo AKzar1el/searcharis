@@ -28,6 +28,35 @@ are included in successful or mismatch reports. Plain text is the default;
 `--json` prints exactly one machine-readable object for success, mismatch or
 invalid input.
 
+For a **portable CI artifact** (including native Windows PowerShell 5.1, whose
+stdout redirection can use UTF-16), create an existing report directory first
+and use the separate opt-in output mode:
+
+```sh
+mkdir -p reports
+uv run python -m searcharis.redirects_policy_cli \
+  examples/seo-contract/redirects-policy/reviewed.txt \
+  examples/seo-contract/redirects-policy/blocked \
+  --json-file reports/pages-redirects.json
+# Exit 1; a UTF-8 JSON report is retained for inspection.
+```
+
+In PowerShell 5.1 or 7, the equivalent commands use native syntax:
+
+```powershell
+New-Item -ItemType Directory -Path reports -Force | Out-Null
+uv run python -m searcharis.redirects_policy_cli examples/seo-contract/redirects-policy/reviewed.txt examples/seo-contract/redirects-policy/blocked --json-file reports/pages-redirects.json
+$LASTEXITCODE  # 1 means the reviewed bytes differ
+```
+
+`--json-file` and `--json` are mutually exclusive. The file mode emits no
+JSON to stdout, creates a new report exclusively (never overwrites), requires
+an existing parent and refuses destinations inside the build. Successful or
+drifted comparisons produce the same JSON fields as `--json`. Invalid input
+or report-write errors exit 2 without a successful report; interrupted partial
+writes receive best-effort identity-checked cleanup, not an atomic guarantee.
+Preserve exit codes in your CI shell. This command does not upload artifacts.
+
 ## Integrate into a build
 
 1. Have a reviewer approve and commit a reference `_redirects` file **outside**

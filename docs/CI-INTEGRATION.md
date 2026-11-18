@@ -169,6 +169,10 @@ uv run python -m searcharis.redirects_policy_cli \
 
 The reviewed file must be outside `dist`. Exit 0 means the bytes match, exit 1
 means the built file is missing or differs, and exit 2 means invalid input.
+For GitLab/Jenkins or PowerShell 5.1 CI consumers, use the optional
+`--json-file reports/pages-redirects.json` (after creating `reports/`) to
+save a new, create-only UTF-8 artifact without shell redirection. It cannot
+overwrite reports or write into the compiled build, and retains exit 0/1/2.
 This does not evaluate redirect syntax, fetch URLs or verify live routing.
 See the [offline redirects guide](OFFLINE-REDIRECTS-CI.md) for a tested local
 pass/fail fixture and Pages Functions/Bulk Redirects limitations.
