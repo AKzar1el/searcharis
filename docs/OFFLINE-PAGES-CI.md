@@ -171,13 +171,36 @@ declaring `X-Robots-Tag: noindex` or `none`, without treating an intentionally
 noindexed `https://preview.pages.dev/*`, a different hostname, or a narrower
 production path as a blanket production-site restriction. The hostname is an
 ASCII DNS name without a scheme, port, path or wildcard; internationalized
-names must use their ASCII/punycode form. `--production-host` requires the
-explicit `--check-sitewide-noindex` opt-in. Both checks stay local, read the
+names must use their ASCII/punycode form. `--production-host` requires an
+explicit noindex-guard opt-in (sitewide or homepage). Both checks stay local, read the
 reviewed static file only, and retain the same report outputs and exit codes.
 Cloudflare Pages supports absolute `https://` URL rules in `_headers`, with
 protocol and port ignored when matching incoming requests.
 
-This is a deliberately narrow static safeguard, **not** a complete
+### Optional homepage indexing safeguard
+
+An exact `/` or `https://example.com/` `_headers` block can declare noindex
+for the static homepage without affecting the rest of the site. The sitewide
+guard above deliberately excludes exact root-only rules. To separately prevent
+an accidental homepage deindexing, add `--check-homepage-noindex`:
+
+```sh
+uv run python -m searcharis.pages_policy_cli \
+  policies/approved-redirects.txt policies/approved-headers.txt dist \
+  --check-sitewide-noindex --check-homepage-noindex \
+  --production-host example.com --report-dir reports
+```
+
+The homepage guard recognizes exact `/` and `https://example.com/` declarations,
+as well as broad `/*` and `https://example.com/*` declarations that cover the
+homepage. It ignores narrower paths, unrelated hostnames, and preview-domain
+noindex rules. It works independently of `--check-sitewide-noindex` when you
+want homepage protection alone; `--production-host` requires at least one of
+the two explicit guards. A homepage-only finding has reason `homepage_noindex`
+and appears in the same JSON, JUnit, Markdown, human and GitHub outputs with
+exit **1**. Existing default behavior remains byte-parity-only.
+
+These are deliberately narrow static safeguards, **not** a complete
 `_headers` parser or an effective-response/indexing simulator. It cannot
 account for Pages Functions/SSR, all overlapping rules, later header
 detachment, broader wildcard host patterns, or whether the directive was

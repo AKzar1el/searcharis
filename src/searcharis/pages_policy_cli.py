@@ -33,8 +33,8 @@ def format_github_annotations(report: dict) -> list[str]:
             message = f"Compiled {artifact} missing from the static build"
         elif item.get("reason") == "limit_exceeded":
             message = f"Reviewed {artifact} exceeds a documented Pages limit: {item['limit_issue']}"
-        elif item.get("reason") == "sitewide_noindex":
-            message = f"Reviewed {artifact} declares broad noindex: {item['indexability_issue']}"
+        elif item.get("reason") in {"sitewide_noindex", "homepage_noindex"}:
+            message = f"Reviewed {artifact} declares noindex: {item['indexability_issue']}"
         else:
             message = f"Compiled {artifact} changed from the reviewed reference"
             if "drift_location" in item:
@@ -56,8 +56,9 @@ def _format_human_check(item: dict) -> str:
         return f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}"
     if item["reason"] == "limit_exceeded":
         return f"FAIL {item['artifact']} Pages limit: {item['limit_issue']}"
-    if item["reason"] == "sitewide_noindex":
-        return f"FAIL {item['artifact']} sitewide noindex: {item['indexability_issue']}"
+    if item["reason"] in {"sitewide_noindex", "homepage_noindex"}:
+        scope = "sitewide" if item["reason"] == "sitewide_noindex" else "homepage"
+        return f"FAIL {item['artifact']} {scope} noindex: {item['indexability_issue']}"
     message = (
         f"FAIL {item['artifact']} {item['reason']}: "
         f"expected SHA-256 {item['expected_sha256']}, "
@@ -86,7 +87,7 @@ def build_pages_policy_markdown(report: dict) -> str:
             )
         elif item["reason"] == "limit_exceeded":
             lines.append(f"- **{artifact}: FAIL** - {item['limit_issue']}")
-        elif item["reason"] == "sitewide_noindex":
+        elif item["reason"] in {"sitewide_noindex", "homepage_noindex"}:
             lines.append(f"- **{artifact}: FAIL** - {item['indexability_issue']}")
         else:
             description = (
@@ -130,12 +131,13 @@ def _read_reviewed_policy_lines(reviewed: Path, artifact: str, digest: str) -> l
         raise ValueError(f"Reviewed {artifact} is not UTF-8 text") from error
 
 
-def _sitewide_noindex_issue(
-    reviewed: Path, digest: str, production_host: str | None = None,
-) -> str | None:
-    """Flag exact broad static rules, not effective hosted header behavior."""
-    broad_rule = False
-    scope = "/*"
+def _indexability_issue(
+    reviewed: Path, digest: str, production_host: str | None,
+    check_sitewide: bool, check_homepage: bool,
+) -> tuple[str, str] | None:
+    """Flag explicit broad/root static rules, not effective hosted headers."""
+    reason = None
+    scope = None
     for line_number, line in enumerate(
         _read_reviewed_policy_lines(reviewed, "_headers", digest), start=1,
     ):
@@ -143,16 +145,23 @@ def _sitewide_noindex_issue(
         if not stripped or stripped.startswith("#"):
             continue
         if not line[0].isspace():
-            # An absolute Pages rule may target one hostname, including a
-            # production domain distinct from intentionally noindexed previews.
-            broad_rule = stripped == "/*" or (
+            # An explicit production hostname must not match preview rules.
+            broad = stripped == "/*" or (
                 production_host is not None
                 and stripped.lower() == f"https://{production_host}/*"
             )
-            if broad_rule:
-                scope = "/*" if stripped == "/*" else f"https://{production_host}/*"
+            homepage = stripped == "/" or (
+                production_host is not None
+                and stripped.lower() == f"https://{production_host}/"
+            )
+            reason = (
+                "sitewide_noindex" if broad and check_sitewide else
+                "homepage_noindex" if check_homepage and (homepage or broad) else
+                None
+            )
+            scope = stripped if reason else None
             continue
-        if not broad_rule or stripped.startswith("!"):
+        if reason is None or stripped.startswith("!"):
             continue
         name, separator, raw_directives = stripped.partition(":")
         if not separator or name.casefold() != "x-robots-tag":
@@ -164,9 +173,13 @@ def _sitewide_noindex_issue(
                 crawler, _, directive = directive.partition(":")
                 directive = directive.strip()
             if crawler in {"all", "googlebot"} and directive in {"noindex", "none"}:
-                return (
+                affected = (
+                    "all matching static paths" if reason == "sitewide_noindex"
+                    else "static homepage path"
+                )
+                return reason, (
                     f"line {line_number} has an X-Robots-Tag noindex/none "
-                    f"declaration under {scope} (all matching static paths)"
+                    f"declaration under {scope} ({affected})"
                 )
     return None
 
@@ -246,6 +259,7 @@ def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
     *, check_policy_limits: bool = False, locate_drift: bool = False,
     check_sitewide_noindex: bool = False, production_host: str | None = None,
+    check_homepage_noindex: bool = False,
 ) -> dict:
     """Check both static policy artifacts even if one is missing or invalid."""
     checks: list[dict] = []
@@ -270,16 +284,17 @@ def verify_reviewed_pages_policies(
                         status="fail", reason="limit_exceeded", limit_issue=issue,
                     )
             if (
-                check_sitewide_noindex and artifact == "_headers"
+                (check_sitewide_noindex or check_homepage_noindex) and artifact == "_headers"
                 and result["status"] == "pass"
             ):
-                issue = _sitewide_noindex_issue(
+                issue = _indexability_issue(
                     reviewed, result["expected_sha256"], production_host,
+                    check_sitewide_noindex, check_homepage_noindex,
                 )
                 if issue:
                     result.update(
-                        status="fail", reason="sitewide_noindex",
-                        indexability_issue=issue,
+                        status="fail", reason=issue[0],
+                        indexability_issue=issue[1],
                     )
             checks.append(result)
         except (OSError, ValueError) as error:
@@ -380,8 +395,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Block explicit /* X-Robots-Tag noindex/none in reviewed static _headers",
     )
     parser.add_argument(
+        "--check-homepage-noindex", action="store_true",
+        help="Block explicit homepage / and /* X-Robots-Tag noindex/none in reviewed _headers",
+    )
+    parser.add_argument(
         "--production-host", metavar="HOST",
-        help="With --check-sitewide-noindex, also inspect exact https://HOST/* rules",
+        help="With either noindex guard, also inspect exact https://HOST/ and /* rules",
     )
     parser.add_argument(
         "--locate-drift", action="store_true",
@@ -389,8 +408,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.production_host is not None:
-        if not args.check_sitewide_noindex:
-            parser.error("--production-host requires --check-sitewide-noindex")
+        if not (args.check_sitewide_noindex or args.check_homepage_noindex):
+            parser.error("--production-host requires an explicit noindex guard")
         try:
             args.production_host = _validated_production_host(args.production_host)
         except ValueError as error:
@@ -410,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
         check_policy_limits=args.check_policy_limits, locate_drift=args.locate_drift,
         check_sitewide_noindex=args.check_sitewide_noindex,
+        check_homepage_noindex=args.check_homepage_noindex,
         production_host=args.production_host,
     )
     if report["status"] == "error":
