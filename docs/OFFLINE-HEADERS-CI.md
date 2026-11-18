@@ -39,10 +39,20 @@ Preserve its process exit code in CI:
   placement, or oversized file. Do not treat this as a passing check.
 
 `--json` emits a machine-readable object with `status`, `artifact`,
-`reason`, and SHA-256 digests, without disclosing policy content. It does not
-write files; CI consumers that require a persisted report must explicitly
-capture stdout, respecting the shell's encoding behavior. Never turn an exit
-1 or 2 into success.
+`reason`, and SHA-256 digests, without disclosing policy content. For a
+portable artifact, use `--json-file PATH` instead to write that same complete
+result directly as UTF-8, including on Windows PowerShell 5.1. The destination
+must be a new file with an existing parent directory outside the compiled
+build; the command never overwrites an existing report. For example:
+
+```sh
+uv run python -m searcharis.headers_policy_cli policies/approved-headers.txt dist --json-file reports/headers.json
+```
+
+Pass (exit 0) and drift (exit 1) reports are retained for CI consumers;
+invalid input (exit 2) creates no report. An interrupted file write receives
+identity-checked best-effort cleanup, not an atomic write guarantee. Preserve
+the command's exit code and never turn an exit 1 or 2 into success.
 
 The verifier bounds each local file read to 8,500,000 bytes, requires exact
 case of the build-root `_headers` name even on NTFS, and rejects built
