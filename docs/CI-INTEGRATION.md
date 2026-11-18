@@ -177,6 +177,23 @@ This does not evaluate redirect syntax, fetch URLs or verify live routing.
 See the [offline redirects guide](OFFLINE-REDIRECTS-CI.md) for a tested local
 pass/fail fixture and Pages Functions/Bulk Redirects limitations.
 
+## Optional Cloudflare Pages `_headers` artifact drift check
+
+For Pages static assets, compare a separately reviewed `_headers` file with
+the final build-root artifact before publishing:
+
+```sh
+uv run python -m searcharis.headers_policy_cli \
+  policies/approved-headers.txt dist --json
+```
+
+Exit 0 is exact byte parity, 1 is a missing/changed artifact and 2 is invalid
+input. This protects reviewed SEO-sensitive static `X-Robots-Tag` declarations
+from unnoticed build loss, but does not parse rules or validate live response
+headers. **Pages Functions / SSR / `_worker.js` responses do not use this file**;
+verify those in their application code. See the [offline headers guide](OFFLINE-HEADERS-CI.md)
+for checked-in pass/fail fixtures and limitations.
+
 ## Optional reviewed `robots.txt` release safety
 
 Before publishing a static build, compare its root `robots.txt` against a
