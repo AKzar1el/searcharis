@@ -19,25 +19,34 @@ uv run python -m searcharis.pages_policy_cli \
 In native Windows PowerShell 5.1/7, the same invocation is a single line:
 
 ```powershell
-uv run python -m searcharis.pages_policy_cli policies/approved-redirects.txt policies/approved-headers.txt dist --json-file reports/pages.json --github-annotations
+uv run python -m searcharis.pages_policy_cli policies/approved-redirects.txt policies/approved-headers.txt dist --json-file reports/pages.json --junit-file reports/pages.xml --github-annotations
 $code = $LASTEXITCODE
 exit $code
 ```
 
 Create `reports/` before invoking the command. `--json-file PATH` writes one
 **new**, portable UTF-8 report outside `dist`, without overwriting an existing
-file. On Unix, preserve the exit status with the shell's standard command
-handling; do not append `|| true`. Use `--json` instead when consuming JSON
-from stdout; the two output options are mutually exclusive.
+file. Optional `--junit-file PATH` creates a JUnit XML report in the same
+verification pass, with separate `_redirects` and `_headers` testcases and
+failure details. GitLab, Jenkins and other JUnit-aware CI systems can ingest
+the XML while preserving this command's blocking exit status. Either artifact
+can be requested alone or both together. All destinations must be distinct,
+outside the build, under existing parent directories and checked before the
+first write. Interrupted writes receive identity-checked, best-effort cleanup,
+not transactional multi-file atomicity.
+
+On Unix, preserve the exit status with the shell's standard command handling;
+do not append `|| true`. Use `--json` instead when consuming JSON from stdout;
+stdout JSON cannot be combined with either file report mode.
 
 `--github-annotations` is optional for GitHub Actions jobs. On exit 1 it
 prints one GitHub `::error` annotation for each missing or changed artifact,
 so reviewers can identify `_redirects` and `_headers` failures separately.
-Exit 0 prints no annotations. With `--json-file`, annotations are printed only
-after the report is successfully created, never when that write fails. Do not
+Exit 0 prints no annotations. With file reports, annotations are printed only
+after every requested report is successfully created, never when a write fails. Do not
 combine annotations with `--json` stdout. The messages refer to compiled
 artifacts, not invented source-line locations; other CI systems can omit the
-flag and consume the JSON report instead.
+flag and consume JSON or JUnit instead.
 
 | Exit | Meaning | CI action |
 | --- | --- | --- |
@@ -48,9 +57,10 @@ flag and consume the JSON report instead.
 On exit 0 or 1, one report contains a `checks` array with both artifacts,
 individual `pass`/`fail` decisions and SHA-256 digests. On input error, the
 stdout `--json` form includes the completed checks and separately identified
-`errors` instead of hiding the other result. The `--json-file` form does not
-create a report on exit 2; never treat an older report as current. Partial-write
-cleanup is identity-checked and best-effort, **not atomic**.
+`errors` instead of hiding the other result. File report modes do not create
+reports on invalid checker input (exit 2); never treat an older report as
+current. Destination or write failures may leave partial files if cleanup
+cannot safely identify them; this is **not atomic**.
 Invalid inputs still exit 2 with stderr diagnostics, without success or drift
 annotations.
 

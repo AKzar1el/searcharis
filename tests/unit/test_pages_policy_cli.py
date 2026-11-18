@@ -2,6 +2,7 @@
 
 import json
 import socket
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -274,3 +275,118 @@ def test_github_annotations_rejects_json_stdout_mode(tmp_path):
     with pytest.raises(SystemExit) as raised:
         main([str(redirects), str(headers), str(build), "--json", "--github-annotations"])
     assert raised.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("drift", "expected_failures"),
+    [
+        ("none", set()),
+        ("_redirects", {"_redirects"}),
+        ("_headers", {"_headers"}),
+        ("both", {"_redirects", "_headers"}),
+    ],
+)
+def test_junit_reports_one_case_per_pages_artifact(
+    tmp_path, capsys, drift, expected_failures,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    for artifact in expected_failures:
+        (build / artifact).unlink()
+    target = tmp_path / "pages.xml"
+    code, out, err = _run(capsys, redirects, headers, build, "--junit-file", str(target))
+    assert code == (1 if expected_failures else 0) and out == err == ""
+    content = target.read_bytes()
+    assert content.startswith(b"<?xml") and not content.startswith(b"\xef\xbb\xbf")
+    suite = ET.fromstring(content)
+    assert suite.tag == "testsuite"
+    assert suite.attrib["tests"] == "2"
+    assert suite.attrib["failures"] == str(len(expected_failures))
+    cases = suite.findall("testcase")
+    assert [case.attrib["name"] for case in cases] == ["_redirects", "_headers"]
+    assert {
+        case.attrib["name"] for case in cases if case.find("failure") is not None
+    } == expected_failures
+    for case in cases:
+        failure = case.find("failure")
+        if failure is not None:
+            assert "missing" in failure.attrib["message"]
+            assert "SHA-256" in (failure.text or "")
+
+
+def test_json_junit_and_annotations_share_one_offline_check(tmp_path, capsys, monkeypatch):
+    redirects, headers, build = _fixture(tmp_path)
+    (build / "_headers").write_bytes(b"/*\n X-Robots-Tag: index\n")
+    json_target, junit_target = tmp_path / "pages.json", tmp_path / "pages.xml"
+    monkeypatch.setattr(
+        socket, "socket",
+        lambda *a, **kw: pytest.fail("Pages CI artifacts must be local-only"),
+    )
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(json_target), "--junit-file", str(junit_target),
+        "--github-annotations",
+    )
+    assert code == 1 and err == ""
+    assert out.splitlines() == [
+        "::error title=SEO Pages _headers::Compiled _headers changed from the reviewed reference"
+    ]
+    assert json.loads(json_target.read_text(encoding="utf-8"))["status"] == "fail"
+    cases = ET.parse(junit_target).getroot().findall("testcase")
+    assert len(cases) == 2 and cases[1].find("failure") is not None
+
+
+@pytest.mark.parametrize("invalid", ["existing", "build", "missing_parent", "same_target"])
+def test_paired_reports_preflight_all_destinations_before_writing(
+    tmp_path, capsys, invalid,
+):
+    redirects, headers, build = _fixture(tmp_path)
+    json_target, junit_target = tmp_path / "pages.json", tmp_path / "pages.xml"
+    if invalid == "existing":
+        junit_target.write_text("preserve existing report", encoding="utf-8")
+    elif invalid == "build":
+        junit_target = build / "pages.xml"
+    elif invalid == "missing_parent":
+        junit_target = tmp_path / "absent" / "pages.xml"
+    else:
+        junit_target = json_target
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(json_target), "--junit-file", str(junit_target),
+    )
+    assert code == 2 and out == "" and "Invalid input" in err
+    assert not json_target.exists()
+    if invalid == "existing":
+        assert junit_target.read_text(encoding="utf-8") == "preserve existing report"
+    else:
+        assert not junit_target.exists()
+
+
+def test_second_report_io_failure_cleans_first_own_file(tmp_path, capsys, monkeypatch):
+    redirects, headers, build = _fixture(tmp_path)
+    json_target, junit_target = tmp_path / "pages.json", tmp_path / "pages.xml"
+    original_open = Path.open
+
+    def fail_second_open(self, mode="r", *args, **kwargs):
+        if self == junit_target and mode == "x":
+            raise OSError("simulated JUnit destination failure")
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_second_open)
+    code, out, err = _run(
+        capsys, redirects, headers, build,
+        "--json-file", str(json_target), "--junit-file", str(junit_target),
+        "--github-annotations",
+    )
+    assert code == 2 and out == "" and "simulated JUnit" in err
+    assert not json_target.exists() and not junit_target.exists()
+
+
+def test_invalid_input_does_not_create_junit_or_json(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    json_target, junit_target = tmp_path / "pages.json", tmp_path / "pages.xml"
+    code, out, err = _run(
+        capsys, tmp_path / "missing-reviewed", headers, build,
+        "--json-file", str(json_target), "--junit-file", str(junit_target),
+    )
+    assert code == 2 and out == "" and "Invalid input" in err
+    assert not json_target.exists() and not junit_target.exists()
