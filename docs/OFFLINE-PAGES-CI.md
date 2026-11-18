@@ -136,5 +136,35 @@ The check reads only local UTF-8 text and never fetches URLs.
 See Cloudflare's [redirect limits](https://developers.cloudflare.com/pages/configuration/redirects/)
 and [header limits](https://developers.cloudflare.com/pages/configuration/headers/).
 
+### Optional sitewide indexing safeguard
+
+A byte-identical, reviewer-approved `_headers` artifact may still contain an
+accidental blanket `X-Robots-Tag: noindex` directive that prevents static
+pages from appearing in Google Search. To make that release risk an explicit
+opt-in CI decision, append `--check-sitewide-noindex`:
+
+```sh
+uv run python -m searcharis.pages_policy_cli \
+  policies/approved-redirects.txt policies/approved-headers.txt dist \
+  --check-sitewide-noindex --report-dir reports
+```
+
+This local check rejects explicit `noindex` or `none` tokens (including
+`googlebot:`-scoped tokens) in indented `X-Robots-Tag` declarations belonging
+to an exact top-level `/*` block. It ignores comments, detached headers,
+other-bot-only rules, and narrower path blocks. A finding retains exit **1**
+and appears as a distinct `sitewide_noindex` reason with a safe line-number
+hint in human output, JSON, JUnit, Markdown and GitHub annotations. The default
+byte-parity check remains unchanged.
+
+This is a deliberately narrow static safeguard, **not** a complete
+`_headers` parser or an effective-response/indexing simulator. It cannot
+account for Pages Functions/SSR, all overlapping rules, later header
+detachment, or whether the directive was intentionally approved. It never
+fetches a URL or alters an indexing setting. If you intentionally noindex
+every static path, leave this opt-in guard disabled. See Cloudflare's
+[header behavior](https://developers.cloudflare.com/pages/configuration/headers/)
+and Google's [X-Robots-Tag rules](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag).
+
 This command makes no deployments, paid API calls or production network
 requests. Customer adoption and false-positive rates have not been measured.

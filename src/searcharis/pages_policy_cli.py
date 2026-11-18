@@ -33,6 +33,8 @@ def format_github_annotations(report: dict) -> list[str]:
             message = f"Compiled {artifact} missing from the static build"
         elif item.get("reason") == "limit_exceeded":
             message = f"Reviewed {artifact} exceeds a documented Pages limit: {item['limit_issue']}"
+        elif item.get("reason") == "sitewide_noindex":
+            message = f"Reviewed {artifact} declares broad noindex: {item['indexability_issue']}"
         else:
             message = f"Compiled {artifact} changed from the reviewed reference"
             if "drift_location" in item:
@@ -54,6 +56,8 @@ def _format_human_check(item: dict) -> str:
         return f"PASS {item['artifact']} reviewed SHA-256 {item['expected_sha256']}"
     if item["reason"] == "limit_exceeded":
         return f"FAIL {item['artifact']} Pages limit: {item['limit_issue']}"
+    if item["reason"] == "sitewide_noindex":
+        return f"FAIL {item['artifact']} sitewide noindex: {item['indexability_issue']}"
     message = (
         f"FAIL {item['artifact']} {item['reason']}: "
         f"expected SHA-256 {item['expected_sha256']}, "
@@ -82,6 +86,8 @@ def build_pages_policy_markdown(report: dict) -> str:
             )
         elif item["reason"] == "limit_exceeded":
             lines.append(f"- **{artifact}: FAIL** - {item['limit_issue']}")
+        elif item["reason"] == "sitewide_noindex":
+            lines.append(f"- **{artifact}: FAIL** - {item['indexability_issue']}")
         else:
             description = (
                 f"- **{artifact}: FAIL** - {item['reason']}; "
@@ -109,19 +115,55 @@ def build_pages_policy_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _basic_pages_limit_issue(reviewed: Path, artifact: str, digest: str) -> str | None:
-    """Check published basic text limits, not complete Pages syntax or routing."""
+def _read_reviewed_policy_lines(reviewed: Path, artifact: str, digest: str) -> list[str]:
+    """Read bounded, unchanged reviewed text without interpreting deployed Pages rules."""
     # The individual byte-parity verifiers already enforce this bounded read.
     with reviewed.open("rb") as source:
         content = source.read(8_500_001)
     if len(content) > 8_500_000:
         raise ValueError(f"Reviewed {artifact} exceeds the local input byte limit")
     if hashlib.sha256(content).hexdigest() != digest:
-        raise ValueError(f"Reviewed {artifact} changed while checking policy limits")
+        raise ValueError(f"Reviewed {artifact} changed while checking optional policy guards")
     try:
-        lines = content.decode("utf-8").splitlines()
+        return content.decode("utf-8").splitlines()
     except UnicodeDecodeError as error:
         raise ValueError(f"Reviewed {artifact} is not UTF-8 text") from error
+
+
+def _sitewide_noindex_issue(reviewed: Path, digest: str) -> str | None:
+    """Flag explicit broad header declarations, not effective hosted header behavior."""
+    broad_rule = False
+    for line_number, line in enumerate(
+        _read_reviewed_policy_lines(reviewed, "_headers", digest), start=1,
+    ):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line[0].isspace():
+            broad_rule = stripped == "/*"
+            continue
+        if not broad_rule or stripped.startswith("!"):
+            continue
+        name, separator, raw_directives = stripped.partition(":")
+        if not separator or name.casefold() != "x-robots-tag":
+            continue
+        crawler = "all"
+        for directive in raw_directives.casefold().split(","):
+            directive = directive.strip()
+            if ":" in directive:
+                crawler, _, directive = directive.partition(":")
+                directive = directive.strip()
+            if crawler in {"all", "googlebot"} and directive in {"noindex", "none"}:
+                return (
+                    f"line {line_number} has an X-Robots-Tag noindex/none "
+                    "declaration under /* (all static paths)"
+                )
+    return None
+
+
+def _basic_pages_limit_issue(reviewed: Path, artifact: str, digest: str) -> str | None:
+    """Check published basic text limits, not complete Pages syntax or routing."""
+    lines = _read_reviewed_policy_lines(reviewed, artifact, digest)
 
     limit = 1_000 if artifact == "_redirects" else 2_000
     static_redirects = 0
@@ -185,6 +227,7 @@ def _locate_drift(
 def verify_reviewed_pages_policies(
     reviewed_redirects: Path, reviewed_headers: Path, build_dir: Path,
     *, check_policy_limits: bool = False, locate_drift: bool = False,
+    check_sitewide_noindex: bool = False,
 ) -> dict:
     """Check both static policy artifacts even if one is missing or invalid."""
     checks: list[dict] = []
@@ -207,6 +250,16 @@ def verify_reviewed_pages_policies(
                 if issue:
                     result.update(
                         status="fail", reason="limit_exceeded", limit_issue=issue,
+                    )
+            if (
+                check_sitewide_noindex and artifact == "_headers"
+                and result["status"] == "pass"
+            ):
+                issue = _sitewide_noindex_issue(reviewed, result["expected_sha256"])
+                if issue:
+                    result.update(
+                        status="fail", reason="sitewide_noindex",
+                        indexability_issue=issue,
                     )
             checks.append(result)
         except (OSError, ValueError) as error:
@@ -303,6 +356,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Also enforce basic published Pages line and aggregate rule limits (offline)",
     )
     parser.add_argument(
+        "--check-sitewide-noindex", action="store_true",
+        help="Block explicit /* X-Robots-Tag noindex/none in reviewed static _headers",
+    )
+    parser.add_argument(
         "--locate-drift", action="store_true",
         help="Locate first changed byte/line in drifted artifacts without printing contents",
     )
@@ -321,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     report = verify_reviewed_pages_policies(
         args.reviewed_redirects, args.reviewed_headers, args.build_dir,
         check_policy_limits=args.check_policy_limits, locate_drift=args.locate_drift,
+        check_sitewide_noindex=args.check_sitewide_noindex,
     )
     if report["status"] == "error":
         if args.json:
