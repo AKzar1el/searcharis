@@ -157,3 +157,108 @@ def test_invalid_plain_input_does_not_emit_pass(tmp_path, capsys):
     output = capsys.readouterr()
     assert output.out == ""
     assert "Invalid input" in output.err
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_json_file_is_portable_utf8_without_stdout(tmp_path, capsys, monkeypatch, changed):
+    source, build = _fixture(tmp_path)
+    monkeypatch.setattr(
+        socket, "socket",
+        lambda *args, **kwargs: pytest.fail("redirects report must not fetch URLs"),
+    )
+    if changed:
+        (build / "_redirects").write_bytes(b"/legacy /replaced 301\n")
+    target = tmp_path / "review.json"
+    code = main([str(source), str(build), "--json-file", str(target)])
+    output = capsys.readouterr()
+    assert code == (1 if changed else 0)
+    assert output.out == output.err == ""
+    raw = target.read_bytes()
+    assert raw.startswith(b"{") and b"\x00" not in raw and not raw.startswith(b"\xef\xbb\xbf")
+    result = json.loads(raw.decode("utf-8"))
+    assert result["status"] == ("fail" if changed else "pass")
+    assert result["reason"] == ("changed" if changed else None)
+    assert result["artifact"] == "_redirects"
+
+
+def test_json_file_never_overwrites_existing_report(tmp_path, capsys):
+    source, build = _fixture(tmp_path)
+    target = tmp_path / "review.json"
+    target.write_text("valuable existing report", encoding="utf-8")
+    assert main([str(source), str(build), "--json-file", str(target)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input" in output.err
+    assert target.read_text(encoding="utf-8") == "valuable existing report"
+
+
+@pytest.mark.parametrize("destination", ["inside_build", "no_parent", "symlink"])
+def test_json_file_rejects_unsafe_output_paths(tmp_path, capsys, destination):
+    source, build = _fixture(tmp_path)
+    target = tmp_path / "report.json"
+    if destination == "inside_build":
+        target = build / "report.json"
+    elif destination == "no_parent":
+        target = tmp_path / "missing" / "report.json"
+    else:
+        target.write_text("existing", encoding="utf-8")
+        link = tmp_path / "linked.json"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"Symlinks unavailable: {exc}")
+        target = link
+    assert main([str(source), str(build), "--json-file", str(target)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input" in output.err
+    if destination == "inside_build":
+        assert not target.exists()
+    elif destination == "symlink":
+        assert target.read_text(encoding="utf-8") == "existing"
+
+
+def test_invalid_redirect_input_does_not_create_json_file(tmp_path, capsys):
+    source, build = _fixture(tmp_path)
+    target = tmp_path / "review.json"
+    assert main([str(tmp_path / "missing"), str(build), "--json-file", str(target)]) == 2
+    assert not target.exists()
+    assert "Invalid input" in capsys.readouterr().err
+
+
+def test_interrupted_json_file_is_cleaned_up_without_false_success(
+    tmp_path, capsys, monkeypatch,
+):
+    source, build = _fixture(tmp_path)
+    target = tmp_path / "review.json"
+    original_open = Path.open
+
+    class InterruptedFile:
+        def __init__(self, path, **kwargs):
+            self.file = original_open(path, "x", **kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.file.__exit__(*args)
+
+        def fileno(self):
+            return self.file.fileno()
+
+        def write(self, content):
+            self.file.write(content[:10])
+            self.file.flush()
+            raise OSError("simulated interrupted artifact output")
+
+    def broken_open(path, mode="r", **kwargs):
+        if path == target and mode == "x":
+            return InterruptedFile(path, **kwargs)
+        return original_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(Path, "open", broken_open)
+    assert main([str(source), str(build), "--json-file", str(target)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "simulated interrupted" in output.err
+    assert not target.exists()
