@@ -34,7 +34,9 @@ def test_consumer_example_preserves_nonzero_gate_exit_and_review_scope() -> None
     text = EXAMPLE.read_text(encoding="utf-8")
     assert "PYTHONPATH: ${{ github.workspace }}/.sear-checker/src" in text
     assert "python -S -m searcharis.site_cli seo-manifest.json dist" in text
-    assert "--require-full-coverage --check-canonical-consistency" in text
+    assert "--check-canonical-consistency" in text
+    commands = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert "--require-full-coverage" not in commands  # First use may review critical pages.
     assert "--report-dir seo-ci-reports --github-annotations" in text
     assert "gate_status=$?" in text
     assert 'exit "$gate_status"' in text
@@ -120,7 +122,6 @@ def test_consumer_workflow_gate_and_reports_locally(
             "searcharis.site_cli",
             manifest,
             build,
-            "--require-full-coverage",
             "--check-canonical-consistency",
             "--report-dir",
             str(report_dir),
@@ -154,3 +155,55 @@ def test_consumer_workflow_gate_and_reports_locally(
         assert "::error title=SEO page issue::" in result.stdout
     else:
         assert "::error" not in result.stdout
+
+
+def test_consumer_first_use_accepts_partial_manifest_and_rejects_reviewed_regression(
+    tmp_path: Path,
+) -> None:
+    """Allow incremental adoption, but keep reviewed page failures blocking."""
+    manifest = json.loads(
+        (ROOT / "examples/seo-contract/generator-fixtures/vite/manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest["pages"] = manifest["pages"][:1]
+    build = ROOT / "examples/seo-contract/generator-fixtures/vite/artifacts"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+
+    for broken in (False, True):
+        reviewed = json.loads(json.dumps(manifest))
+        if broken:
+            reviewed["pages"][0]["contract"]["canonical"] = (
+                "https://fixtures.invalid/incorrect/"
+            )
+        path = tmp_path / ("broken.json" if broken else "reviewed.json")
+        path.write_text(json.dumps(reviewed), encoding="utf-8")
+        reports = tmp_path / ("broken-reports" if broken else "passing-reports")
+        reports.mkdir()
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-S",
+                "-m",
+                "searcharis.site_cli",
+                str(path),
+                str(build),
+                "--check-canonical-consistency",
+                "--report-dir",
+                str(reports),
+                "--github-annotations",
+            ],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        assert result.returncode == (1 if broken else 0)
+        report = json.loads((reports / "seo-site.json").read_text(encoding="utf-8"))
+        assert report["coverage"]["unlisted"] == ["pricing/index.html"]
+        assert report["coverage"]["require_full_coverage"] is False
+        assert report["status"] == ("fail" if broken else "pass")
+        assert ("::error title=SEO page issue::" in result.stdout) is broken
