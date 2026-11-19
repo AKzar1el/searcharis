@@ -20,9 +20,9 @@ def test_consumer_example_pins_code_and_remains_read_only() -> None:
     action_refs = re.findall(r"^\s+uses: ([^\s#]+)", text, re.MULTILINE)
     assert len(action_refs) == 4
     assert all(re.fullmatch(r"actions/[\w-]+@[a-f0-9]{40}", ref) for ref in action_refs)
-    # This merge includes the reviewed-manifest --only/--extend-from onboarding flags
-    # as well as the unreviewed-page preview promised by the sample README.
-    assert "ref: 959c31264194c7c2144704644512199995e6f1ce" in text
+    # This merged source supports the entire manually reviewed queue workflow:
+    # unreviewed export, explicit selected-path import, and prior contract retention.
+    assert "ref: e6d8aa19c130bce3d08fcf7772bca9afdd9f7dec" in text
     assert text.count("persist-credentials: false") == 2
     assert "permissions:\n  contents: read" in text
     assert "pull_request:\n" in text
@@ -30,6 +30,19 @@ def test_consumer_example_pins_code_and_remains_read_only() -> None:
     assert "secrets." not in text
     assert "upload-artifact@" not in text
     assert "deploy" not in "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_consumer_guide_describes_manual_review_queue_without_ci_auto_approval() -> None:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    assert "--unreviewed-file candidate-paths.txt" in guide
+    assert "--only-file reviewed-next-paths.txt" in guide
+    assert "--extend-from seo-manifest.json" in guide
+    assert "manually" in guide.lower()
+    # No generated manifests or candidate queues are approved automatically in CI.
+    assert "-m searcharis.manifest_bootstrap" not in workflow
+    assert "--unreviewed-file" not in workflow
+    assert "--only-file" not in workflow
 
 
 def test_consumer_example_preserves_nonzero_gate_exit_and_review_scope() -> None:
