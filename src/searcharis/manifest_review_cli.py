@@ -72,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(approved['pages'])} previously approved pages unchanged; "
         f"{new_count} new pages appended"
     )
+    if new_count:
+        # A successful integrity check never grants approval to appended pages.
+        # Keep the reviewer queue bounded and safe for untrusted CI logs.
+        print("UNREVIEWED new pages (manual review required):")
+        for entry in candidate["pages"][len(approved["pages"]):][:10]:
+            print(f"  - {human_input_error(entry['path'])}")
+        if new_count > 10:
+            print(f"  ... and {new_count - 10} more unreviewed pages")
     return 0
 
 
