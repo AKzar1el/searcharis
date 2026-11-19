@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -49,7 +50,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("approved_json", type=Path, help="Previously approved manifest")
     parser.add_argument("candidate_json", type=Path, help="Proposed expanded manifest")
     parser.add_argument("build_dir", type=Path, help="Local built HTML for input validation only")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable review result")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="Print machine-readable review result")
+    output.add_argument(
+        "--json-file", type=Path, metavar="PATH",
+        help="Write complete review JSON to a new UTF-8 file outside the build; never overwrite",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -67,15 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if change:
-        if args.json:
-            print(json.dumps({"status": "fail", "reason": change}, sort_keys=True))
-        else:
-            print(f"FAIL manifest approval integrity: {change}")
-        return 1
     new_count = len(candidate["pages"]) - len(approved["pages"])
-    if args.json:
-        print(json.dumps({
+    report = (
+        {"status": "fail", "reason": change}
+        if change else {
             "status": "pass",
             "approved_pages": len(approved["pages"]),
             "new_pages": new_count,
@@ -83,8 +84,51 @@ def main(argv: list[str] | None = None) -> int:
             "unreviewed_paths": [
                 entry["path"] for entry in candidate["pages"][len(approved["pages"]):]
             ],
-        }, sort_keys=True))
-        return 0
+        }
+    )
+    if args.json_file:
+        target = args.json_file
+        created_identity: tuple[int, int] | None = None
+        created = False
+        try:
+            if target.resolve().is_relative_to(args.build_dir.resolve(strict=True)):
+                raise ValueError("JSON report must be outside the static build")
+            if target.exists() or target.is_symlink():
+                raise FileExistsError(f"JSON report already exists: {target}")
+            if not target.parent.is_dir():
+                raise ValueError(f"JSON report parent must be an existing directory: {target.parent}")
+            # Exclusive creation protects against another CI process winning the path.
+            with target.open("x", encoding="utf-8", newline="\n") as output_file:
+                created = True
+                info = os.fstat(output_file.fileno())
+                created_identity = (info.st_dev, info.st_ino)
+                output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        except (OSError, UnicodeError, ValueError) as error:
+            cleanup = ""
+            if created:
+                try:
+                    current = target.lstat()
+                    if (
+                        created_identity is None or not created_identity[1]
+                        or not current.st_ino
+                        or (current.st_dev, current.st_ino) != created_identity
+                    ):
+                        cleanup = "; partial report cleanup skipped: identity changed or unavailable"
+                    else:
+                        target.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_error:
+                    cleanup = f"; partial report cleanup failed: {human_input_error(cleanup_error)}"
+            print(f"Invalid input: {human_input_error(error)}{cleanup}", file=sys.stderr)
+            return 2
+        return 1 if change else 0
+    if args.json:
+        print(json.dumps(report, sort_keys=True))
+        return 1 if change else 0
+    if change:
+        print(f"FAIL manifest approval integrity: {change}")
+        return 1
     print(
         "PASS manifest approval integrity: "
         f"{len(approved['pages'])} previously approved pages unchanged; "
