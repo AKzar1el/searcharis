@@ -43,6 +43,15 @@ def _approval_change(approved: list[dict], candidate: list[dict]) -> str | None:
     return None
 
 
+def _github_approval_error(message: str, *, kind: str) -> str:
+    """Bound and escape local manifest diagnostics before emitting workflow commands."""
+    safe = (
+        str(message).replace("%", "%25").replace("\r", "%0D")
+        .replace("\n", "%0A").replace("::", ": :")
+    )
+    return f"::error title=SEO approval {kind}::{human_input_error(ValueError(safe), limit=240)}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Require an extended reviewed SEO manifest to retain every approved assertion"
@@ -56,7 +65,13 @@ def main(argv: list[str] | None = None) -> int:
         "--json-file", type=Path, metavar="PATH",
         help="Write complete review JSON to a new UTF-8 file outside the build; never overwrite",
     )
+    parser.add_argument(
+        "--github-annotations", action="store_true",
+        help="Emit a bounded GitHub Actions error annotation on failure (not with --json stdout)",
+    )
     args = parser.parse_args(argv)
+    if args.github_annotations and args.json:
+        parser.error("--github-annotations cannot be combined with --json stdout")
 
     try:
         approved = read_manifest(args.approved_json)
@@ -71,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
         else:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+            if args.github_annotations:
+                print(_github_approval_error(str(error), kind="input"))
         return 2
 
     new_count = len(candidate["pages"]) - len(approved["pages"])
@@ -121,13 +138,19 @@ def main(argv: list[str] | None = None) -> int:
                 except OSError as cleanup_error:
                     cleanup = f"; partial report cleanup failed: {human_input_error(cleanup_error)}"
             print(f"Invalid input: {human_input_error(error)}{cleanup}", file=sys.stderr)
+            if args.github_annotations:
+                print(_github_approval_error(str(error) + cleanup, kind="input"))
             return 2
+        if change and args.github_annotations:
+            print(_github_approval_error(change, kind="integrity"))
         return 1 if change else 0
     if args.json:
         print(json.dumps(report, sort_keys=True))
         return 1 if change else 0
     if change:
         print(f"FAIL manifest approval integrity: {change}")
+        if args.github_annotations:
+            print(_github_approval_error(change, kind="integrity"))
         return 1
     print(
         "PASS manifest approval integrity: "
