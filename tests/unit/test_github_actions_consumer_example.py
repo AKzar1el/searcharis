@@ -18,12 +18,12 @@ EXAMPLE = ROOT / "examples/seo-contract/github-actions/seo-contract.example.yml"
 def test_consumer_example_pins_code_and_remains_read_only() -> None:
     text = EXAMPLE.read_text(encoding="utf-8")
     action_refs = re.findall(r"^\s+uses: ([^\s#]+)", text, re.MULTILINE)
-    assert len(action_refs) == 4
+    assert len(action_refs) == 5
     assert all(re.fullmatch(r"actions/[\w-]+@[a-f0-9]{40}", ref) for ref in action_refs)
     # This merged source supports the entire manually reviewed queue workflow:
     # unreviewed export, explicit selected-path import, and prior contract retention.
-    assert "ref: e6d8aa19c130bce3d08fcf7772bca9afdd9f7dec" in text
-    assert text.count("persist-credentials: false") == 2
+    assert "ref: ee1ce961ae5b10fc2d4e822046e0558349773e9f" in text
+    assert text.count("persist-credentials: false") == 3
     assert "permissions:\n  contents: read" in text
     assert "pull_request:\n" in text
     assert "pull_request_target:" not in text
@@ -90,6 +90,30 @@ def test_consumer_example_preserves_nonzero_gate_exit_and_review_scope() -> None
     assert "gate_status=$?" in text
     assert 'exit "$gate_status"' in text
     assert '"$gate_status" -le 1' in text  # Never append partial exit-2 output.
+
+
+def test_consumer_example_compares_approved_manifest_from_immutable_pr_base() -> None:
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    assert workflow.count("uses: actions/checkout@") == 3
+    assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
+    assert "sparse-checkout: seo-manifest.json" in workflow
+    assert "sparse-checkout-cone-mode: false" in workflow
+    assert "path: .seo-approved-base" in workflow
+    assert workflow.count("persist-credentials: false") == 3
+    assert "if: github.event_name == 'pull_request'" in workflow
+    assert "python -S -m searcharis.manifest_review_cli" in workflow
+    assert ".seo-approved-base/seo-manifest.json seo-manifest.json dist" in workflow
+    assert "python -S -m searcharis.site_cli" in workflow
+    assert "pull_request_target:" not in workflow
+    assert "fetch-depth: 0" not in workflow
+
+
+def test_consumer_guide_requires_trusted_base_not_candidate_approval() -> None:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    assert "manifest_review_cli" in guide
+    assert "base commit" in guide.lower()
+    assert "initial adoption" in guide.lower()
+    assert "same pull request" in guide.lower()
 
 
 @pytest.mark.parametrize(
