@@ -288,3 +288,64 @@ def test_manifest_review_interrupted_json_file_is_cleaned_up(tmp_path, capsys, m
     output = capsys.readouterr()
     assert output.out == "" and "simulated interrupted" in output.err
     assert not target.exists()
+
+
+def test_approval_review_opt_in_github_annotations_for_failures(tmp_path, capsys):
+    build, baseline, proposed, old, added = _fixtures(tmp_path)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+
+    # An appended page is still unreviewed, but it is not an integrity failure.
+    assert main([str(baseline), str(proposed), str(build), "--github-annotations"]) == 0
+    assert "::error" not in capsys.readouterr().out
+
+    changed = dict(old, contract={**old["contract"], "h1_min": 0})
+    proposed.write_text(
+        json.dumps({"version": 1, "pages": [changed, added]}), encoding="utf-8"
+    )
+    assert main([str(baseline), str(proposed), str(build), "--github-annotations"]) == 1
+    output = capsys.readouterr()
+    assert "FAIL manifest approval integrity" in output.out
+    assert output.out.count("::error title=SEO approval integrity::") == 1
+    assert "approved SEO assertions changed" in output.out
+    assert output.err == ""
+
+    proposed.unlink()
+    assert main([str(baseline), str(proposed), str(build), "--github-annotations"]) == 2
+    output = capsys.readouterr()
+    assert "Invalid input" in output.err
+    assert output.out.count("::error title=SEO approval input::") == 1
+
+
+def test_approval_github_annotation_escapes_untrusted_control_text():
+    module = importlib.import_module("searcharis.manifest_review_cli")
+    annotation = module._github_approval_error("bad%::title\r\n::error title=forged::text", kind="integrity")
+    assert annotation.startswith("::error title=SEO approval integrity::")
+    assert annotation.count("::error") == 1
+    assert "%25" in annotation and "%0D" in annotation and "%0A" in annotation
+    assert "\r" not in annotation and "\n" not in annotation
+    assert "title=forged::" not in annotation
+    assert len(annotation) < 400
+
+
+def test_approval_annotations_cannot_mix_with_structured_stdout(tmp_path):
+    build, baseline, proposed, _, _ = _fixtures(tmp_path)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    with pytest.raises(SystemExit) as error:
+        main([str(baseline), str(proposed), str(build), "--github-annotations", "--json"])
+    assert error.value.code == 2
+
+
+def test_approval_annotations_compatible_with_portable_json_file(tmp_path, capsys):
+    build, baseline, proposed, old, _ = _fixtures(tmp_path)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    altered = dict(old, contract={**old["contract"], "h1_min": 0})
+    proposed.write_text(json.dumps({"version": 1, "pages": [altered]}), encoding="utf-8")
+    target = tmp_path / "review.json"
+    assert main([
+        str(baseline), str(proposed), str(build), "--json-file", str(target),
+        "--github-annotations",
+    ]) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out.count("::error title=SEO approval integrity::") == 1
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "fail"

@@ -637,6 +637,23 @@ writes are cleaned up only when the created file identity still matches.
 `review_required: true` is still **not approval** of newly appended pages;
 keep the proposed manifest's separate `site_cli` gate active.
 
+For GitHub Actions reviewers, opt into one workflow error annotation when
+previously approved SEO assertions change or the manifest input is invalid:
+
+```sh
+uv run python -m searcharis.manifest_review_cli \
+  reviewed.json expanded.json dist --github-annotations
+```
+
+On integrity failure (exit 1) or invalid input (exit 2), the CLI emits one
+bounded, escaped `::error` command so the check's reason appears in Actions
+annotations instead of only in job logs. On success (exit 0), it emits none;
+newly appended pages still require manual review. The option also works with
+create-only `--json-file` reports, but not with `--json` stdout. Outside
+GitHub Actions, the command is printed as ordinary text. This is an optional
+presentation improvement only: no network requests, automatic approvals,
+source-line guesses or changes to the separate compiled-site `site_cli` gate.
+
 To prepare the next batch from the actual built-site coverage report, export
 the **candidate** ungated paths to a create-only UTF-8 file:
 
