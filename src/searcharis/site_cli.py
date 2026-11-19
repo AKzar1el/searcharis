@@ -10,7 +10,13 @@ from itertools import islice
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
-from searcharis.site_ci import read_manifest, verify_manifest
+from searcharis.site_ci import (
+    _MAX_INPUT_BYTES,
+    _MAX_PAGES,
+    _manifest_path,
+    read_manifest,
+    verify_manifest,
+)
 from searcharis.site_junit import build_site_junit
 from searcharis.site_markdown import build_site_markdown
 from searcharis.site_sarif import build_sarif_report
@@ -67,6 +73,23 @@ def format_github_annotations(report: dict) -> list[str]:
             )
             commands.append(f"::error title=SEO {kind}::{message}")
     return commands
+
+
+def _unreviewed_candidate_paths(report: dict) -> str:
+    """Offer a bounded, importable review queue, not approved SEO assertions."""
+    unlisted = report["coverage"]["unlisted"]
+    if len(unlisted) > _MAX_PAGES:
+        raise ValueError(f"Unreviewed queue exceeds {_MAX_PAGES} paths")
+    for path in unlisted:
+        # --only-file ignores comment lines and treats each line as an exact path.
+        if path.startswith("#") or not path.isprintable():
+            raise ValueError(f"Unreviewed path cannot be exported safely: {_label(path)}")
+        _manifest_path(path)
+    header = "# Candidate built HTML paths; manually review before extending the SEO manifest."
+    payload = header + ("\n" + "\n".join(unlisted) if unlisted else "")
+    if len((payload + "\n").encode("utf-8")) > _MAX_INPUT_BYTES:
+        raise ValueError(f"Unreviewed queue exceeds {_MAX_INPUT_BYTES} UTF-8 bytes")
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Write bounded HTML-escaped reviewer Markdown to a new file",
     )
     parser.add_argument(
+        "--unreviewed-file", type=Path, metavar="PATH",
+        help="Write a create-only UTF-8 candidate list of ungated built HTML for manual review",
+    )
+    parser.add_argument(
         "--report-dir", type=Path, metavar="DIR",
         help="Create JSON, JUnit, Markdown and SARIF site reports in an existing directory",
     )
@@ -156,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.report_dir:
         if any((args.json, args.sarif, args.json_file, args.sarif_file,
-                args.junit_file, args.markdown_file)):
+                args.junit_file, args.markdown_file, args.unreviewed_file)):
             parser.error("--report-dir is not allowed with other report output modes")
         args.json_file = args.report_dir / "seo-site.json"
         args.junit_file = args.report_dir / "seo-site.xml"
@@ -164,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         args.sarif_file = args.report_dir / "seo-site.sarif"
     if args.markdown_file and (args.json or args.sarif):
         parser.error("--markdown-file cannot be combined with JSON or SARIF stdout")
+    if args.unreviewed_file and (args.json or args.sarif):
+        parser.error("--unreviewed-file cannot be combined with JSON or SARIF stdout")
     if args.github_annotations and (args.json or args.sarif):
         parser.error("--github-annotations cannot be combined with JSON or SARIF stdout")
     if args.sarif_source_map and not (args.sarif or args.sarif_file):
@@ -195,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
-    if args.json_file or args.sarif_file or args.junit_file or args.markdown_file:
+    if any((args.json_file, args.sarif_file, args.junit_file,
+            args.markdown_file, args.unreviewed_file)):
         created_outputs: list[tuple[Path, tuple[int, int] | None]] = []
         reports: list[tuple[Path, str, str]] = []
         try:
@@ -207,6 +237,11 @@ def main(argv: list[str] | None = None) -> int:
                 reports.append((args.junit_file, "JUnit", build_site_junit(report)))
             if args.markdown_file:
                 reports.append((args.markdown_file, "Markdown", build_site_markdown(report)))
+            if args.unreviewed_file:
+                reports.append((
+                    args.unreviewed_file, "Unreviewed candidate",
+                    _unreviewed_candidate_paths(report),
+                ))
             if args.sarif_file:
                 reports.append((
                     args.sarif_file, "SARIF", json.dumps(
