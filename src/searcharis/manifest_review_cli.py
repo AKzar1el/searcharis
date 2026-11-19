@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("approved_json", type=Path, help="Previously approved manifest")
     parser.add_argument("candidate_json", type=Path, help="Proposed expanded manifest")
     parser.add_argument("build_dir", type=Path, help="Local built HTML for input validation only")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable review result")
     args = parser.parse_args(argv)
 
     try:
@@ -60,13 +61,30 @@ def main(argv: list[str] | None = None) -> int:
         verify_manifest(candidate, args.build_dir)
         change = _approval_change(approved["pages"], candidate["pages"])
     except (OSError, UnicodeError, ValueError, TypeError) as error:
-        print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
+        else:
+            print(f"Invalid input: {human_input_error(error)}", file=sys.stderr)
         return 2
 
     if change:
-        print(f"FAIL manifest approval integrity: {change}")
+        if args.json:
+            print(json.dumps({"status": "fail", "reason": change}, sort_keys=True))
+        else:
+            print(f"FAIL manifest approval integrity: {change}")
         return 1
     new_count = len(candidate["pages"]) - len(approved["pages"])
+    if args.json:
+        print(json.dumps({
+            "status": "pass",
+            "approved_pages": len(approved["pages"]),
+            "new_pages": new_count,
+            "review_required": bool(new_count),
+            "unreviewed_paths": [
+                entry["path"] for entry in candidate["pages"][len(approved["pages"]):]
+            ],
+        }, sort_keys=True))
+        return 0
     print(
         "PASS manifest approval integrity: "
         f"{len(approved['pages'])} previously approved pages unchanged; "

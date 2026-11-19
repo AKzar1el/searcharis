@@ -115,3 +115,69 @@ def test_guard_rejects_invalid_inputs_without_success_report(tmp_path, capsys, i
     captured = capsys.readouterr()
     assert "Invalid input" in captured.err
     assert "PASS" not in captured.out
+
+
+def test_structured_review_reports_every_unreviewed_page_without_approving_it(
+    tmp_path, capsys, monkeypatch
+):
+    build, baseline, proposed, old, _ = _fixtures(tmp_path)
+    additions = []
+    for number in range(12):
+        path = f"next-{number:02d}.html"
+        (build / path).write_text("<title>Next</title>", encoding="utf-8")
+        additions.append(_reviewed(path, f"https://example.com/next-{number:02d}"))
+    proposed.write_text(json.dumps({"version": 1, "pages": [old, *additions]}), encoding="utf-8")
+
+    def reject_network(*args, **kwargs):
+        raise AssertionError("Offline review JSON must never fetch public URLs")
+
+    monkeypatch.setattr(socket.socket, "connect", reject_network)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([str(baseline), str(proposed), str(build), "--json"]) == 0
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out) == {
+        "status": "pass",
+        "approved_pages": 1,
+        "new_pages": 12,
+        "review_required": True,
+        "unreviewed_paths": [entry["path"] for entry in additions],
+    }
+
+
+def test_structured_review_reports_no_new_approvals(tmp_path, capsys):
+    build, baseline, proposed, old, _ = _fixtures(tmp_path)
+    proposed.write_text(json.dumps({"version": 1, "pages": [old]}), encoding="utf-8")
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([str(baseline), str(proposed), str(build), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "pass",
+        "approved_pages": 1,
+        "new_pages": 0,
+        "review_required": False,
+        "unreviewed_paths": [],
+    }
+
+
+def test_structured_review_preserves_rejection_and_input_error_exit_codes(tmp_path, capsys):
+    build, baseline, proposed, old, added = _fixtures(tmp_path)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+
+    weakened = dict(old, contract={**old["contract"], "h1_min": 2})
+    proposed.write_text(
+        json.dumps({"version": 1, "pages": [weakened, added]}), encoding="utf-8"
+    )
+    assert main([str(baseline), str(proposed), str(build), "--json"]) == 1
+    result = capsys.readouterr()
+    assert result.err == ""
+    blocked = json.loads(result.out)
+    assert blocked["status"] == "fail"
+    assert "approved SEO assertions changed" in blocked["reason"]
+
+    proposed.write_text('{"version": 1, "version": 1, "pages": []}', encoding="utf-8")
+    assert main([str(baseline), str(proposed), str(build), "--json"]) == 2
+    result = capsys.readouterr()
+    assert result.err == ""
+    rejected = json.loads(result.out)
+    assert rejected["status"] == "error"
+    assert "Duplicate manifest JSON key" in rejected["error"]
