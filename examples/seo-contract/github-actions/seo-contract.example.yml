@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AKzar1el/searcharis
-          ref: e6d8aa19c130bce3d08fcf7772bca9afdd9f7dec
+          ref: ee1ce961ae5b10fc2d4e822046e0558349773e9f
           path: .sear-checker
           persist-credentials: false
 
@@ -40,6 +40,29 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      # A candidate pull request must not supply its own prior approvals.
+      - name: Checkout prior approved SEO manifest
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .seo-approved-base
+          sparse-checkout: seo-manifest.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Reject changed previously approved assertions
+        if: github.event_name == 'pull_request'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.sear-checker/src
+        run: |
+          if [ -f .seo-approved-base/seo-manifest.json ]; then
+            python -S -m searcharis.manifest_review_cli \
+              .seo-approved-base/seo-manifest.json seo-manifest.json dist
+          else
+            echo "::notice title=Initial SEO manifest adoption::No approved base manifest; human review required."
+          fi
 
       - name: Verify developer-reviewed SEO contracts
         env:

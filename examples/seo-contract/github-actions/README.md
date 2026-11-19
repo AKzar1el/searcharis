@@ -90,13 +90,12 @@ pull request. It is not installed into any workflow by this repository.
    commit** in the checker checkout; never replace it with mutable `main` or a
    floating tag. All referenced Actions are also pinned to resolved commits.
    The initial Action pins were resolved against GitHub release refs on
-   2026-11-19. The checker pin is the immutable merged PR #288 revision, which
+   2026-11-19. The checker pin is the immutable merged PR #293 revision, which
    includes the unreviewed-path preview, `--unreviewed-file` queue export,
-   `--only-file` curated selection and `--extend-from` incremental manifest
-   updates used above. The earlier PR #285 pin lacks the queue export and
-   selection-file options. Keep all manifest creation and extension separate
-   from this CI gate and require deliberate human review before adoption. When
-   changing the pin, verify supported generator flags and reporting behavior.
+   `--only-file` curated selection, `--extend-from` incremental manifest
+   updates and `manifest_review_cli` approval-integrity checks. Keep manifest
+   generation separate from CI and require deliberate human review before
+   adoption. When changing the pin, verify supported flags and behavior.
 4. Check both a healthy compiled site (expected exit 0) and a deliberately
    broken canonical/title assertion (expected exit 1); missing input must exit
    2. The GitHub job must fail when either of the latter cases occurs.
@@ -110,6 +109,25 @@ The full list remains in the local JSON report; this example does not upload it.
 After adding and reviewing all built HTML paths in the manifest, opt into
 `--require-full-coverage` to make new, unreviewed pages block CI as well. Do
 not mistake an incremental pass for coverage of the whole site.
+
+## Protect previously approved assertions during pull requests
+
+The inactive example first builds the proposed site, then checks out only
+`seo-manifest.json` from the immutable **base commit** SHA supplied by the
+GitHub pull-request event. This separate read-only, sparse checkout uses
+`persist-credentials: false` and avoids fetching full Git history. The
+`manifest_review_cli` gate rejects removed, reordered or altered previously
+approved assertions; it permits only appended pages, still subject to human
+review. The independent `site_cli` gate checks compiled SEO behavior.
+
+The prior approved file must come from the trusted base commit, **not from the
+same pull request** as the candidate manifest: comparing two PR-controlled
+copies can incorrectly pass when both have weakened assertions. If the base
+has no `seo-manifest.json`, this is **initial adoption**: the example emits a
+notice and leaves first-time approval to a human reviewer. The approval-drift
+step runs only for pull requests, not manual `workflow_dispatch` events, while
+the compiled-site SEO gate still runs. This example does not auto-approve
+manifests or prevent authorized workflow-policy changes.
 
 ## Rehearse the exact gate locally before copying
 
