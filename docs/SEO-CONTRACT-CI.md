@@ -590,6 +590,22 @@ adds only new selected pages while preserving previous assertions and order.
 Check in the expanded manifest only after review. Do not enable strict
 `--require-full-coverage` until the intended site inventory is reviewed.
 
+For a separate **append-only approval-integrity gate** in a manifest-change
+review, compare the previously approved manifest with the proposed revision,
+using the same local build directory:
+
+```sh
+uv run python -m searcharis.manifest_review_cli \
+  reviewed.json expanded.json dist
+```
+
+Exit 0 means every previously approved path, page order and contract is
+unchanged (new pages may only be appended); 1 means a previous approval was
+removed, moved or altered; 2 means unreadable or invalid input. Both manifests
+must refer to the provided built HTML. The guard never fetches URLs and does
+**not** establish that SEO checks pass: run `site_cli` on the proposed manifest
+as a separate CI gate. Do not generate or approve new assertions automatically.
+
 To prepare the next batch from the actual built-site coverage report, export
 the **candidate** ungated paths to a create-only UTF-8 file:
 
