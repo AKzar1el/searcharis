@@ -190,6 +190,25 @@ def test_curated_page_file_accepts_indented_comments_and_whitespace_blank_lines(
     assert [item["path"] for item in manifest["pages"]] == ["pricing/index.html"]
 
 
+@pytest.mark.parametrize("separator", ["\v", "\f", "\x85", "\u2028", "\u2029"])
+def test_curated_page_file_does_not_promote_unicode_separators_to_new_reviews(
+    tmp_path, capsys, separator,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    selected = tmp_path / "manual-review.txt"
+    selected.write_text(f"index.html{separator}pricing/index.html\n", encoding="utf-8")
+    destination = tmp_path / "reviewed.json"
+
+    assert main([
+        str(build), "https://example.com/", "--only-file", str(selected),
+        "--output", str(destination),
+    ]) == 2
+    assert not destination.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("selection_text", [
     "# comments only\n\n",
     "index.html\nindex.html\n",
