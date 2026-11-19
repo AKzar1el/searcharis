@@ -65,6 +65,19 @@ def test_consumer_guide_rehearses_exit_codes_in_powershell() -> None:
     assert "Invoke-WebRequest" not in script
 
 
+def test_consumer_guide_rehearses_manual_approval_integrity_in_powershell() -> None:
+    script = _powershell_rehearsal()
+    assert script.count("python -S -m searcharis.manifest_review_cli") == 3
+    assert "approved.json" in script
+    assert "weakened.json" in script
+    assert "ConvertTo-Json -Depth" in script
+    assert "UTF8Encoding]::new($false)" in script  # PowerShell 5.1 needs no-BOM JSON.
+    assert "approved manifest review did not return exit 0" in script
+    assert "weakened manifest review did not return exit 1" in script
+    assert "invalid manifest review did not return exit 2" in script
+    assert "Set-ExecutionPolicy" not in script
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell Windows rehearsal")
 def test_consumer_guide_powershell_rehearsal_runs_locally() -> None:
     result = subprocess.run(

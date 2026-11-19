@@ -187,6 +187,31 @@ try {
     python -S -m searcharis.site_cli examples/seo-contract/missing-manifest.json examples/seo-contract/generator-fixtures/vite/artifacts
     if ($LASTEXITCODE -ne 2) { throw 'Invalid input did not return exit 2' }
 
+    # Rehearse the separate approval-integrity gate using only local fixtures.
+    # The approved prefix is intentionally shorter than the candidate manifest.
+    $fixtureManifest = 'examples/seo-contract/generator-fixtures/vite/manifest.json'
+    $fixtureBuild = 'examples/seo-contract/generator-fixtures/vite/artifacts'
+    $approvalDir = Join-Path ([System.IO.Path]::GetTempPath()) ('seo-approval-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $approvalDir -ErrorAction Stop | Out-Null
+    $approvedFile = Join-Path $approvalDir 'approved.json'
+    $weakenedFile = Join-Path $approvalDir 'weakened.json'
+    $noBom = [System.Text.UTF8Encoding]::new($false)
+    $fixture = Get-Content -LiteralPath $fixtureManifest -Raw | ConvertFrom-Json
+    $approved = @{ version = 1; pages = @($fixture.pages[0]) } | ConvertTo-Json -Depth 16
+    [System.IO.File]::WriteAllText($approvedFile, $approved, $noBom)
+
+    python -S -m searcharis.manifest_review_cli $approvedFile $fixtureManifest $fixtureBuild
+    if ($LASTEXITCODE -ne 0) { throw 'approved manifest review did not return exit 0' }
+
+    $weakened = Get-Content -LiteralPath $fixtureManifest -Raw | ConvertFrom-Json
+    $weakened.pages[0].contract.h1_min = 0
+    [System.IO.File]::WriteAllText($weakenedFile, ($weakened | ConvertTo-Json -Depth 16), $noBom)
+    python -S -m searcharis.manifest_review_cli $approvedFile $weakenedFile $fixtureBuild
+    if ($LASTEXITCODE -ne 1) { throw 'weakened manifest review did not return exit 1' }
+
+    python -S -m searcharis.manifest_review_cli $approvedFile (Join-Path $approvalDir 'missing.json') $fixtureBuild
+    if ($LASTEXITCODE -ne 2) { throw 'invalid manifest review did not return exit 2' }
+
     foreach ($dir in @($passReports, $brokenReports)) {
         foreach ($name in @('seo-site.json', 'seo-site.md', 'seo-site.xml', 'seo-site.sarif')) {
             if (-not (Test-Path -LiteralPath (Join-Path $dir $name))) {
@@ -194,7 +219,7 @@ try {
             }
         }
     }
-    Write-Output "PowerShell offline rehearsal PASS; reports: $passReports ; $brokenReports"
+    Write-Output "PowerShell offline rehearsal PASS; reports: $passReports ; $brokenReports ; approval fixtures: $approvalDir"
 }
 finally {
     $env:PYTHONPATH = $previousPythonPath
@@ -208,6 +233,14 @@ above and `mkdir -p` in the workflow). A missing manifest or unreadable
 artifact exits 2 and does not create a trusted report bundle. The check
 does not fetch URLs, and passing these fixture rehearsals does not prove
 that another site's workflow has been installed or executed.
+
+The same PowerShell rehearsal now also exercises the **separate approval
+integrity gate**: an intact prefix with an appended, still-unreviewed page
+passes (exit 0); weakening an approved assertion fails (exit 1); a missing
+manifest fails as invalid input (exit 2). The temporary approval manifests are
+created outside the repository without a UTF-8 BOM, remain available for
+inspection, and never replace the site's approved manifest. A passing review
+does not approve the appended page or replace the compiled-site SEO check.
 
 The checker is launched with `python -S` and `PYTHONPATH` pointed at the pinned
 source checkout. This specific offline `site_cli` entry point currently runs
