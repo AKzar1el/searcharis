@@ -32,6 +32,25 @@ pull request. It is not installed into any workflow by this repository.
    generation still includes every built HTML file and `--check-built` still
    checks full coverage. Review the generated assertions and commit them once;
    never regenerate from each candidate build during CI.
+
+   To add another page later **without regenerating or weakening earlier
+   reviews**, build the site locally and extend the previously committed
+   manifest into a *new* file:
+
+   ```sh
+   PYTHONPATH=/path/to/searcharis/src python3 -S -m searcharis.manifest_bootstrap \
+     dist https://example.com/ --extend-from seo-manifest.json \
+     --only legal/index.html --check-built --output seo-manifest-expanded.json
+   ```
+
+   Inspect the diff, especially the new page's proposed assertions, before
+   intentionally replacing the reviewed manifest in your own site repository.
+   Existing contracts remain unchanged, even when a prior assertion now fails;
+   with `--check-built`, that mismatch still exits 1. Duplicate page paths,
+   missing old built pages, or invalid existing contracts exit 2 without
+   creating output. The input manifest is never overwritten, and omitted pages
+   remain unreviewed; this operation is an offline developer step, **not** a
+   per-build regeneration step in CI.
 2. Copy [`seo-contract.example.yml`](seo-contract.example.yml) to the **site**
    repository's `.github/workflows/seo-contract.yml` only after its owner
    approves the workflow. Adapt the `npm ci`/`npm run build` step and the
