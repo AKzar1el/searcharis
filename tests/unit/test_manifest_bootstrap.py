@@ -142,6 +142,110 @@ def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys,
     assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "fail"
 
 
+def test_extend_reviewed_manifest_preserves_old_contracts_and_adds_only_selected_pages(
+    tmp_path, capsys,
+):
+    build = tmp_path / "dist"
+    for path in ("index.html", "pricing/index.html", "legal/index.html"):
+        _html(build / path)
+    original = tmp_path / "reviewed.json"
+    initial = generate_manifest(build, "https://example.com/", only_paths=("index.html",))
+    initial["pages"][0]["contract"]["title_equals"] = "Example"
+    initial["pages"][0]["contract"]["indexable"] = True
+    original.write_text(json.dumps(initial), encoding="utf-8")
+    before = original.read_bytes()
+    destination = tmp_path / "expanded.json"
+
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--expect-description",
+        "--output", str(destination),
+    ]) == 0
+    assert capsys.readouterr().out == ""
+    expanded = json.loads(destination.read_text(encoding="utf-8"))
+    assert expanded["pages"][0] == initial["pages"][0]
+    assert [item["path"] for item in expanded["pages"]] == [
+        "index.html", "pricing/index.html",
+    ]
+    assert expanded["pages"][1]["contract"]["description_present"] is True
+    assert original.read_bytes() == before
+    assert verify_manifest(expanded, build)["coverage"]["unlisted"] == ["legal/index.html"]
+
+
+@pytest.mark.parametrize("selected", [(), ("index.html",), ("missing.html",)])
+def test_extend_requires_new_selected_pages_and_never_overwrites(tmp_path, capsys, selected):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    original = tmp_path / "reviewed.json"
+    original.write_text(json.dumps(generate_manifest(
+        build, "https://example.com/", only_paths=("index.html",),
+    )), encoding="utf-8")
+    before = original.read_bytes()
+    destination = tmp_path / "expanded.json"
+    args = [str(build), "https://example.com/", "--extend-from", str(original)]
+    for path in selected:
+        args.extend(("--only", path))
+    assert main([*args, "--output", str(destination)]) == 2
+    assert not destination.exists()
+    assert original.read_bytes() == before
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_extend_rejects_invalid_reviewed_manifest_before_creating_output(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    original = tmp_path / "reviewed.json"
+    original.write_text('{"version":1,"pages":[],"pages":[]}', encoding="utf-8")
+    destination = tmp_path / "expanded.json"
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(destination),
+    ]) == 2
+    assert not destination.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_extend_retains_prior_review_order_without_rechecking_into_new_contracts(tmp_path):
+    build = tmp_path / "dist"
+    for path in ("index.html", "pricing/index.html", "legal/index.html"):
+        _html(build / path)
+    original = generate_manifest(
+        build, "https://example.com/", only_paths=("index.html", "pricing/index.html"),
+    )
+    original["pages"].reverse()
+    original["pages"][0]["contract"]["h1_min"] = 2
+    existing = tmp_path / "reviewed.json"
+    existing.write_text(json.dumps(original), encoding="utf-8")
+    new = tmp_path / "expanded.json"
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(existing),
+        "--only", "legal/index.html", "--check-built", "--output", str(new),
+    ]) == 1
+    expanded = json.loads(new.read_text(encoding="utf-8"))
+    assert expanded["pages"][:2] == original["pages"]
+    assert expanded["pages"][2]["path"] == "legal/index.html"
+    assert existing.read_text(encoding="utf-8") == json.dumps(original)
+
+
+def test_extend_rejects_colliding_urls_before_output(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    existing = generate_manifest(build, "https://example.com/", only_paths=("index.html",))
+    existing["pages"][0]["contract"]["url"] = "https://example.com/pricing/"
+    original = tmp_path / "reviewed.json"
+    original.write_text(json.dumps(existing), encoding="utf-8")
+    new = tmp_path / "expanded.json"
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(new),
+    ]) == 2
+    assert not new.exists()
+    assert "Duplicate contract URL" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("selected", [
     ("index.html", "index.html"),
     ("index.html", "missing/index.html"),

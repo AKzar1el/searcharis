@@ -21,6 +21,7 @@ from searcharis.site_ci import (
     _MAX_PAGES,
     _manifest_path,
     _read_limited,
+    read_manifest,
     verify_manifest,
 )
 
@@ -364,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
              "(repeatable; other pages remain unreviewed in incremental CI)",
     )
     parser.add_argument(
+        "--extend-from", type=Path, metavar="REVIEWED_JSON",
+        help="Add --only selected pages to an existing reviewed manifest, preserving "
+             "all earlier contracts; output is create-only",
+    )
+    parser.add_argument(
         "--expect-self-canonical",
         action="store_true",
         help="Opt in to requiring each page's canonical to equal its candidate public URL",
@@ -422,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
     try:
+        if args.extend_from is not None and not args.only:
+            raise ValueError("--extend-from requires at least one explicit --only BUILD_PATH")
         manifest = generate_manifest(
             args.build_dir, args.site_base_url,
             only_paths=tuple(args.only),
@@ -437,6 +445,20 @@ def main(argv: list[str] | None = None) -> int:
             language_overrides=read_language_map(args.lang_map) if args.lang_map else None,
             hreflang_clusters=read_hreflang_map(args.hreflang_map) if args.hreflang_map else None,
         )
+        if args.extend_from is not None:
+            existing = read_manifest(args.extend_from)
+            # Validate retained reviews as input even if a built page now fails
+            # an assertion. A mismatched review is not permission to replace it.
+            verify_manifest(existing, args.build_dir)
+            manifest = {
+                "version": 1,
+                # Preserve the existing reviewed ordering and append only the
+                # deterministically generated additions for a small review diff.
+                "pages": [*existing["pages"], *manifest["pages"]],
+            }
+            # Catch duplicate paths/URLs and malformed combined input before
+            # opening an output file, even without --check-built.
+            verify_manifest(manifest, args.build_dir)
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.
         checked = (
