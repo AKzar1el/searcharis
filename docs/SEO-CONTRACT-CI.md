@@ -606,6 +606,18 @@ must refer to the provided built HTML. The guard never fetches URLs and does
 **not** establish that SEO checks pass: run `site_cli` on the proposed manifest
 as a separate CI gate. Do not generate or approve new assertions automatically.
 
+For a machine-readable review queue in another CI system, add `--json` to the
+same command. Exactly one JSON object is written to stdout for each outcome:
+`status: "pass"` (exit 0) includes `approved_pages`, `new_pages`,
+`review_required` and the complete `unreviewed_paths` array (up to the
+manifest's 10,000-page input limit); `status: "fail"` (exit 1) includes
+`reason`; and `status: "error"` (exit 2) includes `error`. JSON mode leaves
+stderr empty for these outcomes. A passing integrity check with
+`review_required: true` only means approved assertions were preserved;
+the listed new pages remain **UNREVIEWED** until a person approves them.
+The ordinary human-readable output and the separate `site_cli` SEO gate are
+unchanged. Declared public URLs are never requested.
+
 To prepare the next batch from the actual built-site coverage report, export
 the **candidate** ungated paths to a create-only UTF-8 file:
 
