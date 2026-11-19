@@ -637,6 +637,28 @@ writes are cleaned up only when the created file identity still matches.
 `review_required: true` is still **not approval** of newly appended pages;
 keep the proposed manifest's separate `site_cli` gate active.
 
+For human reviewers, `--markdown-file` exports an opt-in, bounded and
+HTML-escaped summary suitable for a GitHub Actions step summary or an offline
+review artifact:
+
+```sh
+uv run python -m searcharis.manifest_review_cli \
+  reviewed.json expanded.json dist --markdown-file reports/approval-review.md
+```
+
+Exit 0 creates a summary identifying the unchanged approved prefix and up to
+ten newly appended paths explicitly marked **UNREVIEWED**; larger batches show
+a remaining count. Exit 1 creates a blocking-drift summary, not a misleading
+approval. Invalid manifests or unsafe destinations return exit 2 and create
+no report. The UTF-8 file is create-only, cannot live under `dist/`, requires
+an existing parent directory, and refuses existing files or symlinks. Use
+`--json` or `--json-file` for the full unreviewed list; output modes are
+mutually exclusive in this approval CLI. Optional `--github-annotations`
+still emits a bounded error annotation on failure, including with this
+Markdown artifact. Do not append the report to `$GITHUB_STEP_SUMMARY` unless
+the checker exited 0 or 1 and the file exists; preserve the checker's native
+exit code. This does not auto-approve appended pages or replace `site_cli`.
+
 For GitHub Actions reviewers, opt into one workflow error annotation when
 previously approved SEO assertions change or the manifest input is invalid:
 
@@ -649,7 +671,8 @@ On integrity failure (exit 1) or invalid input (exit 2), the CLI emits one
 bounded, escaped `::error` command so the check's reason appears in Actions
 annotations instead of only in job logs. On success (exit 0), it emits none;
 newly appended pages still require manual review. The option also works with
-create-only `--json-file` reports, but not with `--json` stdout. Outside
+create-only `--json-file` and `--markdown-file` reports, but not with
+`--json` stdout. Outside
 GitHub Actions, the command is printed as ordinary text. This is an optional
 presentation improvement only: no network requests, automatic approvals,
 source-line guesses or changes to the separate compiled-site `site_cli` gate.

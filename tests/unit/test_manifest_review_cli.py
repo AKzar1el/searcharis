@@ -213,6 +213,101 @@ def test_manifest_review_json_file_is_portable_ci_artifact(tmp_path, capsys, mon
         assert report["unreviewed_paths"] == [added["path"]]
 
 
+def test_manifest_review_markdown_file_shows_unapproved_additions(tmp_path, capsys, monkeypatch):
+    build, baseline, proposed, _, added = _fixtures(tmp_path)
+    target = tmp_path / "approval.md"
+
+    def reject_network(*args, **kwargs):
+        raise AssertionError("Approval summaries cannot fetch public URLs")
+
+    monkeypatch.setattr(socket.socket, "connect", reject_network)
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([str(baseline), str(proposed), str(build), "--markdown-file", str(target)]) == 0
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    raw = target.read_bytes()
+    assert raw.startswith(b"# Searcharis SEO manifest approval") and b"\x00" not in raw
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    report = raw.decode("utf-8")
+    assert "**Result: PASS**" in report
+    assert "1 previously approved" in report
+    assert "UNREVIEWED" in report
+    assert "manual review" in report.lower()
+    assert added["path"] in report
+
+
+def test_manifest_review_markdown_file_shows_blocking_drift_and_no_false_approval(tmp_path, capsys):
+    build, baseline, proposed, old, added = _fixtures(tmp_path)
+    proposed.write_text(
+        json.dumps({"version": 1, "pages": [
+            dict(old, contract={**old["contract"], "h1_min": 2}), added,
+        ]}), encoding="utf-8",
+    )
+    target = tmp_path / "drift.md"
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([
+        str(baseline), str(proposed), str(build),
+        "--markdown-file", str(target), "--github-annotations",
+    ]) == 1
+    assert "::error title=SEO approval integrity::" in capsys.readouterr().out
+    report = target.read_text(encoding="utf-8")
+    assert "**Result: FAIL**" in report
+    assert "approved SEO assertions changed" in report
+    assert "approval" in report.lower()
+    assert "UNREVIEWED new pages" not in report
+
+
+def test_manifest_review_markdown_is_bounded_and_html_escaped():
+    module = importlib.import_module("searcharis.manifest_review_cli")
+    report = {
+        "status": "pass", "approved_pages": 1, "new_pages": 12,
+        "review_required": True,
+        "unreviewed_paths": ["<script>&\"\n" + str(i) for i in range(12)],
+    }
+    result = module._approval_markdown(report)
+    assert "<script>" not in result and "&lt;script&gt;" in result
+    assert "&amp;" in result and "\\n" in result
+    assert "more unreviewed" in result
+    assert "11" not in result and "10" not in result.split("more unreviewed", 1)[1]
+    assert result.count("&lt;script&gt;") == 10
+
+
+@pytest.mark.parametrize("unsafe", ["existing", "inside_build", "missing_parent", "symlink"])
+def test_manifest_review_markdown_rejects_unsafe_destinations(tmp_path, capsys, unsafe):
+    build, baseline, proposed, _, _ = _fixtures(tmp_path)
+    target = tmp_path / "approval.md"
+    if unsafe == "existing":
+        target.write_text("do not overwrite", encoding="utf-8")
+    elif unsafe == "inside_build":
+        target = build / "approval.md"
+    elif unsafe == "missing_parent":
+        target = tmp_path / "missing" / "approval.md"
+    else:
+        destination = tmp_path / "protected.md"
+        destination.write_text("do not overwrite", encoding="utf-8")
+        try:
+            target.symlink_to(destination)
+        except (OSError, NotImplementedError) as error:
+            pytest.skip(f"symlinks unavailable: {error}")
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([str(baseline), str(proposed), str(build), "--markdown-file", str(target)]) == 2
+    assert "Invalid input" in capsys.readouterr().err
+    if unsafe in {"existing", "symlink"}:
+        assert target.read_text(encoding="utf-8") == "do not overwrite"
+    else:
+        assert not target.exists()
+
+
+def test_manifest_review_markdown_invalid_manifest_writes_no_artifact(tmp_path, capsys):
+    build, baseline, proposed, _, _ = _fixtures(tmp_path)
+    proposed.write_text('{"version":1,"version":1,"pages":[]}', encoding="utf-8")
+    target = tmp_path / "approval.md"
+    main = importlib.import_module("searcharis.manifest_review_cli").main
+    assert main([str(baseline), str(proposed), str(build), "--markdown-file", str(target)]) == 2
+    assert "Invalid input" in capsys.readouterr().err
+    assert not target.exists()
+
+
 def test_manifest_review_json_file_rejects_existing_and_invalid_input(tmp_path, capsys):
     build, baseline, proposed, _, _ = _fixtures(tmp_path)
     main = importlib.import_module("searcharis.manifest_review_cli").main
