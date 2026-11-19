@@ -84,3 +84,73 @@ def test_source_checkout_stdlib_runner_propagates_result(
     )
     assert result.returncode == expected_exit
     assert json.loads(result.stdout)["status"] == expected_status
+
+
+@pytest.mark.parametrize(
+    ("manifest", "build", "expected_status", "expected_exit"),
+    [
+        (
+            "examples/seo-contract/generator-fixtures/vite/manifest.json",
+            "examples/seo-contract/generator-fixtures/vite/artifacts",
+            "pass",
+            0,
+        ),
+        (
+            "examples/seo-contract/regression-demo/manifest.json",
+            "examples/seo-contract/regression-demo/candidate",
+            "fail",
+            1,
+        ),
+        ("examples/seo-contract/missing-manifest.json", "dist", "error", 2),
+    ],
+)
+def test_consumer_workflow_gate_and_reports_locally(
+    tmp_path: Path, manifest: str, build: str, expected_status: str, expected_exit: int
+) -> None:
+    """Exercise the example's full gate, not just a simpler --json invocation."""
+    report_dir = tmp_path / "seo-ci-reports"
+    report_dir.mkdir()  # The example's mkdir -p is required by --report-dir.
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-m",
+            "searcharis.site_cli",
+            manifest,
+            build,
+            "--require-full-coverage",
+            "--check-canonical-consistency",
+            "--report-dir",
+            str(report_dir),
+            "--github-annotations",
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == expected_exit
+    if expected_exit == 2:
+        assert not list(report_dir.iterdir())
+        assert "Invalid input:" in result.stderr
+        return
+
+    assert {item.name for item in report_dir.iterdir()} == {
+        "seo-site.json",
+        "seo-site.md",
+        "seo-site.sarif",
+        "seo-site.xml",
+    }
+    assert json.loads((report_dir / "seo-site.json").read_text(encoding="utf-8"))[
+        "status"
+    ] == expected_status
+    summary = (report_dir / "seo-site.md").read_text(encoding="utf-8")
+    assert f"**Result: {expected_status.upper()}**" in summary
+    if expected_exit == 1:
+        assert "::error title=SEO page issue::" in result.stdout
+    else:
+        assert "::error" not in result.stdout
