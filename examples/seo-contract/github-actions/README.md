@@ -51,6 +51,35 @@ pull request. It is not installed into any workflow by this repository.
    creating output. The input manifest is never overwritten, and omitted pages
    remain unreviewed; this operation is an offline developer step, **not** a
    per-build regeneration step in CI.
+
+   **Review the remaining pages without losing approved assertions.** After a
+   local build, use the same pinned checkout to export the exact unreviewed
+   built paths into a candidate text file outside `dist/`:
+
+   ```sh
+   PYTHONPATH=/path/to/searcharis/src python3 -S -m searcharis.site_cli \
+     seo-manifest.json dist --unreviewed-file candidate-paths.txt
+   ```
+
+   The exported file is a **candidate queue, not an approval**. Manually inspect
+   the paths and their rendered metadata, choose the pages ready for review,
+   and save those exact build paths as `reviewed-next-paths.txt` (one per line;
+   blank lines and `#` comments are ignored). Then generate a **new** manifest:
+
+   ```sh
+   PYTHONPATH=/path/to/searcharis/src python3 -S -m searcharis.manifest_bootstrap \
+     dist https://example.com/ --extend-from seo-manifest.json \
+     --only-file reviewed-next-paths.txt --check-built \
+     --output seo-manifest-expanded.json
+   ```
+
+   Inspect the proposed contracts and their diff before intentionally promoting
+   the expanded file to the reviewed manifest. Previously approved assertions
+   remain unchanged. A missing/unsafe/duplicate selection is an input error
+   (exit 2); an SEO mismatch on a selected or prior reviewed page is exit 1.
+   If the candidate queue contains no unreviewed pages, there is nothing to
+   import: an empty selection is rejected instead of pretending to add reviews.
+   Never run queue export, manifest creation or promotion in the example CI job.
 2. Copy [`seo-contract.example.yml`](seo-contract.example.yml) to the **site**
    repository's `.github/workflows/seo-contract.yml` only after its owner
    approves the workflow. Adapt the `npm ci`/`npm run build` step and the
@@ -59,12 +88,13 @@ pull request. It is not installed into any workflow by this repository.
    commit** in the checker checkout; never replace it with mutable `main` or a
    floating tag. All referenced Actions are also pinned to resolved commits.
    The initial Action pins were resolved against GitHub release refs on
-   2026-11-19. The checker pin is the immutable merged PR #285 revision, which
-   includes the bounded unreviewed-path preview and the `--only` and
-   `--extend-from` manifest bootstrap flags shown above. Older merged PR #282
-   source lacks those generator flags. Keep manifest creation and extension as
-   separate developer-reviewed operations, not steps in this CI gate. If
-   changing the pin, verify the supported generator options and report behavior.
+   2026-11-19. The checker pin is the immutable merged PR #288 revision, which
+   includes the unreviewed-path preview, `--unreviewed-file` queue export,
+   `--only-file` curated selection and `--extend-from` incremental manifest
+   updates used above. The earlier PR #285 pin lacks the queue export and
+   selection-file options. Keep all manifest creation and extension separate
+   from this CI gate and require deliberate human review before adoption. When
+   changing the pin, verify supported generator flags and reporting behavior.
 4. Check both a healthy compiled site (expected exit 0) and a deliberately
    broken canonical/title assertion (expected exit 1); missing input must exit
    2. The GitHub job must fail when either of the latter cases occurs.
