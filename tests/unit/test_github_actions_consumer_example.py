@@ -206,4 +206,7 @@ def test_consumer_first_use_accepts_partial_manifest_and_rejects_reviewed_regres
         assert report["coverage"]["unlisted"] == ["pricing/index.html"]
         assert report["coverage"]["require_full_coverage"] is False
         assert report["status"] == ("fail" if broken else "pass")
+        summary = (reports / "seo-site.md").read_text(encoding="utf-8")
+        assert "## Unreviewed built HTML (not gated)" in summary
+        assert "pricing/index.html" in summary
         assert ("::error title=SEO page issue::" in result.stdout) is broken
