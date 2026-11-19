@@ -146,6 +146,19 @@ def read_hreflang_map(path: Path) -> list[dict[str, str]]:
     return clusters
 
 
+def read_selected_paths(path: Path) -> tuple[str, ...]:
+    """Read a bounded list of explicitly reviewed build paths, never URLs."""
+    content = _read_limited(path)
+    if content.startswith("\ufeff"):
+        content = content[1:]
+    selected = tuple(
+        line for line in content.splitlines() if line and not line.startswith("#")
+    )
+    if not 1 <= len(selected) <= _MAX_PAGES:
+        raise ValueError(f"Selection file requires 1 to {_MAX_PAGES} build paths")
+    return selected
+
+
 def generate_manifest(
     build_dir: Path, base_url: str, *,
     only_paths: tuple[str, ...] = (),
@@ -365,8 +378,13 @@ def main(argv: list[str] | None = None) -> int:
              "(repeatable; other pages remain unreviewed in incremental CI)",
     )
     parser.add_argument(
+        "--only-file", type=Path, metavar="PATHS_TXT",
+        help="Read UTF-8 newline-delimited exact build HTML paths for incremental "
+             "review (blank lines and # comments ignored; combines with --only)",
+    )
+    parser.add_argument(
         "--extend-from", type=Path, metavar="REVIEWED_JSON",
-        help="Add --only selected pages to an existing reviewed manifest, preserving "
+        help="Add --only/--only-file selected pages to an existing reviewed manifest, preserving "
              "all earlier contracts; output is create-only",
     )
     parser.add_argument(
@@ -428,11 +446,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
     try:
-        if args.extend_from is not None and not args.only:
-            raise ValueError("--extend-from requires at least one explicit --only BUILD_PATH")
+        selected_paths = (
+            *args.only,
+            *(read_selected_paths(args.only_file) if args.only_file else ()),
+        )
+        if args.extend_from is not None and not selected_paths:
+            raise ValueError("--extend-from requires --only or --only-file selections")
         manifest = generate_manifest(
             args.build_dir, args.site_base_url,
-            only_paths=tuple(args.only),
+            only_paths=selected_paths,
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
             expect_followable=args.expect_followable,
@@ -463,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
         # leaves a misleading manifest. Assertion mismatches remain reviewable.
         checked = (
             verify_manifest(
-                manifest, args.build_dir, require_full_coverage=not bool(args.only)
+                manifest, args.build_dir, require_full_coverage=not bool(selected_paths)
             )
             if args.check_built else None
         )
