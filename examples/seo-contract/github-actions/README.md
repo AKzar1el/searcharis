@@ -134,6 +134,43 @@ PYTHONPATH="$PWD/src" python3 -S -m searcharis.site_cli \
 # Expected exit 1: intentional SEO regressions are detected.
 ```
 
+On **Windows PowerShell**, paste the following commands from the Searcharis
+repository root. They run directly in the shell (no unsigned `.ps1` script or
+execution-policy change) and check all three exit codes. The temporary report
+directories remain available for inspection; nothing is deleted.
+
+```powershell
+$previousPythonPath = $env:PYTHONPATH
+$env:PYTHONPATH = Join-Path $PWD.Path 'src'
+try {
+    $passReports = Join-Path ([System.IO.Path]::GetTempPath()) ('seo-pass-' + [guid]::NewGuid().ToString('N'))
+    $brokenReports = Join-Path ([System.IO.Path]::GetTempPath()) ('seo-fail-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $passReports -ErrorAction Stop | Out-Null
+    New-Item -ItemType Directory -Path $brokenReports -ErrorAction Stop | Out-Null
+
+    python -S -m searcharis.site_cli examples/seo-contract/generator-fixtures/vite/manifest.json examples/seo-contract/generator-fixtures/vite/artifacts --check-canonical-consistency --report-dir $passReports --github-annotations
+    if ($LASTEXITCODE -ne 0) { throw 'Healthy fixture did not return exit 0' }
+
+    python -S -m searcharis.site_cli examples/seo-contract/regression-demo/manifest.json examples/seo-contract/regression-demo/candidate --check-canonical-consistency --report-dir $brokenReports --github-annotations
+    if ($LASTEXITCODE -ne 1) { throw 'Broken fixture did not return exit 1' }
+
+    python -S -m searcharis.site_cli examples/seo-contract/missing-manifest.json examples/seo-contract/generator-fixtures/vite/artifacts
+    if ($LASTEXITCODE -ne 2) { throw 'Invalid input did not return exit 2' }
+
+    foreach ($dir in @($passReports, $brokenReports)) {
+        foreach ($name in @('seo-site.json', 'seo-site.md', 'seo-site.xml', 'seo-site.sarif')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir $name))) {
+                throw "Expected report missing: $name in $dir"
+            }
+        }
+    }
+    Write-Output "PowerShell offline rehearsal PASS; reports: $passReports ; $brokenReports"
+}
+finally {
+    $env:PYTHONPATH = $previousPythonPath
+}
+```
+
 Each successful or regression run creates `seo-site.json`, `seo-site.md`,
 `seo-site.xml`, and `seo-site.sarif` in its separate report directory.
 The report directory **must exist before invocation** (hence `mktemp -d`
