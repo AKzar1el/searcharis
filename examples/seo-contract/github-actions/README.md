@@ -59,10 +59,12 @@ pull request. It is not installed into any workflow by this repository.
    commit** in the checker checkout; never replace it with mutable `main` or a
    floating tag. All referenced Actions are also pinned to resolved commits.
    The initial Action pins were resolved against GitHub release refs on
-   2026-11-19. The checker pin is the immutable merged PR #282 revision, which
-   includes the bounded unreviewed-path preview described below. If changing
-   this pin, verify that the newly selected revision supports the documented
-   report behavior rather than only updating the SHA.
+   2026-11-19. The checker pin is the immutable merged PR #285 revision, which
+   includes the bounded unreviewed-path preview and the `--only` and
+   `--extend-from` manifest bootstrap flags shown above. Older merged PR #282
+   source lacks those generator flags. Keep manifest creation and extension as
+   separate developer-reviewed operations, not steps in this CI gate. If
+   changing the pin, verify the supported generator options and report behavior.
 4. Check both a healthy compiled site (expected exit 0) and a deliberately
    broken canonical/title assertion (expected exit 1); missing input must exit
    2. The GitHub job must fail when either of the latter cases occurs.
