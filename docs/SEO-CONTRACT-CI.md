@@ -588,6 +588,25 @@ adds only new selected pages while preserving previous assertions and order.
 Check in the expanded manifest only after review. Do not enable strict
 `--require-full-coverage` until the intended site inventory is reviewed.
 
+To prepare the next batch from the actual built-site coverage report, export
+the **candidate** ungated paths to a create-only UTF-8 file:
+
+```sh
+uv run python -m searcharis.site_cli reviewed.json dist \
+  --unreviewed-file candidate-paths.txt
+```
+
+The file lists every unreviewed built HTML path deterministically, with a
+comment header. **Inspect and curate it manually** before using
+`--extend-from reviewed.json --only-file candidate-paths.txt`; exporting
+never adds or approves SEO assertions. An empty queue contains only the
+comment. If the list cannot be imported safely (invalid/comment-shaped paths,
+over 10,000 entries or 4 MB), export fails rather than silently dropping
+pages. Existing files are never overwritten, destinations must be outside the
+build, and full-coverage failures still exit 1 even when export succeeds.
+This optional file can accompany `--json-file` or `--markdown-file`, but not
+`--report-dir` or JSON/SARIF stdout.
+
 For a GitHub Actions job that checks a reviewed static build, the standalone
 site checker can print inline error annotations without a SARIF upload:
 
