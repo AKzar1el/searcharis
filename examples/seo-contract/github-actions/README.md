@@ -12,6 +12,26 @@ pull request. It is not installed into any workflow by this repository.
    [`../generator-fixtures/vite/manifest.json`](../generator-fixtures/vite/manifest.json).
    Do not regenerate assertions from every candidate build: that would turn
    a regression check into a self-fulfilling pass.
+
+   For a large static build, the existing offline manifest generator can make
+   a **create-only starter for just the pages you choose**. From the site
+   repository root, after building `dist/` and obtaining a reviewed Searcharis
+   checkout, run (replace the public base URL and paths with your own):
+
+   ```sh
+   PYTHONPATH=/path/to/searcharis/src python3 -S -m searcharis.manifest_bootstrap \
+     dist https://example.com/ --only index.html --only pricing/index.html \
+     --check-built --output seo-manifest.json
+   ```
+
+   The `--only` values are **exact relative built HTML paths**, not URL routes
+   or glob patterns. An unknown, unsafe, or repeated path exits 2 without
+   creating a manifest; a selected page failing the generated assertions exits
+   1 but leaves its reviewable new manifest. Unselected HTML remains visible as
+   ungated `coverage.unlisted` in the downstream CI report. Without `--only`,
+   generation still includes every built HTML file and `--check-built` still
+   checks full coverage. Review the generated assertions and commit them once;
+   never regenerate from each candidate build during CI.
 2. Copy [`seo-contract.example.yml`](seo-contract.example.yml) to the **site**
    repository's `.github/workflows/seo-contract.yml` only after its owner
    approves the workflow. Adapt the `npm ci`/`npm run build` step and the

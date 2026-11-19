@@ -147,6 +147,7 @@ def read_hreflang_map(path: Path) -> list[dict[str, str]]:
 
 def generate_manifest(
     build_dir: Path, base_url: str, *,
+    only_paths: tuple[str, ...] = (),
     expect_self_canonical: bool = False, expect_indexable: bool = False,
     expect_followable: bool = False,
     expect_description: bool = False, expect_image_alt: bool = False,
@@ -182,6 +183,20 @@ def generate_manifest(
 
     if not paths:
         raise ValueError("No HTML pages found in the supplied build directory")
+
+    # Keep the full build inventory and path safety checks, but allow operators
+    # to review only explicitly chosen pages during incremental CI adoption.
+    if only_paths:
+        available_paths = set(paths)
+        selected: set[str] = set()
+        for requested in only_paths:
+            path = _manifest_path(requested)
+            if path in selected:
+                raise ValueError(f"duplicate selected path: {path}")
+            if path not in available_paths:
+                raise ValueError(f"unknown selected path: {path}")
+            selected.add(path)
+        paths = sorted(selected)
 
     if skip_opt_ins_for and not (
         expect_self_canonical or expect_indexable or expect_description
@@ -344,6 +359,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Write UTF-8 JSON to a new file (never overwrite an existing file)",
     )
     parser.add_argument(
+        "--only", metavar="BUILD_PATH", action="append", default=[],
+        help="Generate assertions only for this exact built HTML path "
+             "(repeatable; other pages remain unreviewed in incremental CI)",
+    )
+    parser.add_argument(
         "--expect-self-canonical",
         action="store_true",
         help="Opt in to requiring each page's canonical to equal its candidate public URL",
@@ -404,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         manifest = generate_manifest(
             args.build_dir, args.site_base_url,
+            only_paths=tuple(args.only),
             expect_self_canonical=args.expect_self_canonical,
             expect_indexable=args.expect_indexable,
             expect_followable=args.expect_followable,
@@ -419,7 +440,9 @@ def main(argv: list[str] | None = None) -> int:
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.
         checked = (
-            verify_manifest(manifest, args.build_dir, require_full_coverage=True)
+            verify_manifest(
+                manifest, args.build_dir, require_full_coverage=not bool(args.only)
+            )
             if args.check_built else None
         )
         payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"

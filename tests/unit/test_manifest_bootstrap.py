@@ -121,6 +121,57 @@ def test_opt_in_check_built_accepts_valid_pages_without_network(tmp_path, capsys
     assert verify_manifest(json.loads(target.read_text()), build)["status"] == "pass"
 
 
+def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    for path in ("index.html", "pricing/index.html", "legal/index.html"):
+        _html(build / path)
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    destination = tmp_path / "reviewed.json"
+    assert main([
+        str(build), "https://example.com/", "--only", "pricing/index.html",
+        "--only", "index.html", "--check-built", "--output", str(destination),
+    ]) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+    manifest = json.loads(destination.read_text(encoding="utf-8"))
+    assert [page["path"] for page in manifest["pages"]] == [
+        "index.html", "pricing/index.html",
+    ]
+    report = verify_manifest(manifest, build)
+    assert report["status"] == "pass"
+    assert report["coverage"]["unlisted"] == ["legal/index.html"]
+    assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "fail"
+
+
+@pytest.mark.parametrize("selected", [
+    ("index.html", "index.html"),
+    ("index.html", "missing/index.html"),
+    ("../index.html",),
+])
+def test_selected_pages_reject_unsafe_or_duplicate_paths_without_artifacts(
+    tmp_path, capsys, selected,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "reviewed.json"
+    args = [str(build), "https://example.com/", "--output", str(output)]
+    for path in selected:
+        args.extend(("--only", path))
+    assert main(args) == 2
+    assert not output.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_selected_pages_cannot_silently_ignore_unselected_exceptions(tmp_path):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "legal/index.html")
+    with pytest.raises(ValueError, match="unknown expect-noindex path"):
+        generate_manifest(
+            build, "https://example.com/", only_paths=("index.html",),
+            expect_noindex_for=("legal/index.html",),
+        )
+
+
 def test_opt_in_check_built_keeps_reviewable_manifest_on_failed_assertion(tmp_path, capsys):
     build = tmp_path / "dist"
     _html(build / "index.html")
