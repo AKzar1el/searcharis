@@ -151,12 +151,17 @@ def read_selected_paths(path: Path) -> tuple[str, ...]:
     content = _read_limited(path)
     if content.startswith("\ufeff"):
         content = content[1:]
+    # The shared reader normalizes CRLF/CR to LF. Unlike splitlines(), splitting
+    # on LF alone cannot silently turn a control/Unicode separator into another
+    # explicitly reviewed page.
     selected = tuple(
-        line for line in content.splitlines()
+        line for line in content.split("\n")
         if line.strip() and not line.lstrip().startswith("#")
     )
     if not 1 <= len(selected) <= _MAX_PAGES:
         raise ValueError(f"Selection file requires 1 to {_MAX_PAGES} build paths")
+    if any(not line.isprintable() for line in selected):
+        raise ValueError("Selection file contains an unsafe control or line separator")
     return selected
 
 

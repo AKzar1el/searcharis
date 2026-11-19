@@ -568,7 +568,9 @@ manifest via `site_cli` on future CI builds. No network URLs are fetched.
 
 To start with only a manually curated set of important pages on a large site,
 put their **exact build-relative HTML paths** in a UTF-8 text file, one per
-line. Blank lines and lines beginning with `#` are ignored. For example,
+LF/CRLF-delimited line. Blank lines and lines beginning with `#` (including
+indented comments) are ignored; control or Unicode line separators are not
+accepted as extra review entries. For example,
 `reviewed-paths.txt` can contain `index.html` and `pricing/index.html` on
 separate lines. Then run:
 
