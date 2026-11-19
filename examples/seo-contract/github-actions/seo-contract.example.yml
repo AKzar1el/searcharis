@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AKzar1el/searcharis
-          ref: fd3f0e709b2825366cda9c3782d77bd22f6ee66e
+          ref: 959c31264194c7c2144704644512199995e6f1ce
           path: .sear-checker
           persist-credentials: false
 
