@@ -24,6 +24,39 @@ pull request. It is not installed into any workflow by this repository.
    broken canonical/title assertion (expected exit 1); missing input must exit
    2. The GitHub job must fail when either of the latter cases occurs.
 
+## Rehearse the exact gate locally before copying
+
+From the **Searcharis repository root**, these commands use the checked-in
+compiled fixtures, Python's standard library, and the same flags as the
+workflow. They require neither a web app build nor cloud credentials. On a
+POSIX shell (including the Ubuntu GitHub runner):
+
+```sh
+pass_reports="$(mktemp -d)"
+PYTHONPATH="$PWD/src" python3 -S -m searcharis.site_cli \
+  examples/seo-contract/generator-fixtures/vite/manifest.json \
+  examples/seo-contract/generator-fixtures/vite/artifacts \
+  --require-full-coverage --check-canonical-consistency \
+  --report-dir "$pass_reports" --github-annotations
+# Expected exit 0: all reviewed fixtures match.
+
+broken_reports="$(mktemp -d)"
+PYTHONPATH="$PWD/src" python3 -S -m searcharis.site_cli \
+  examples/seo-contract/regression-demo/manifest.json \
+  examples/seo-contract/regression-demo/candidate \
+  --require-full-coverage --check-canonical-consistency \
+  --report-dir "$broken_reports" --github-annotations
+# Expected exit 1: intentional SEO regressions are detected.
+```
+
+Each successful or regression run creates `seo-site.json`, `seo-site.md`,
+`seo-site.xml`, and `seo-site.sarif` in its separate report directory.
+The report directory **must exist before invocation** (hence `mktemp -d`
+above and `mkdir -p` in the workflow). A missing manifest or unreadable
+artifact exits 2 and does not create a trusted report bundle. The check
+does not fetch URLs, and passing these fixture rehearsals does not prove
+that another site's workflow has been installed or executed.
+
 The checker is launched with `python -S` and `PYTHONPATH` pointed at the pinned
 source checkout. This specific offline `site_cli` entry point currently runs
 on the Python standard library without installing Searcharis' cloud/demo
