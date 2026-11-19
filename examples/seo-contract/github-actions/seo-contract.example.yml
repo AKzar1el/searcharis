@@ -53,6 +53,7 @@ jobs:
           persist-credentials: false
 
       - name: Reject changed previously approved assertions
+        id: review_approved_assertions
         if: github.event_name == 'pull_request'
         env:
           PYTHONPATH: ${{ github.workspace }}/.sear-checker/src
@@ -65,6 +66,9 @@ jobs:
           fi
 
       - name: Verify developer-reviewed SEO contracts
+        # Preserve both failure signals: an approval drift must not hide SEO regressions.
+        # Do not run after an unrelated checkout/build failure or cancellation.
+        if: ${{ success() || (failure() && steps.review_approved_assertions.outcome == 'failure') }}
         env:
           PYTHONPATH: ${{ github.workspace }}/.sear-checker/src
         run: |

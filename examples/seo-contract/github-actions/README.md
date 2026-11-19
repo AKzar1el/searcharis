@@ -133,6 +133,12 @@ step runs only for pull requests, not manual `workflow_dispatch` events, while
 the compiled-site SEO gate still runs. This example does not auto-approve
 manifests or prevent authorized workflow-policy changes.
 
+If the approval review fails, the independent SEO policy gate still runs
+against the built candidate so reviewers can see both failure signals in the
+same CI job. If the build or checkout fails, the SEO gate is skipped rather
+than attempting to check missing artifacts; a cancelled job also does not
+continue. Neither checker can turn the other's failure into a pass.
+
 ## Rehearse the exact gate locally before copying
 
 From the **Searcharis repository root**, these commands use the checked-in

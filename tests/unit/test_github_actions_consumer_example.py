@@ -116,6 +116,27 @@ def test_consumer_guide_requires_trusted_base_not_candidate_approval() -> None:
     assert "same pull request" in guide.lower()
 
 
+def test_consumer_example_runs_independent_site_gate_after_review_failure() -> None:
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    site_gate = workflow.split("- name: Verify developer-reviewed SEO contracts", 1)[1]
+    assert re.search(r"^\s+id: review_approved_assertions$", approval, re.MULTILINE)
+    assert (
+        "if: ${{ success() || (failure() && steps.review_approved_assertions.outcome == 'failure') }}"
+        in site_gate
+    )
+    assert "python -S -m searcharis.site_cli" in site_gate
+
+
+def test_consumer_guide_explains_both_independent_failures() -> None:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    assert "approval review fails" in guide
+    assert "SEO policy gate still runs" in guide
+    assert "build or checkout fails" in guide
+
+
 @pytest.mark.parametrize(
     ("manifest", "build", "expected_status", "expected_exit"),
     [
