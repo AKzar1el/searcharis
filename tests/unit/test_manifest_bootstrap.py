@@ -168,6 +168,28 @@ def test_curated_page_file_and_explicit_only_create_exact_reviewed_subset(
     assert verify_manifest(manifest, build)["coverage"]["unlisted"] == ["blog/index.html"]
 
 
+def test_curated_page_file_accepts_indented_comments_and_whitespace_blank_lines(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    selected = tmp_path / "manual-review.txt"
+    selected.write_bytes(
+        b"# reviewed paths\r\n  \t  \r\n  # keep this comment\r\npricing/index.html\r\n"
+    )
+    destination = tmp_path / "new-review.json"
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+
+    assert main([
+        str(build), "https://example.com/", "--only-file", str(selected),
+        "--check-built", "--output", str(destination),
+    ]) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+    manifest = json.loads(destination.read_text(encoding="utf-8"))
+    assert [item["path"] for item in manifest["pages"]] == ["pricing/index.html"]
+
+
 @pytest.mark.parametrize("selection_text", [
     "# comments only\n\n",
     "index.html\nindex.html\n",

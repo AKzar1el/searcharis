@@ -64,7 +64,9 @@ pull request. It is not installed into any workflow by this repository.
    The exported file is a **candidate queue, not an approval**. Manually inspect
    the paths and their rendered metadata, choose the pages ready for review,
    and save those exact build paths as `reviewed-next-paths.txt` (one per line;
-   blank lines and `#` comments are ignored). Then generate a **new** manifest:
+   whitespace-only lines and optionally indented `#` comments are ignored;
+   non-comment build paths are never trimmed, so stray surrounding whitespace
+   still fails validation). Then generate a **new** manifest:
 
    ```sh
    PYTHONPATH=/path/to/searcharis/src python3 -S -m searcharis.manifest_bootstrap \

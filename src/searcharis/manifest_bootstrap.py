@@ -152,7 +152,8 @@ def read_selected_paths(path: Path) -> tuple[str, ...]:
     if content.startswith("\ufeff"):
         content = content[1:]
     selected = tuple(
-        line for line in content.splitlines() if line and not line.startswith("#")
+        line for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
     )
     if not 1 <= len(selected) <= _MAX_PAGES:
         raise ValueError(f"Selection file requires 1 to {_MAX_PAGES} build paths")
