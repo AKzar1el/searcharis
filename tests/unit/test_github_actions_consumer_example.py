@@ -45,6 +45,40 @@ def test_consumer_guide_describes_manual_review_queue_without_ci_auto_approval()
     assert "--only-file" not in workflow
 
 
+def _powershell_rehearsal() -> str:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    match = re.search(r"```powershell\n(.*?)\n```", guide, re.DOTALL)
+    assert match is not None, "Windows consumers need a copyable PowerShell rehearsal"
+    return match.group(1)
+
+
+def test_consumer_guide_rehearses_exit_codes_in_powershell() -> None:
+    script = _powershell_rehearsal()
+    assert "python -S -m searcharis.site_cli" in script
+    assert "--check-canonical-consistency" in script
+    assert "--github-annotations" in script
+    assert "$LASTEXITCODE -ne 0" in script
+    assert "$LASTEXITCODE -ne 1" in script
+    assert "$LASTEXITCODE -ne 2" in script
+    assert "PYTHONPATH" in script
+    assert "Remove-Item" not in script
+    assert "Invoke-WebRequest" not in script
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell Windows rehearsal")
+def test_consumer_guide_powershell_rehearsal_runs_locally() -> None:
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", _powershell_rehearsal()],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=50,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "PowerShell offline rehearsal PASS" in result.stdout
+
+
 def test_consumer_example_preserves_nonzero_gate_exit_and_review_scope() -> None:
     text = EXAMPLE.read_text(encoding="utf-8")
     assert "PYTHONPATH: ${{ github.workspace }}/.sear-checker/src" in text
