@@ -1,0 +1,62 @@
+# Copy into the CONSUMER site's .github/workflows/ only after reviewing it.
+# Inert example in Searcharis: this repository does not activate this workflow.
+name: Static SEO contract (reviewed site)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-seo:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the site
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout audited Searcharis source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AKzar1el/searcharis
+          ref: 059c84016888a725223d1c961f9b77fd92b7059a
+          path: .sear-checker
+          persist-credentials: false
+
+      - name: Set up Node for the site build
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Set up Python for the local checker
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+
+      - name: Compile static HTML (adapt to your generator)
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify developer-reviewed SEO contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.sear-checker/src
+        run: |
+          mkdir -p seo-ci-reports
+          # Preserve native exit 0/1/2, even when we append a reviewer summary.
+          set +e
+          python -S -m searcharis.site_cli seo-manifest.json dist \
+            --require-full-coverage --check-canonical-consistency \
+            --report-dir seo-ci-reports --github-annotations
+          gate_status=$?
+          set -e
+          if [ "$gate_status" -le 1 ] && [ -f seo-ci-reports/seo-site.md ]; then
+            cat seo-ci-reports/seo-site.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$gate_status"
+
+# No artifact upload, production crawl, deployment, secret or paid API access.
+# Add reviewer-approved artifact collection separately if your team needs it.

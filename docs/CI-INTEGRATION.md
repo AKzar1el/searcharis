@@ -11,6 +11,12 @@ syntax, a checked-in passing and failing static-build fixture, portable
 UTF-8 artifacts and exact CI exit-code propagation without Bash or output
 redirection.
 
+For GitHub-hosted pull requests, the
+[inactive, SHA-pinned GitHub Actions consumer example](../examples/seo-contract/github-actions/README.md)
+shows a least-privilege static-site build and standard-library-only checker
+checkout. It is not installed in this repository or any customer project:
+adopting a workflow requires the site's owner's explicit review.
+
 ## 1. Build a known HTML artifact
 
 For Astro, a standard static build produces files under `dist/`. Choose one
