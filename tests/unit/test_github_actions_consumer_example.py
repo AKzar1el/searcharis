@@ -22,7 +22,8 @@ def test_consumer_example_pins_code_and_remains_read_only() -> None:
     assert all(re.fullmatch(r"actions/[\w-]+@[a-f0-9]{40}", ref) for ref in action_refs)
     # This merged source supports the entire manually reviewed queue workflow:
     # unreviewed export, explicit selected-path import, and prior contract retention.
-    assert "ref: ee1ce961ae5b10fc2d4e822046e0558349773e9f" in text
+    # Source must contain manifest_review_cli's opt-in annotation support.
+    assert "ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86" in text
     assert text.count("persist-credentials: false") == 3
     assert "permissions:\n  contents: read" in text
     assert "pull_request:\n" in text
@@ -119,6 +120,21 @@ def test_consumer_example_compares_approved_manifest_from_immutable_pr_base() ->
     assert "python -S -m searcharis.site_cli" in workflow
     assert "pull_request_target:" not in workflow
     assert "fetch-depth: 0" not in workflow
+
+
+def test_consumer_example_surfaces_approval_drift_in_github_annotations() -> None:
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval_step = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    # The flag is evaluated against the immutable merged source, not an older
+    # checker revision that would reject the CLI invocation as an input error.
+    assert "ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86" in workflow
+    assert re.search(r"\.seo-approved-base/seo-manifest\.json seo-manifest\.json dist\s+--github-annotations", approval_step)
+    assert "else" in approval_step  # Unapproved first-use still requires human review.
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    assert "approval drift" in guide.lower()
+    assert "annotation" in guide.lower()
 
 
 def test_consumer_guide_requires_trusted_base_not_candidate_approval() -> None:
