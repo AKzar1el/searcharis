@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AKzar1el/searcharis
-          ref: ee1ce961ae5b10fc2d4e822046e0558349773e9f
+          ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86
           path: .sear-checker
           persist-credentials: false
 
@@ -60,7 +60,7 @@ jobs:
         run: |
           if [ -f .seo-approved-base/seo-manifest.json ]; then
             python -S -m searcharis.manifest_review_cli \
-              .seo-approved-base/seo-manifest.json seo-manifest.json dist
+              .seo-approved-base/seo-manifest.json seo-manifest.json dist --github-annotations
           else
             echo "::notice title=Initial SEO manifest adoption::No approved base manifest; human review required."
           fi
