@@ -49,7 +49,7 @@ jobs:
           # Preserve native exit 0/1/2, even when we append a reviewer summary.
           set +e
           python -S -m searcharis.site_cli seo-manifest.json dist \
-            --require-full-coverage --check-canonical-consistency \
+            --check-canonical-consistency \
             --report-dir seo-ci-reports --github-annotations
           gate_status=$?
           set -e
@@ -60,3 +60,4 @@ jobs:
 
 # No artifact upload, production crawl, deployment, secret or paid API access.
 # Add reviewer-approved artifact collection separately if your team needs it.
+# After reviewing every built HTML page, opt in to --require-full-coverage.

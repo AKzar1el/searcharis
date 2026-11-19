@@ -6,9 +6,9 @@ pull request. It is not installed into any workflow by this repository.
 
 ## Adopt in a site repository
 
-1. Review and commit `seo-manifest.json` in the **site** repository. Each entry
-   maps a compiled HTML path beneath `dist/` to developer-approved SEO
-   assertions. For a manifest shape, see
+1. Review and commit `seo-manifest.json` in the **site** repository. Start with
+   a few critical pages; each entry maps a compiled HTML path beneath `dist/`
+   to developer-approved SEO assertions. For a manifest shape, see
    [`../generator-fixtures/vite/manifest.json`](../generator-fixtures/vite/manifest.json).
    Do not regenerate assertions from every candidate build: that would turn
    a regression check into a self-fulfilling pass.
@@ -24,6 +24,13 @@ pull request. It is not installed into any workflow by this repository.
    broken canonical/title assertion (expected exit 1); missing input must exit
    2. The GitHub job must fail when either of the latter cases occurs.
 
+The example deliberately does **not** set `--require-full-coverage` during
+first-time adoption. It still fails on regressions in reviewed manifest pages,
+while reporting other built HTML as `coverage.unlisted` in the JSON artifact.
+After adding and reviewing all built HTML paths in the manifest, opt into
+`--require-full-coverage` to make new, unreviewed pages block CI as well. Do
+not mistake an incremental pass for coverage of the whole site.
+
 ## Rehearse the exact gate locally before copying
 
 From the **Searcharis repository root**, these commands use the checked-in
@@ -36,7 +43,7 @@ pass_reports="$(mktemp -d)"
 PYTHONPATH="$PWD/src" python3 -S -m searcharis.site_cli \
   examples/seo-contract/generator-fixtures/vite/manifest.json \
   examples/seo-contract/generator-fixtures/vite/artifacts \
-  --require-full-coverage --check-canonical-consistency \
+  --check-canonical-consistency \
   --report-dir "$pass_reports" --github-annotations
 # Expected exit 0: all reviewed fixtures match.
 
@@ -44,7 +51,7 @@ broken_reports="$(mktemp -d)"
 PYTHONPATH="$PWD/src" python3 -S -m searcharis.site_cli \
   examples/seo-contract/regression-demo/manifest.json \
   examples/seo-contract/regression-demo/candidate \
-  --require-full-coverage --check-canonical-consistency \
+  --check-canonical-consistency \
   --report-dir "$broken_reports" --github-annotations
 # Expected exit 1: intentional SEO regressions are detected.
 ```
