@@ -566,6 +566,28 @@ manifest; on invalid HTML input, no manifest is created. This is an optional
 initial feedback loop, not a replacement for checking the reviewed, committed
 manifest via `site_cli` on future CI builds. No network URLs are fetched.
 
+To start with only a manually curated set of important pages on a large site,
+put their **exact build-relative HTML paths** in a UTF-8 text file, one per
+line. Blank lines and lines beginning with `#` are ignored. For example,
+`reviewed-paths.txt` can contain `index.html` and `pricing/index.html` on
+separate lines. Then run:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --only-file reviewed-paths.txt --check-built --output reviewed.json
+uv run python -m searcharis.site_cli reviewed.json dist
+```
+
+`--only-file` can be combined with repeatable `--only BUILD_PATH` arguments.
+Duplicate, unknown, unsafe and non-HTML paths are input errors; the list is
+bounded to 10,000 entries and 4 MB, with no URL fetching. Other built HTML
+pages remain **unreviewed**, reported in coverage rather than silently gated.
+Review public routes and assertions before committing the manifest. Later,
+`--extend-from reviewed.json --only-file next-paths.txt --output expanded.json`
+adds only new selected pages while preserving previous assertions and order.
+Check in the expanded manifest only after review. Do not enable strict
+`--require-full-coverage` until the intended site inventory is reviewed.
+
 For a GitHub Actions job that checks a reviewed static build, the standalone
 site checker can print inline error annotations without a SARIF upload:
 

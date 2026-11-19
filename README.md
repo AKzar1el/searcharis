@@ -122,6 +122,11 @@ uv run python -m searcharis.manifest_bootstrap path/to/dist https://www.example.
 uv run python -m searcharis.site_cli seo-manifest.json path/to/dist --require-full-coverage
 ```
 
+For incremental adoption on a large site, `--only-file reviewed-paths.txt`
+reads an explicit UTF-8 list of built HTML pages instead of requiring dozens
+of `--only` arguments. See the [offline manifest guide](docs/SEO-CONTRACT-CI.md#bootstrap-a-starter-manifest-from-a-local-build)
+for review, extension and coverage safeguards.
+
 Run `site_cli` against the **reviewed, committed** manifest on subsequent CI
 builds; do not regenerate it as part of each check. Add optional canonical,
 indexability, description, route-map and per-page policies only after reviewing

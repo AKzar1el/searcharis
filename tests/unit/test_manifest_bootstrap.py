@@ -142,6 +142,102 @@ def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys,
     assert verify_manifest(manifest, build, require_full_coverage=True)["status"] == "fail"
 
 
+def test_curated_page_file_and_explicit_only_create_exact_reviewed_subset(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    for path in ("index.html", "pricing/index.html", "legal/index.html", "blog/index.html"):
+        _html(build / path)
+    selected = tmp_path / "curated-paths.txt"
+    selected.write_text(
+        "\ufeff# Reviewed landing pages\npricing/index.html\n\nlegal/index.html\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+
+    assert main([
+        str(build), "https://example.com/", "--only-file", str(selected),
+        "--only", "index.html", "--check-built",
+    ]) == 0
+    captured = capsys.readouterr()
+    manifest = json.loads(captured.out)
+    assert "PASS 3/3" in captured.err
+    assert [page["path"] for page in manifest["pages"]] == [
+        "index.html", "legal/index.html", "pricing/index.html",
+    ]
+    assert verify_manifest(manifest, build)["coverage"]["unlisted"] == ["blog/index.html"]
+
+
+@pytest.mark.parametrize("selection_text", [
+    "# comments only\n\n",
+    "index.html\nindex.html\n",
+    "index.html\nmissing.html\n",
+    "../outside.html\n",
+    "index.html \n",
+])
+def test_curated_page_file_rejects_empty_duplicate_or_unsafe_selections(
+    tmp_path, capsys, selection_text,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    selection = tmp_path / "curated.txt"
+    selection.write_text(selection_text, encoding="utf-8")
+    output = tmp_path / "manifest.json"
+
+    assert main([
+        str(build), "https://example.com/", "--only-file", str(selection),
+        "--output", str(output),
+    ]) == 2
+    assert not output.exists()
+    assert "Invalid input:" in capsys.readouterr().err
+
+
+def test_curated_page_file_extend_preserves_previous_review(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    existing = tmp_path / "old.json"
+    prior = generate_manifest(build, "https://example.com/", only_paths=("index.html",))
+    prior["pages"][0]["contract"]["h1_min"] = 3
+    existing.write_text(json.dumps(prior), encoding="utf-8")
+    selected = tmp_path / "next.txt"
+    selected.write_text("pricing/index.html\n", encoding="utf-8")
+
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(existing),
+        "--only-file", str(selected),
+    ]) == 0
+    expanded = json.loads(capsys.readouterr().out)
+    assert expanded["pages"][0] == prior["pages"][0]
+    assert expanded["pages"][1]["path"] == "pricing/index.html"
+
+
+def test_curated_page_file_rejects_duplicate_across_flags(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    selected = tmp_path / "paths.txt"
+    selected.write_text("index.html\n", encoding="utf-8")
+    assert main([
+        str(build), "https://example.com/", "--only", "index.html",
+        "--only-file", str(selected),
+    ]) == 2
+    assert "duplicate selected path" in capsys.readouterr().err
+
+
+def test_curated_page_file_rejects_oversized_list_and_invalid_utf8(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    selected = tmp_path / "paths.txt"
+    selected.write_text("index.html\n" * 10_001, encoding="utf-8")
+    args = [str(build), "https://example.com/", "--only-file", str(selected)]
+    assert main(args) == 2
+    assert "Selection file requires" in capsys.readouterr().err
+
+    selected.write_bytes(b"\xffindex.html\n")
+    assert main(args) == 2
+    assert "Invalid input:" in capsys.readouterr().err
+
+
 def test_extend_reviewed_manifest_preserves_old_contracts_and_adds_only_selected_pages(
     tmp_path, capsys,
 ):
