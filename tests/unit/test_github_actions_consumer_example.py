@@ -20,7 +20,8 @@ def test_consumer_example_pins_code_and_remains_read_only() -> None:
     action_refs = re.findall(r"^\s+uses: ([^\s#]+)", text, re.MULTILINE)
     assert len(action_refs) == 4
     assert all(re.fullmatch(r"actions/[\w-]+@[a-f0-9]{40}", ref) for ref in action_refs)
-    assert "ref: 059c84016888a725223d1c961f9b77fd92b7059a" in text
+    # This immutable merge contains the documented unreviewed-path preview.
+    assert "ref: fd3f0e709b2825366cda9c3782d77bd22f6ee66e" in text
     assert text.count("persist-credentials: false") == 2
     assert "permissions:\n  contents: read" in text
     assert "pull_request:\n" in text
