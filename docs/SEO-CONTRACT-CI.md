@@ -618,6 +618,25 @@ the listed new pages remain **UNREVIEWED** until a person approves them.
 The ordinary human-readable output and the separate `site_cli` SEO gate are
 unchanged. Declared public URLs are never requested.
 
+For a portable JSON artifact, including on Windows PowerShell 5.1 where stdout
+redirection may use UTF-16, use `--json-file` instead of `--json`:
+
+```sh
+uv run python -m searcharis.manifest_review_cli \
+  reviewed.json expanded.json dist --json-file reports/approval-review.json
+```
+
+Create the `reports` directory before running the command. The option writes
+the same complete `pass` or `fail` JSON object as UTF-8 without a BOM, with
+the same exit codes 0 or 1 and no report on stdout. Invalid manifests or
+unsafe report destinations exit 2 with an error on stderr and no new artifact.
+The destination must be outside the built site, its parent directory must
+already exist, and an existing file or symlink is never overwritten. Partial
+writes are cleaned up only when the created file identity still matches.
+`--json-file` and `--json` are mutually exclusive. A saved `pass` with
+`review_required: true` is still **not approval** of newly appended pages;
+keep the proposed manifest's separate `site_cli` gate active.
+
 To prepare the next batch from the actual built-site coverage report, export
 the **candidate** ungated paths to a create-only UTF-8 file:
 
