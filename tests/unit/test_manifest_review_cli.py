@@ -44,6 +44,27 @@ def test_append_only_manifest_review_passes_without_fetching_urls(tmp_path, monk
     output = capsys.readouterr().out
     assert "PASS" in output
     assert "1 new" in output
+    assert "pricing/index.html" in output
+    assert "manual review" in output.lower()
+
+
+def test_new_page_review_queue_is_bounded_and_keeps_all_pages_unapproved(tmp_path, capsys):
+    build, baseline, proposed, old, _ = _fixtures(tmp_path)
+    added = []
+    for number in range(12):
+        path = f"new-{number:02d}.html"
+        (build / path).write_text("<title>Candidate</title>", encoding="utf-8")
+        added.append(_reviewed(path, f"https://example.com/new-{number:02d}"))
+    proposed.write_text(json.dumps({"version": 1, "pages": [old, *added]}), encoding="utf-8")
+
+    assert _main(baseline, proposed, build) == 0
+    output = capsys.readouterr().out
+    assert "12 new pages appended" in output
+    assert "new-00.html" in output
+    assert "new-09.html" in output
+    assert "new-10.html" not in output
+    assert "2 more" in output
+    assert "manual review" in output.lower()
 
 
 @pytest.mark.parametrize("change", ["weaken", "remove", "reorder", "insert-before"])
@@ -71,7 +92,9 @@ def test_guard_accepts_identical_review_without_additions(tmp_path, capsys):
     build, baseline, proposed, old, _ = _fixtures(tmp_path)
     proposed.write_text(json.dumps({"version": 1, "pages": [old]}), encoding="utf-8")
     assert _main(baseline, proposed, build) == 0
-    assert "0 new" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "0 new" in output
+    assert "manual review" not in output.lower()
 
 
 @pytest.mark.parametrize("invalid", ["duplicate-json-key", "unknown-file", "missing-input"])

@@ -118,7 +118,11 @@ GitHub pull-request event. This separate read-only, sparse checkout uses
 `persist-credentials: false` and avoids fetching full Git history. The
 `manifest_review_cli` gate rejects removed, reordered or altered previously
 approved assertions; it permits only appended pages, still subject to human
-review. The independent `site_cli` gate checks compiled SEO behavior.
+review. Its bounded log summary identifies up to ten newly appended paths as
+**unreviewed**, with a remaining count for larger batches, so reviewers can
+inspect those exact additions in the PR diff before accepting them. A PASS from
+this integrity gate does not approve new assertions or establish SEO health;
+the independent `site_cli` gate checks compiled SEO behavior.
 
 The prior approved file must come from the trusted base commit, **not from the
 same pull request** as the candidate manifest: comparing two PR-controlled
