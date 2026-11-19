@@ -50,11 +50,36 @@ def test_markdown_distinguishes_ungated_coverage_from_blocking(tmp_path):
     normal = tmp_path / "normal.md"
     strict = tmp_path / "strict.md"
     assert _run(manifest, build, "--markdown-file", normal) == 0
-    assert "1 unlisted (not gated)" in normal.read_text(encoding="utf-8")
+    normal_text = normal.read_text(encoding="utf-8")
+    assert "1 unlisted (not gated)" in normal_text
+    assert "## Unreviewed built HTML (not gated)" in normal_text
+    assert "<code>&#x27;extra.html&#x27;</code>" in normal_text
     assert _run(manifest, build, "--require-full-coverage", "--markdown-file", strict) == 1
     text = strict.read_text(encoding="utf-8")
     assert "1 unlisted (blocking)" in text
     assert "Unlisted built HTML" in text
+
+
+def test_optional_unreviewed_preview_is_bounded_and_escapes_html():
+    build_site_markdown = importlib.import_module(
+        "searcharis.site_markdown"
+    ).build_site_markdown
+    paths = [f"page-{i:02d}.html" for i in range(13)]
+    paths[0] = "<img src=x onerror=1>.html"
+    report = {
+        "status": "pass", "summary": {"checked": 1, "passed": 1, "failed": 0},
+        "pages": [{"path": "index.html", "issues": []}],
+        "coverage": {"discovered": 14, "unlisted": paths,
+                     "require_full_coverage": False},
+    }
+    text = build_site_markdown(report)
+    assert "## Unreviewed built HTML (not gated)" in text
+    assert "&lt;img src=x onerror=1&gt;" in text
+    assert "<img" not in text
+    assert "page-09.html" in text
+    assert "page-10.html" not in text
+    assert "3 more unreviewed" in text
+    assert len(text) < 6000
 
 
 def test_markdown_escapes_untrusted_markup_and_reserves_coverage_slot():

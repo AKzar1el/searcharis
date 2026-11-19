@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 
 _MAX_FINDINGS = 20
+_MAX_UNREVIEWED_PREVIEW = 10
 _MAX_VALUE = 160
 
 
@@ -71,6 +72,22 @@ def build_site_markdown(site: dict) -> str:
             "- Correct the built HTML or explicitly review its committed SEO manifest.",
             "- When strict coverage blocks, review omitted routes before adding them.",
         ])
+    if unlisted and not strict:
+        lines.extend([
+            "", "## Unreviewed built HTML (not gated)", "",
+            "These built pages have no reviewed SEO contract yet:",
+        ])
+        lines.extend(f"- {_code(path)}" for path in unlisted[:_MAX_UNREVIEWED_PREVIEW])
+        omitted = len(unlisted) - _MAX_UNREVIEWED_PREVIEW
+        if omitted > 0:
+            lines.append(
+                f"- ... and {omitted} more unreviewed paths; "
+                "see the JSON report for the complete list"
+            )
+        lines.append(
+            "Review these pages and extend the committed manifest before "
+            "enabling strict coverage. A passing result does not verify them."
+        )
     lines.extend([
         "", "_Offline artifact verification only. No URL is fetched; this does not "
         "verify live routing, indexing, SEO traffic or customer adoption._",

@@ -27,6 +27,9 @@ pull request. It is not installed into any workflow by this repository.
 The example deliberately does **not** set `--require-full-coverage` during
 first-time adoption. It still fails on regressions in reviewed manifest pages,
 while reporting other built HTML as `coverage.unlisted` in the JSON artifact.
+The pull-request step summary lists up to ten unreviewed paths, clearly marked
+**not gated**, so reviewers can select the next pages to add to the manifest.
+The full list remains in the local JSON report; this example does not upload it.
 After adding and reviewing all built HTML paths in the manifest, opt into
 `--require-full-coverage` to make new, unreviewed pages block CI as well. Do
 not mistake an incremental pass for coverage of the whole site.
