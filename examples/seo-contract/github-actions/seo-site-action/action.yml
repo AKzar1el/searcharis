@@ -15,6 +15,14 @@ inputs:
     description: Optionally check return links between manifest-listed local language variants.
     required: false
     default: 'false'
+  check-unique-titles:
+    description: Optionally reject duplicate titles among reviewed, same-origin indexable pages.
+    required: false
+    default: 'false'
+  check-unique-descriptions:
+    description: Optionally reject duplicate descriptions among reviewed, same-origin indexable pages.
+    required: false
+    default: 'false'
   report-directory:
     description: Optional existing directory outside the compiled build for create-only JSON/JUnit/Markdown/SARIF reports.
     required: false
@@ -29,6 +37,8 @@ runs:
         SEO_BUILD_ROOT: ${{ inputs.build-root }}
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
         SEO_HREFLANG_RECIPROCITY: ${{ inputs.check-hreflang-reciprocity }}
+        SEO_UNIQUE_TITLES: ${{ inputs.check-unique-titles }}
+        SEO_UNIQUE_DESCRIPTIONS: ${{ inputs.check-unique-descriptions }}
         SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
         PYTHONPATH: ${{ github.action_path }}/../../../../src
       run: |
@@ -51,6 +61,20 @@ runs:
             exit 2
             ;;
         esac
+        case "$SEO_UNIQUE_TITLES" in
+          true|false) ;;
+          *)
+            echo "check-unique-titles must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        case "$SEO_UNIQUE_DESCRIPTIONS" in
+          true|false) ;;
+          *)
+            echo "check-unique-descriptions must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
 
         if [ -n "$SEO_REPORT_DIRECTORY" ]; then
           # A consumer-owned existing directory preserves reviewer artifacts.
@@ -65,6 +89,12 @@ runs:
         fi
         if [ "$SEO_HREFLANG_RECIPROCITY" = true ]; then
           options+=(--check-hreflang-reciprocity)
+        fi
+        if [ "$SEO_UNIQUE_TITLES" = true ]; then
+          options+=(--check-unique-titles)
+        fi
+        if [ "$SEO_UNIQUE_DESCRIPTIONS" = true ]; then
+          options+=(--check-unique-descriptions)
         fi
 
         # Both a failing assertion (1) and invalid input (2) must still fail CI.

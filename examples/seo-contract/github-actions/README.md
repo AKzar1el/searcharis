@@ -62,6 +62,25 @@ The action does not fetch other languages or enforce a complete language
 cluster. It does not replace the separate manual trusted-base manifest
 approval gate.
 
+### Optional duplicate metadata regression gate
+
+For reviewed same-origin **indexable** HTML pages, this Action revision adds
+independent `check-unique-titles: 'true'` and
+`check-unique-descriptions: 'true'` inputs. Either setting rejects duplicate
+page titles or meta descriptions (exit 1); the default for each is `'false'`,
+so sites can adopt the checks independently after reviewing intentional reuse.
+Unreviewed built pages, other origins and reviewed `noindex` pages are outside
+this duplicate check. This is an offline compiled-artifact comparison, not a
+search-engine duplicate-content diagnosis.
+
+**Pin compatibility:** The copyable `uses:` example above intentionally remains
+at an already merged SHA, which **does not yet support these two inputs**.
+Do not enable them there until this Action change is independently merged and
+the site owner reviews and advances the full SHA to a revision containing them.
+An unknown composite Action input can otherwise be silently ignored. Keep the
+separate trusted-base manual manifest approval gate; metadata checks do not
+make changing reviewed assertions safe.
+
 ### Optional portable reviewer reports
 
 To keep the checker results for a later, separately reviewed CI step, create a
