@@ -32,6 +32,8 @@ jobs:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
+          # For multilingual sites, opt in to local hreflang return-link checks:
+          # check-hreflang-reciprocity: 'true'
 ```
 
 The example pins the **independently merged PR #308** source revision
@@ -47,6 +49,16 @@ summary on exit **0** (pass) or **1** (policy regression). Invalid/missing input
 exits **2** without a misleading success summary. By default, unreviewed HTML
 remains reported but not blocked; set `require-full-coverage: 'true'` only after
 all pages are deliberately reviewed.
+
+For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
+under the action step's `with:` inputs. The default `'false'` preserves
+existing runs. This optional **offline** check requires a reciprocal
+`hreflang` link between each pair of language pages represented in the
+reviewed manifest; missing return links fail CI (exit 1). Targets without
+local manifest-listed HTML remain **unverified**, not confirmed healthy.
+The action does not fetch other languages or enforce a complete language
+cluster. It does not replace the separate manual trusted-base manifest
+approval gate.
 
 ### Optional portable reviewer reports
 
