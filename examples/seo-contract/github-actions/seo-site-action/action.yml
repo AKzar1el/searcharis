@@ -11,6 +11,10 @@ inputs:
     description: Reject unreviewed built HTML paths after the site has completed manual onboarding.
     required: false
     default: 'false'
+  check-hreflang-reciprocity:
+    description: Optionally check return links between manifest-listed local language variants.
+    required: false
+    default: 'false'
   report-directory:
     description: Optional existing directory outside the compiled build for create-only JSON/JUnit/Markdown/SARIF reports.
     required: false
@@ -24,6 +28,7 @@ runs:
         SEO_MANIFEST: ${{ inputs.manifest }}
         SEO_BUILD_ROOT: ${{ inputs.build-root }}
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
+        SEO_HREFLANG_RECIPROCITY: ${{ inputs.check-hreflang-reciprocity }}
         SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
         PYTHONPATH: ${{ github.action_path }}/../../../../src
       run: |
@@ -39,6 +44,13 @@ runs:
             exit 2
             ;;
         esac
+        case "$SEO_HREFLANG_RECIPROCITY" in
+          true|false) ;;
+          *)
+            echo "check-hreflang-reciprocity must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
 
         if [ -n "$SEO_REPORT_DIRECTORY" ]; then
           # A consumer-owned existing directory preserves reviewer artifacts.
@@ -50,6 +62,9 @@ runs:
         options+=(--check-canonical-consistency --github-annotations --report-dir "$report_dir")
         if [ "$SEO_STRICT_COVERAGE" = true ]; then
           options+=(--require-full-coverage)
+        fi
+        if [ "$SEO_HREFLANG_RECIPROCITY" = true ]; then
+          options+=(--check-hreflang-reciprocity)
         fi
 
         # Both a failing assertion (1) and invalid input (2) must still fail CI.

@@ -27,25 +27,106 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "uses" not in step
     assert set(metadata["inputs"]) == {
         "manifest", "build-root", "require-full-coverage", "report-directory",
+        "check-hreflang-reciprocity",
     }
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
+    assert metadata["inputs"]["check-hreflang-reciprocity"]["default"] == "false"
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
+    assert step["env"]["SEO_HREFLANG_RECIPROCITY"] == "${{ inputs.check-hreflang-reciprocity }}"
     assert step["env"]["PYTHONPATH"] == "${{ github.action_path }}/../../../../src"
     assert ACTION.parent.parents[3] == ROOT
     script = step["run"]
     assert "python3 -S -m searcharis.site_cli" in script
     assert "--check-canonical-consistency" in script
+    assert "--check-hreflang-reciprocity" in script
     assert "--require-full-coverage" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
     assert "exit \"$status\"" in script
     assert "curl " not in script and "wget " not in script
+
+
+@pytest.mark.parametrize(
+    ("broken_return", "check", "expected"),
+    [
+        (False, "true", 0),
+        (True, "true", 1),
+        (True, "false", 0),
+        (False, "invalid", 2),
+    ],
+)
+def test_composite_action_opt_in_local_hreflang_reciprocity(
+    tmp_path: Path, broken_return: bool, check: str, expected: int
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    base_url = "https://example.test/"
+    pages = []
+    for language in ("en", "sl"):
+        page = tmp_path / "dist" / language / "index.html"
+        page.parent.mkdir(parents=True)
+        alternates = '<link rel="alternate" hreflang="sl" href="/sl/">'
+        if language != "sl" or not broken_return:
+            alternates += '<link rel="alternate" hreflang="en" href="/en/">'
+        page.write_text(
+            '<html><head><title>Example</title>'
+            f'<link rel="canonical" href="{base_url}{language}/">'
+            f"{alternates}</head><body><h1>Example</h1></body></html>",
+            encoding="utf-8",
+        )
+        pages.append({
+            "path": f"{language}/index.html",
+            "contract": {"url": f"{base_url}{language}/", "title_present": True},
+        })
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": 1, "pages": pages}), encoding="utf-8"
+    )
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": check,
+        "SEO_REPORT_DIRECTORY": "reports",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list(reports.iterdir()) == []
+    else:
+        report = json.loads((reports / "seo-site.json").read_text(encoding="utf-8"))
+        assert report["status"] == ("pass" if expected == 0 else "fail")
+        assert (tmp_path / "summary.md").exists()
+        if check == "true":
+            assert report["hreflang_reciprocity"]["checked_pairs"] == (
+                1 if broken_return else 2
+            )
+        if expected == 1:
+            assert any(
+                issue["code"].startswith("hreflang_return:")
+                for page in report["pages"] for issue in page["issues"]
+            )
 
 
 @pytest.mark.parametrize(
@@ -108,6 +189,7 @@ def test_composite_action_shell_preserves_gates_and_summary(
             "SEO_MANIFEST": "" if case == "missing_manifest" else name,
             "SEO_BUILD_ROOT": "" if case == "missing_build_root" else "dist",
             "SEO_STRICT_COVERAGE": strict,
+            "SEO_HREFLANG_RECIPROCITY": "false",
             "SEO_REPORT_DIRECTORY": report_name if retain_reports else "",
             "GITHUB_STEP_SUMMARY": "summary.md",
         }
@@ -170,5 +252,6 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "neither downloads" in guide.lower()
     assert "does not replace" in guide.lower()
     assert "report-directory: seo-ci-reports" in guide
+    assert "check-hreflang-reciprocity: 'true'" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
