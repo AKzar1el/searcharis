@@ -28,28 +28,106 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert set(metadata["inputs"]) == {
         "manifest", "build-root", "require-full-coverage", "report-directory",
         "check-hreflang-reciprocity",
+        "check-unique-titles", "check-unique-descriptions",
     }
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
     assert metadata["inputs"]["check-hreflang-reciprocity"]["default"] == "false"
+    assert metadata["inputs"]["check-unique-titles"]["default"] == "false"
+    assert metadata["inputs"]["check-unique-descriptions"]["default"] == "false"
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
     assert step["env"]["SEO_HREFLANG_RECIPROCITY"] == "${{ inputs.check-hreflang-reciprocity }}"
+    assert step["env"]["SEO_UNIQUE_TITLES"] == "${{ inputs.check-unique-titles }}"
+    assert step["env"]["SEO_UNIQUE_DESCRIPTIONS"] == "${{ inputs.check-unique-descriptions }}"
     assert step["env"]["PYTHONPATH"] == "${{ github.action_path }}/../../../../src"
     assert ACTION.parent.parents[3] == ROOT
     script = step["run"]
     assert "python3 -S -m searcharis.site_cli" in script
     assert "--check-canonical-consistency" in script
     assert "--check-hreflang-reciprocity" in script
+    assert "--check-unique-titles" in script
+    assert "--check-unique-descriptions" in script
     assert "--require-full-coverage" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
     assert "exit \"$status\"" in script
     assert "curl " not in script and "wget " not in script
+
+
+@pytest.mark.parametrize(
+    ("titles", "descriptions", "expected"),
+    [
+        ("false", "false", 0),
+        ("true", "false", 1),
+        ("false", "true", 1),
+        ("true", "true", 1),
+        ("TRUE", "false", 2),
+        ("false", "enabled", 2),
+    ],
+)
+def test_composite_action_opt_in_duplicate_metadata_gate(
+    tmp_path: Path, titles: str, descriptions: str, expected: int,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    build = tmp_path / "dist"
+    build.mkdir()
+    pages = []
+    for name in ("a", "b"):
+        (build / f"{name}.html").write_text(
+            '<html><head><title>Shared product title</title>'
+            '<meta name="description" content="Shared description">'
+            f'<link rel="canonical" href="https://example.test/{name}">'
+            '</head><body></body></html>',
+            encoding="utf-8",
+        )
+        pages.append({
+            "path": f"{name}.html",
+            "contract": {"url": f"https://example.test/{name}", "title_present": True},
+        })
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": 1, "pages": pages}), encoding="utf-8",
+    )
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_UNIQUE_TITLES": titles,
+        "SEO_UNIQUE_DESCRIPTIONS": descriptions,
+        "SEO_REPORT_DIRECTORY": "reports",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list((tmp_path / "reports").iterdir()) == []
+        return
+    report = json.loads((tmp_path / "reports/seo-site.json").read_text(encoding="utf-8"))
+    assert report["status"] == ("pass" if expected == 0 else "fail")
+    issues = {issue["code"] for page in report["pages"] for issue in page["issues"]}
+    assert ("title_duplicate" in issues) == (titles == "true")
+    assert ("description_duplicate" in issues) == (descriptions == "true")
+    assert (tmp_path / "summary.md").exists()
 
 
 @pytest.mark.parametrize(
@@ -103,6 +181,8 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
         "SEO_BUILD_ROOT": "dist",
         "SEO_STRICT_COVERAGE": "false",
         "SEO_HREFLANG_RECIPROCITY": check,
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
         "SEO_REPORT_DIRECTORY": "reports",
         "GITHUB_STEP_SUMMARY": "summary.md",
     })
@@ -190,6 +270,8 @@ def test_composite_action_shell_preserves_gates_and_summary(
             "SEO_BUILD_ROOT": "" if case == "missing_build_root" else "dist",
             "SEO_STRICT_COVERAGE": strict,
             "SEO_HREFLANG_RECIPROCITY": "false",
+            "SEO_UNIQUE_TITLES": "false",
+            "SEO_UNIQUE_DESCRIPTIONS": "false",
             "SEO_REPORT_DIRECTORY": report_name if retain_reports else "",
             "GITHUB_STEP_SUMMARY": "summary.md",
         }
@@ -254,5 +336,8 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "does not replace" in guide.lower()
     assert "report-directory: seo-ci-reports" in guide
     assert "check-hreflang-reciprocity: 'true'" in guide
+    assert "check-unique-titles: 'true'" in guide
+    assert "check-unique-descriptions: 'true'" in guide
+    assert "does not yet support these two inputs" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
