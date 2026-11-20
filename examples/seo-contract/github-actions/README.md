@@ -147,6 +147,12 @@ step runs only for pull requests, not manual `workflow_dispatch` events, while
 the compiled-site SEO gate still runs. This example does not auto-approve
 manifests or prevent authorized workflow-policy changes.
 
+For initial adoption with no approved base, the first-use job summary explicitly
+states that **no approval-integrity comparison** ran and manual review is
+required. It does not generate a fake approval report or change the job's exit
+codes. Passing the compiled-site SEO gate alone does not approve the candidate
+manifest; the reviewer must intentionally approve it before merging.
+
 If the approval review fails, the independent SEO policy gate still runs
 against the built candidate so reviewers can see both failure signals in the
 same CI job. If the build or checkout fails, the SEO gate is skipped rather
