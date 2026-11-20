@@ -4,6 +4,55 @@ This **inactive, copyable example** lets an Astro/Vite web team run the existing
 Searcharis offline HTML contract checker against its own compiled site in a
 pull request. It is not installed into any workflow by this repository.
 
+## Smaller integration: the standalone offline site gate
+
+For a team that already maintains and reviews `seo-manifest.json`, the inert
+[`seo-site-action/action.yml`](seo-site-action/action.yml) packages **only the
+compiled-site SEO check** as a reusable composite action. A consumer can call it
+from an Ubuntu pull-request workflow after building its own static HTML:
+
+```yaml
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  offline-seo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+      - run: npm ci && npm run build  # Adapt to your static generator.
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@<reviewed-40-character-commit>
+        with:
+          manifest: seo-manifest.json
+          build-root: dist
+          require-full-coverage: 'false'
+```
+
+Replace the **placeholder** with a full 40-character, reviewed Searcharis commit
+that actually contains this action **after its independent merge**. Do not pin
+`main`, a floating tag or an unmerged branch. Review the action code and the
+website's own workflow before adopting it; nothing is installed automatically.
+The action needs Python 3.11+ and Bash, but neither downloads dependencies nor
+contacts a live URL or cloud service. It uses the source bundled with the pinned
+action, reads only supplied local HTML/JSON and appends a bounded GitHub step
+summary on exit **0** (pass) or **1** (policy regression). Invalid/missing input
+exits **2** without a misleading success summary. By default, unreviewed HTML
+remains reported but not blocked; set `require-full-coverage: 'true'` only after
+all pages are deliberately reviewed.
+
+**This does not replace manual approval integrity review.** The composite action
+does not compare a PR's manifest with its trusted base, so changing approved
+assertions in the candidate is outside its scope. For the stronger dual-gate
+workflow, retain the full example below, including `manifest_review_cli` against
+the immutable PR base and a separate built-site policy check. A passing action
+does not approve a candidate manifest or establish live crawl/indexing results.
+
 ## Adopt in a site repository
 
 1. Review and commit `seo-manifest.json` in the **site** repository. Start with
