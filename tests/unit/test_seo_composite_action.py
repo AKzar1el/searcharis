@@ -402,9 +402,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # The pinned merged revision must implement report retention, hreflang,
-    # and both duplicate-metadata inputs; older pins silently ignore them.
-    assert pin.group(1) == "2c60b9af0b0d98e4bb032b43adbe634cb852bafb"
+    # Pin the independently merged Action revision implementing every
+    # advertised input, including the default-off internal nofollow gate.
+    assert pin.group(1) == "b661aa122a47025759fe06a9f496ef32cd890139"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -418,6 +418,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "check-hreflang-reciprocity: 'true'" in guide
     assert "check-unique-titles: 'true'" in guide
     assert "check-unique-descriptions: 'true'" in guide
+    assert "# check-internal-nofollow: 'true'" in guide
+    assert "already supports the internal nofollow input" in guide
+    assert "predates this new input" not in guide
     assert "already supports these two inputs" in guide
     assert "# check-unique-titles: 'true'" in guide
     assert "# check-unique-descriptions: 'true'" in guide
