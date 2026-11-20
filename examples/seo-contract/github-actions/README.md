@@ -27,19 +27,22 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@694facad3be7f33da03f065519f797e5d655edb9
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@2c60b9af0b0d98e4bb032b43adbe634cb852bafb
         with:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
           # For multilingual sites, opt in to local hreflang return-link checks:
           # check-hreflang-reciprocity: 'true'
+          # After reviewing intentional metadata reuse, opt in independently:
+          # check-unique-titles: 'true'
+          # check-unique-descriptions: 'true'
 ```
 
-The example pins the **independently merged PR #310** source revision
-`694facad3be7f33da03f065519f797e5d655edb9`, which contains both the optional
-report-directory input and the opt-in hreflang reciprocity check. Earlier pinned
-revisions silently ignore an unrecognized hreflang input. Review that source
+The example pins the **independently merged PR #312** source revision
+`2c60b9af0b0d98e4bb032b43adbe634cb852bafb`, which contains the optional
+report-directory, hreflang reciprocity, and duplicate-metadata inputs. Earlier
+pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
@@ -73,13 +76,12 @@ Unreviewed built pages, other origins and reviewed `noindex` pages are outside
 this duplicate check. This is an offline compiled-artifact comparison, not a
 search-engine duplicate-content diagnosis.
 
-**Pin compatibility:** The copyable `uses:` example above intentionally remains
-at an already merged SHA, which **does not yet support these two inputs**.
-Do not enable them there until this Action change is independently merged and
-the site owner reviews and advances the full SHA to a revision containing them.
-An unknown composite Action input can otherwise be silently ignored. Keep the
-separate trusted-base manual manifest approval gate; metadata checks do not
-make changing reviewed assertions safe.
+**Pin compatibility:** The copyable `uses:` example above pins the independently
+merged SHA and already supports these two inputs. Enable them only after the
+site owner reviews intentional duplicate metadata and the exact Action source.
+Older Action pins silently ignore unknown inputs, so recheck compatibility
+when reusing this recipe. Keep the separate trusted-base manual manifest
+approval gate; metadata checks do not make changing reviewed assertions safe.
 
 ### Optional portable reviewer reports
 
