@@ -1,0 +1,55 @@
+name: Searcharis offline static SEO gate
+description: Check developer-reviewed static HTML assertions without cloud credentials or URL fetches.
+inputs:
+  manifest:
+    description: Site-relative path to the committed, developer-reviewed JSON manifest.
+    required: true
+  build-root:
+    description: Site-relative path to the already compiled HTML directory.
+    required: true
+  require-full-coverage:
+    description: Reject unreviewed built HTML paths after the site has completed manual onboarding.
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Check built HTML against reviewed SEO contracts
+      shell: bash
+      env:
+        SEO_MANIFEST: ${{ inputs.manifest }}
+        SEO_BUILD_ROOT: ${{ inputs.build-root }}
+        SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
+        PYTHONPATH: ${{ github.action_path }}/../../../../src
+      run: |
+        set -euo pipefail
+        if [ -z "$SEO_MANIFEST" ] || [ -z "$SEO_BUILD_ROOT" ]; then
+          echo "SEO manifest and build-root paths are required." >&2
+          exit 2
+        fi
+        case "$SEO_STRICT_COVERAGE" in
+          true|false) ;;
+          *)
+            echo "require-full-coverage must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+
+        report_dir="$(mktemp -d)"
+        options=("$SEO_MANIFEST" "$SEO_BUILD_ROOT")
+        options+=(--check-canonical-consistency --github-annotations --report-dir "$report_dir")
+        if [ "$SEO_STRICT_COVERAGE" = true ]; then
+          options+=(--require-full-coverage)
+        fi
+
+        # Both a failing assertion (1) and invalid input (2) must still fail CI.
+        set +e
+        python3 -S -m searcharis.site_cli "${options[@]}"
+        status=$?
+        set -e
+        if [ "$status" -le 1 ] && [ -f "$report_dir/seo-site.md" ]; then
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            cat "$report_dir/seo-site.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi
+        exit "$status"
