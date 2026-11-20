@@ -19,6 +19,14 @@ inputs:
     description: Optionally reject rel=nofollow links to reviewed same-origin HTML pages.
     required: false
     default: 'false'
+  check-reviewed-navigation:
+    description: Optionally reject same-origin HTML links to URLs absent from the reviewed manifest.
+    required: false
+    default: 'false'
+  check-reviewed-fragments:
+    description: Optionally reject missing fragment targets on reviewed same-origin HTML pages.
+    required: false
+    default: 'false'
   check-unique-titles:
     description: Optionally reject duplicate titles among reviewed, same-origin indexable pages.
     required: false
@@ -42,6 +50,8 @@ runs:
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
         SEO_HREFLANG_RECIPROCITY: ${{ inputs.check-hreflang-reciprocity }}
         SEO_INTERNAL_NOFOLLOW: ${{ inputs.check-internal-nofollow }}
+        SEO_REVIEWED_NAVIGATION: ${{ inputs.check-reviewed-navigation }}
+        SEO_REVIEWED_FRAGMENTS: ${{ inputs.check-reviewed-fragments }}
         SEO_UNIQUE_TITLES: ${{ inputs.check-unique-titles }}
         SEO_UNIQUE_DESCRIPTIONS: ${{ inputs.check-unique-descriptions }}
         SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
@@ -70,6 +80,20 @@ runs:
           true|false) ;;
           *)
             echo "check-internal-nofollow must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        case "$SEO_REVIEWED_NAVIGATION" in
+          true|false) ;;
+          *)
+            echo "check-reviewed-navigation must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        case "$SEO_REVIEWED_FRAGMENTS" in
+          true|false) ;;
+          *)
+            echo "check-reviewed-fragments must be exactly true or false." >&2
             exit 2
             ;;
         esac
@@ -104,6 +128,12 @@ runs:
         fi
         if [ "$SEO_INTERNAL_NOFOLLOW" = true ]; then
           options+=(--check-internal-nofollow)
+        fi
+        if [ "$SEO_REVIEWED_NAVIGATION" = true ]; then
+          options+=(--check-reviewed-navigation)
+        fi
+        if [ "$SEO_REVIEWED_FRAGMENTS" = true ]; then
+          options+=(--check-reviewed-fragments)
         fi
         if [ "$SEO_UNIQUE_TITLES" = true ]; then
           options+=(--check-unique-titles)

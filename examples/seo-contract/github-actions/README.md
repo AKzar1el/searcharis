@@ -83,6 +83,27 @@ Enable it only after reviewing intentional link restrictions and the pinned
 Action source. Older pins can silently ignore unknown inputs. Manual trusted-base
 manifest approval remains a separate required gate.
 
+### Optional reviewed navigation and fragment integrity
+
+The Action **source** also supports two independent default-off inputs:
+`check-reviewed-navigation: 'true'` and `check-reviewed-fragments: 'true'`.
+The first flags active same-origin links whose destinations are absent from the
+developer-reviewed manifest; use it **only when the public route list is complete**.
+Intentional redirects, rewrite rules, dynamic paths and query variants can
+otherwise trigger failures. The second checks fragment IDs and named anchors on
+**reviewed same-origin HTML** and flags missing or ambiguous targets. Unreviewed
+routes, JavaScript-generated anchors, runtime navigation and deployed HTTP
+responses are not verified. These opt-ins can be enabled separately, return exit
+**1** for confirmed offline findings and exit **2** for invalid boolean values.
+Neither check fetches URLs or replaces separate manual trusted-base manifest
+approval.
+
+**Pin compatibility:** The copyable example above still pins merged PR #314,
+which **does not** contain these two new Action inputs. Do not enable them in
+the example until this Action revision has passed independent guarded merge and
+the site owner deliberately advances to a verified, reviewed 40-character
+merged commit. An older Action may silently ignore unsupported inputs.
+
 ### Optional duplicate metadata regression gate
 
 For reviewed same-origin **indexable** HTML pages, this Action revision adds

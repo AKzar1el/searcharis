@@ -30,6 +30,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
         "check-hreflang-reciprocity",
         "check-internal-nofollow",
         "check-unique-titles", "check-unique-descriptions",
+        "check-reviewed-navigation", "check-reviewed-fragments",
     }
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
@@ -39,6 +40,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["check-internal-nofollow"]["default"] == "false"
     assert metadata["inputs"]["check-unique-titles"]["default"] == "false"
     assert metadata["inputs"]["check-unique-descriptions"]["default"] == "false"
+    assert metadata["inputs"]["check-reviewed-navigation"]["default"] == "false"
+    assert metadata["inputs"]["check-reviewed-fragments"]["default"] == "false"
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
@@ -47,6 +50,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["env"]["SEO_INTERNAL_NOFOLLOW"] == "${{ inputs.check-internal-nofollow }}"
     assert step["env"]["SEO_UNIQUE_TITLES"] == "${{ inputs.check-unique-titles }}"
     assert step["env"]["SEO_UNIQUE_DESCRIPTIONS"] == "${{ inputs.check-unique-descriptions }}"
+    assert step["env"]["SEO_REVIEWED_NAVIGATION"] == "${{ inputs.check-reviewed-navigation }}"
+    assert step["env"]["SEO_REVIEWED_FRAGMENTS"] == "${{ inputs.check-reviewed-fragments }}"
     assert step["env"]["PYTHONPATH"] == "${{ github.action_path }}/../../../../src"
     assert ACTION.parent.parents[3] == ROOT
     script = step["run"]
@@ -56,6 +61,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "--check-internal-nofollow" in script
     assert "--check-unique-titles" in script
     assert "--check-unique-descriptions" in script
+    assert "--check-reviewed-navigation" in script
+    assert "--check-reviewed-fragments" in script
     assert "--require-full-coverage" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
@@ -115,6 +122,8 @@ def test_composite_action_opt_in_duplicate_metadata_gate(
         "SEO_INTERNAL_NOFOLLOW": "false",
         "SEO_UNIQUE_TITLES": titles,
         "SEO_UNIQUE_DESCRIPTIONS": descriptions,
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
         "SEO_REPORT_DIRECTORY": "reports",
         "GITHUB_STEP_SUMMARY": "summary.md",
     })
@@ -189,6 +198,8 @@ def test_composite_action_opt_in_reviewed_internal_nofollow(
         "SEO_INTERNAL_NOFOLLOW": check,
         "SEO_UNIQUE_TITLES": "false",
         "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
         "SEO_REPORT_DIRECTORY": "reports",
         "GITHUB_STEP_SUMMARY": "summary.md",
     })
@@ -205,6 +216,85 @@ def test_composite_action_opt_in_reviewed_internal_nofollow(
     assert report["status"] == ("pass" if expected == 0 else "fail")
     issues = {issue["code"] for page in report["pages"] for issue in page["issues"]}
     assert ("internal_link_nofollow" in issues) == (expected == 1)
+    assert (tmp_path / "summary.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("href", "navigation", "fragments", "expected", "issue_code"),
+    [
+        ("/about/#section", "true", "true", 0, None),
+        ("/unreviewed/", "false", "false", 0, None),
+        ("/unreviewed/", "true", "false", 1, "navigation_target_unreviewed"),
+        ("/about/#missing", "false", "false", 0, None),
+        ("/about/#missing", "false", "true", 1, "navigation_fragment_missing"),
+        ("/about/#missing", "true", "true", 1, "navigation_fragment_missing"),
+        ("/about/#section", "TRUE", "false", 2, None),
+        ("/about/#section", "false", "enabled", 2, None),
+    ],
+)
+def test_composite_action_optional_reviewed_navigation_and_fragments(
+    tmp_path: Path, href: str, navigation: str, fragments: str,
+    expected: int, issue_code: str | None,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    pages = []
+    for name in ("home", "about"):
+        target = f"https://example.test/{name}/"
+        body = f'<a href="{href}">Go</a>' if name == "home" else '<div id="section">Hi</div>'
+        page = tmp_path / "dist" / name / "index.html"
+        page.parent.mkdir(parents=True)
+        page.write_text(
+            '<html><head><title>Example</title>'
+            f'<link rel="canonical" href="{target}"></head>'
+            f"<body>{body}</body></html>",
+            encoding="utf-8",
+        )
+        pages.append({
+            "path": f"{name}/index.html",
+            "contract": {"url": target, "title_present": True},
+        })
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": 1, "pages": pages}), encoding="utf-8",
+    )
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REVIEWED_NAVIGATION": navigation,
+        "SEO_REVIEWED_FRAGMENTS": fragments,
+        "SEO_REPORT_DIRECTORY": "reports",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list(reports.iterdir()) == []
+        return
+    report = json.loads((reports / "seo-site.json").read_text(encoding="utf-8"))
+    assert report["status"] == ("pass" if expected == 0 else "fail")
+    codes = {issue["code"] for page in report["pages"] for issue in page["issues"]}
+    if issue_code is not None:
+        assert issue_code in codes
     assert (tmp_path / "summary.md").exists()
 
 
@@ -262,6 +352,8 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
         "SEO_INTERNAL_NOFOLLOW": "false",
         "SEO_UNIQUE_TITLES": "false",
         "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
         "SEO_REPORT_DIRECTORY": "reports",
         "GITHUB_STEP_SUMMARY": "summary.md",
     })
@@ -352,6 +444,8 @@ def test_composite_action_shell_preserves_gates_and_summary(
             "SEO_INTERNAL_NOFOLLOW": "false",
             "SEO_UNIQUE_TITLES": "false",
             "SEO_UNIQUE_DESCRIPTIONS": "false",
+            "SEO_REVIEWED_NAVIGATION": "false",
+            "SEO_REVIEWED_FRAGMENTS": "false",
             "SEO_REPORT_DIRECTORY": report_name if retain_reports else "",
             "GITHUB_STEP_SUMMARY": "summary.md",
         }
@@ -420,6 +514,10 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "check-unique-descriptions: 'true'" in guide
     assert "# check-internal-nofollow: 'true'" in guide
     assert "already supports the internal nofollow input" in guide
+    assert "check-reviewed-navigation: 'true'" in guide
+    assert "check-reviewed-fragments: 'true'" in guide
+    assert "**does not** contain these two new Action inputs" in guide
+    assert "public route list is complete" in guide
     assert "predates this new input" not in guide
     assert "already supports these two inputs" in guide
     assert "# check-unique-titles: 'true'" in guide
