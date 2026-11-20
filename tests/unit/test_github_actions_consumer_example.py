@@ -212,6 +212,130 @@ def test_consumer_first_use_shell_writes_only_unapproved_notice(tmp_path: Path) 
     assert not (tmp_path / "seo-ci-reports").exists()
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_exit"),
+    [("intact_with_new_page", 0), ("weakened_reviewed_page", 1), ("invalid_candidate", 2)],
+)
+def test_consumer_approved_base_shell_preserves_review_outcomes(
+    tmp_path: Path, case: str, expected_exit: int
+) -> None:
+    """Run the copyable Actions step, including shell exit and summary handling."""
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(git_bash) if git_bash.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("Git Bash or POSIX Bash is required to execute the consumer recipe")
+
+    fixture = ROOT / "examples/seo-contract/generator-fixtures/vite"
+    manifest = json.loads((fixture / "manifest.json").read_text(encoding="utf-8"))
+    approved = json.loads(json.dumps(manifest))
+    approved["pages"] = approved["pages"][:1]
+    approved_dir = tmp_path / ".seo-approved-base"
+    approved_dir.mkdir()
+    (approved_dir / "seo-manifest.json").write_text(json.dumps(approved), encoding="utf-8")
+    shutil.copytree(fixture / "artifacts", tmp_path / "dist")
+
+    if case == "weakened_reviewed_page":
+        manifest["pages"][0]["contract"]["title_present"] = False
+    candidate = "{" if case == "invalid_candidate" else json.dumps(manifest)
+    (tmp_path / "seo-manifest.json").write_text(candidate, encoding="utf-8")
+
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval_step = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    script = textwrap.dedent(approval_step.split("        run: |\n", 1)[1])
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["GITHUB_STEP_SUMMARY"] = "summary.md"
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=25,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stdout + "\n" + result.stderr
+    summary = tmp_path / "summary.md"
+    report = tmp_path / "seo-ci-reports/approval-review.md"
+    if expected_exit == 2:
+        assert not summary.exists()
+        assert not report.exists()
+        assert "Invalid input:" in result.stderr
+    else:
+        assert report.is_file()
+        assert summary.read_bytes() == report.read_bytes()
+        text = summary.read_text(encoding="utf-8")
+        if expected_exit == 0:
+            assert "UNREVIEWED" in text
+            assert "pricing/index.html" in text
+        else:
+            # An altered approved prefix blocks comparison; do not imply that
+            # downstream candidate pages were safely classified as append-only.
+            assert "Blocking changes to approved assertions" in text
+            assert "UNREVIEWED" not in text
+        assert ("::error" in result.stdout) == (expected_exit == 1)
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_exit"),
+    [("matching_site", 0), ("regressed_canonical", 1), ("invalid_manifest", 2)],
+)
+def test_consumer_site_gate_shell_preserves_status_and_step_summary(
+    tmp_path: Path, case: str, expected_exit: int
+) -> None:
+    """Exercise the actual independent site step under Actions Bash semantics."""
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(git_bash) if git_bash.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("Git Bash or POSIX Bash is required to execute the consumer recipe")
+
+    fixture = ROOT / "examples/seo-contract/generator-fixtures/vite"
+    shutil.copytree(fixture / "artifacts", tmp_path / "dist")
+    manifest = json.loads((fixture / "manifest.json").read_text(encoding="utf-8"))
+    if case == "regressed_canonical":
+        manifest["pages"][0]["contract"]["canonical"] = "https://fixtures.invalid/incorrect/"
+    candidate = "{" if case == "invalid_manifest" else json.dumps(manifest)
+    (tmp_path / "seo-manifest.json").write_text(candidate, encoding="utf-8")
+
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    site_step = workflow.split("- name: Verify developer-reviewed SEO contracts", 1)[1]
+    script = textwrap.dedent(site_step.split("        run: |\n", 1)[1].split("\n# No artifact upload", 1)[0])
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["GITHUB_STEP_SUMMARY"] = "summary.md"
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=25,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stdout + "\n" + result.stderr
+    summary = tmp_path / "summary.md"
+    report = tmp_path / "seo-ci-reports/seo-site.md"
+    if expected_exit == 2:
+        assert not report.exists()
+        assert not summary.exists()
+        assert "Invalid input:" in result.stderr
+    else:
+        assert report.is_file()
+        assert summary.read_bytes() == report.read_bytes()
+        assert f"**Result: {'PASS' if expected_exit == 0 else 'FAIL'}**" in summary.read_text(
+            encoding="utf-8"
+        )
+        assert ("::error" in result.stdout) == (expected_exit == 1)
+
+
 def test_consumer_guide_explains_approval_summary_and_fail_closed_inputs() -> None:
     guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
     assert "#302" in guide
