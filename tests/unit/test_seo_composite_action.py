@@ -322,9 +322,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # The pinned merged revision must implement both optional report retention
-    # and hreflang reciprocity; earlier merged pins silently ignore the latter.
-    assert pin.group(1) == "694facad3be7f33da03f065519f797e5d655edb9"
+    # The pinned merged revision must implement report retention, hreflang,
+    # and both duplicate-metadata inputs; older pins silently ignore them.
+    assert pin.group(1) == "2c60b9af0b0d98e4bb032b43adbe634cb852bafb"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -338,6 +338,8 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "check-hreflang-reciprocity: 'true'" in guide
     assert "check-unique-titles: 'true'" in guide
     assert "check-unique-descriptions: 'true'" in guide
-    assert "does not yet support these two inputs" in guide
+    assert "already supports these two inputs" in guide
+    assert "# check-unique-titles: 'true'" in guide
+    assert "# check-unique-descriptions: 'true'" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
