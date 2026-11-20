@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@533c4d046a34055764f7974b52b06ab7f9509f15
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@694facad3be7f33da03f065519f797e5d655edb9
         with:
           manifest: seo-manifest.json
           build-root: dist
@@ -36,10 +36,12 @@ jobs:
           # check-hreflang-reciprocity: 'true'
 ```
 
-The example pins the **independently merged PR #308** source revision
-`533c4d046a34055764f7974b52b06ab7f9509f15`, which contains the action and
-its optional report-directory input. Review that source and the website's own workflow
-before adoption; nothing is installed automatically. Advance the pin only to a
+The example pins the **independently merged PR #310** source revision
+`694facad3be7f33da03f065519f797e5d655edb9`, which contains both the optional
+report-directory input and the opt-in hreflang reciprocity check. Earlier pinned
+revisions silently ignore an unrecognized hreflang input. Review that source
+and the website's own workflow before adoption; nothing is installed
+automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
 `main`, a floating tag or an unmerged branch.
 The action needs Python 3.11+ and Bash, but neither downloads dependencies nor
