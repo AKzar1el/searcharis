@@ -31,6 +31,10 @@ inputs:
     description: Optionally reject missing fragment targets on reviewed same-origin HTML pages.
     required: false
     default: 'false'
+  require-inbound-paths:
+    description: Optional newline-separated reviewed HTML paths requiring an inbound link from another reviewed same-origin page (max 128).
+    required: false
+    default: ''
   check-unique-titles:
     description: Optionally reject duplicate titles among reviewed, same-origin indexable pages.
     required: false
@@ -57,6 +61,7 @@ runs:
         SEO_INTERNAL_NOFOLLOW: ${{ inputs.check-internal-nofollow }}
         SEO_REVIEWED_NAVIGATION: ${{ inputs.check-reviewed-navigation }}
         SEO_REVIEWED_FRAGMENTS: ${{ inputs.check-reviewed-fragments }}
+        SEO_REQUIRED_INBOUND_PATHS: ${{ inputs.require-inbound-paths }}
         SEO_UNIQUE_TITLES: ${{ inputs.check-unique-titles }}
         SEO_UNIQUE_DESCRIPTIONS: ${{ inputs.check-unique-descriptions }}
         SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
@@ -155,6 +160,23 @@ runs:
         fi
         if [ "$SEO_UNIQUE_DESCRIPTIONS" = true ]; then
           options+=(--check-unique-descriptions)
+        fi
+        if [ -n "${SEO_REQUIRED_INBOUND_PATHS:-}" ]; then
+          inbound_count=0
+          # Drop the optional final YAML block-scalar newline, not interior blanks.
+          while IFS= read -r inbound_path; do
+            inbound_path="${inbound_path%$'\r'}"
+            if [ -z "$inbound_path" ]; then
+              echo "require-inbound-paths contains an empty reviewed path." >&2
+              exit 2
+            fi
+            inbound_count=$((inbound_count + 1))
+            if [ "$inbound_count" -gt 128 ]; then
+              echo "require-inbound-paths supports at most 128 paths." >&2
+              exit 2
+            fi
+            options+=(--require-inbound-link "$inbound_path")
+          done <<< "${SEO_REQUIRED_INBOUND_PATHS%$'\n'}"
         fi
 
         # Both a failing assertion (1) and invalid input (2) must still fail CI.
