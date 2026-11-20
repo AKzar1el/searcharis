@@ -90,11 +90,12 @@ pull request. It is not installed into any workflow by this repository.
    commit** in the checker checkout; never replace it with mutable `main` or a
    floating tag. All referenced Actions are also pinned to resolved commits.
    The initial Action pins were resolved against GitHub release refs on
-   2026-11-19. The checker pin is the immutable merged PR #300 revision, which
+   2026-11-19. The checker pin is the immutable merged PR #302 revision, which
    includes the unreviewed-path preview, `--unreviewed-file` queue export,
    `--only-file` curated selection, `--extend-from` incremental manifest
    updates, `manifest_review_cli` approval-integrity checks, and opt-in GitHub
-   Actions approval error annotations. Keep manifest
+   Actions approval error annotations and create-only Markdown reviewer
+   reports. Keep manifest
    generation separate from CI and require deliberate human review before
    adoption. When changing the pin, verify supported flags and behavior.
 4. Check both a healthy compiled site (expected exit 0) and a deliberately
@@ -125,19 +126,23 @@ inspect those exact additions in the PR diff before accepting them. A PASS from
 this integrity gate does not approve new assertions or establish SEO health;
 the independent `site_cli` gate checks compiled SEO behavior.
 
-The copyable workflow enables `--github-annotations` for the approval step:
-an approval drift or invalid manifest input emits an escaped, bounded error
-annotation in GitHub Actions alongside the failed job. Unchanged approved
-assertions produce no error annotation; newly appended pages remain
-**unreviewed** even if integrity passes. This requires the pinned merged #300
-checker or a separately verified newer immutable commit. The workflow itself
-remains inactive in this repository.
+The copyable workflow enables `--github-annotations` and `--markdown-file`
+for the approval step: approval drift or invalid input emits an escaped,
+bounded error annotation in GitHub Actions. When the approval check exits 0
+or 1, the job appends its bounded `seo-ci-reports/approval-review.md` to
+`GITHUB_STEP_SUMMARY` while preserving the original exit code. The summary
+distinguishes an intact approved prefix, newly appended **UNREVIEWED** pages,
+and blocking changes; it never confers approval. Invalid input (exit 2)
+creates no approval report and is not treated as successful verification.
+This requires the pinned merged #302 checker or a separately verified newer
+immutable revision. The workflow remains inactive in this repository.
 
 The prior approved file must come from the trusted base commit, **not from the
 same pull request** as the candidate manifest: comparing two PR-controlled
 copies can incorrectly pass when both have weakened assertions. If the base
 has no `seo-manifest.json`, this is **initial adoption**: the example emits a
-notice and leaves first-time approval to a human reviewer. The approval-drift
+notice, emits no approval summary, and leaves first-time approval to a human
+reviewer. The approval-drift
 step runs only for pull requests, not manual `workflow_dispatch` events, while
 the compiled-site SEO gate still runs. This example does not auto-approve
 manifests or prevent authorized workflow-policy changes.
@@ -261,10 +266,11 @@ never fetches URLs supplied in contracts.
 
 The job grants only `contents: read`, does not persist checkout credentials,
 has no secrets, and does not deploy or upload reports. It creates JSON, JUnit,
-Markdown and SARIF files within `seo-ci-reports/` and appends a bounded
-Markdown reviewer summary to `GITHUB_STEP_SUMMARY` only after a checker exit
-of 0 or 1. The original exit is preserved, and an exit 2 is not interpreted as
-a trustworthy report. CI artifacts can contain page URLs and findings: add
+Markdown and SARIF files within `seo-ci-reports/` and appends separate bounded
+approval-integrity and compiled-site Markdown summaries to `GITHUB_STEP_SUMMARY`
+only after each respective checker exits 0 or 1. Original exit codes are
+preserved; exit 2 does not produce a trusted summary. CI artifacts can contain
+page URLs and findings: add
 optional upload/retention and permissions only with separate owner review.
 
 This workflow checks **compiled static HTML** and explicitly reviewed routes,

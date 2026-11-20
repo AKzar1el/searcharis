@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AKzar1el/searcharis
-          ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86
+          ref: 47e92a7ce4fcba87d1fb523e066db7ad5351822d
           path: .sear-checker
           persist-credentials: false
 
@@ -59,8 +59,18 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/.sear-checker/src
         run: |
           if [ -f .seo-approved-base/seo-manifest.json ]; then
+            mkdir -p seo-ci-reports
+            # The Markdown reviewer report is create-only. Preserve exit 0/1/2.
+            set +e
             python -S -m searcharis.manifest_review_cli \
-              .seo-approved-base/seo-manifest.json seo-manifest.json dist --github-annotations
+              .seo-approved-base/seo-manifest.json seo-manifest.json dist \
+              --github-annotations --markdown-file seo-ci-reports/approval-review.md
+            approval_status=$?
+            set -e
+            if [ "$approval_status" -le 1 ] && [ -f seo-ci-reports/approval-review.md ]; then
+              cat seo-ci-reports/approval-review.md >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit "$approval_status"
           else
             echo "::notice title=Initial SEO manifest adoption::No approved base manifest; human review required."
           fi

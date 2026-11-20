@@ -23,7 +23,7 @@ def test_consumer_example_pins_code_and_remains_read_only() -> None:
     # This merged source supports the entire manually reviewed queue workflow:
     # unreviewed export, explicit selected-path import, and prior contract retention.
     # Source must contain manifest_review_cli's opt-in annotation support.
-    assert "ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86" in text
+    assert "ref: 47e92a7ce4fcba87d1fb523e066db7ad5351822d" in text
     assert text.count("persist-credentials: false") == 3
     assert "permissions:\n  contents: read" in text
     assert "pull_request:\n" in text
@@ -129,12 +129,46 @@ def test_consumer_example_surfaces_approval_drift_in_github_annotations() -> Non
     )[0]
     # The flag is evaluated against the immutable merged source, not an older
     # checker revision that would reject the CLI invocation as an input error.
-    assert "ref: 933270413ba9d28b87e16fbfc4e17f0b17319b86" in workflow
-    assert re.search(r"\.seo-approved-base/seo-manifest\.json seo-manifest\.json dist\s+--github-annotations", approval_step)
+    assert "ref: 47e92a7ce4fcba87d1fb523e066db7ad5351822d" in workflow
+    assert re.search(
+        r"\.seo-approved-base/seo-manifest\.json seo-manifest\.json dist\s+\\\s+--github-annotations",
+        approval_step,
+    )
     assert "else" in approval_step  # Unapproved first-use still requires human review.
     guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
     assert "approval drift" in guide.lower()
     assert "annotation" in guide.lower()
+
+
+def test_consumer_example_surfaces_approval_markdown_without_masking_gate() -> None:
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval_step = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    # The pinned revision must actually contain the Markdown CLI capability.
+    assert "ref: 47e92a7ce4fcba87d1fb523e066db7ad5351822d" in workflow
+    assert "mkdir -p seo-ci-reports" in approval_step
+    assert "--github-annotations --markdown-file seo-ci-reports/approval-review.md" in approval_step
+    assert "set +e" in approval_step
+    assert "approval_status=$?" in approval_step
+    assert "set -e" in approval_step
+    assert 'if [ "$approval_status" -le 1 ] && [ -f seo-ci-reports/approval-review.md ]; then' in approval_step
+    assert 'cat seo-ci-reports/approval-review.md >> "$GITHUB_STEP_SUMMARY"' in approval_step
+    assert 'exit "$approval_status"' in approval_step
+    assert approval_step.index("approval_status=$?") < approval_step.index("cat seo-ci-reports/")
+    assert "continue-on-error:" not in approval_step
+    # First adoption has no trusted base, so never fabricate an approval report.
+    assert "if [ -f .seo-approved-base/seo-manifest.json ]; then" in approval_step
+    assert "Initial SEO manifest adoption" in approval_step
+
+
+def test_consumer_guide_explains_approval_summary_and_fail_closed_inputs() -> None:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    assert "#302" in guide
+    assert "approval-review.md" in guide
+    assert "GITHUB_STEP_SUMMARY" in guide
+    assert "exit 2" in guide
+    assert "UNREVIEWED" in guide
 
 
 def test_consumer_guide_requires_trusted_base_not_candidate_approval() -> None:
