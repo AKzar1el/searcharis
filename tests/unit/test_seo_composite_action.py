@@ -32,6 +32,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
         "check-internal-nofollow",
         "check-unique-titles", "check-unique-descriptions",
         "check-reviewed-navigation", "check-reviewed-fragments",
+        "require-inbound-paths",
     }
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
@@ -44,6 +45,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["check-unique-descriptions"]["default"] == "false"
     assert metadata["inputs"]["check-reviewed-navigation"]["default"] == "false"
     assert metadata["inputs"]["check-reviewed-fragments"]["default"] == "false"
+    assert metadata["inputs"]["require-inbound-paths"]["default"] == ""
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
@@ -55,6 +57,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["env"]["SEO_UNIQUE_DESCRIPTIONS"] == "${{ inputs.check-unique-descriptions }}"
     assert step["env"]["SEO_REVIEWED_NAVIGATION"] == "${{ inputs.check-reviewed-navigation }}"
     assert step["env"]["SEO_REVIEWED_FRAGMENTS"] == "${{ inputs.check-reviewed-fragments }}"
+    assert step["env"]["SEO_REQUIRED_INBOUND_PATHS"] == "${{ inputs.require-inbound-paths }}"
     assert step["env"]["PYTHONPATH"] == "${{ github.action_path }}/../../../../src"
     assert ACTION.parent.parents[3] == ROOT
     script = step["run"]
@@ -67,6 +70,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "--check-unique-descriptions" in script
     assert "--check-reviewed-navigation" in script
     assert "--check-reviewed-fragments" in script
+    assert "--require-inbound-link" in script
     assert "--require-full-coverage" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
@@ -568,6 +572,89 @@ def test_composite_action_shell_preserves_gates_and_summary(
             data = json.loads((report_dir / "seo-site.json").read_text(encoding="utf-8"))
             assert data["status"] == ("pass" if expected == 0 else "fail")
             assert (report_dir / "seo-site.md").read_text(encoding="utf-8") == summary.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("paths", "service_link", "pricing_link", "expected", "missing"),
+    [
+        ("", False, False, 0, []),
+        ("services/index.html", False, False, 1, ["services/index.html"]),
+        ("services/index.html", True, False, 0, []),
+        ("services/index.html\npricing/index.html", True, False, 1, ["pricing/index.html"]),
+        ("services/index.html\npricing/index.html", True, True, 0, []),
+        ("services/index.html\npricing/index.html\n", True, True, 0, []),
+        ("services/index.html\r\npricing/index.html\r\n", True, True, 0, []),
+        ("launch page/index.html", True, True, 0, []),
+        ("missing/index.html", True, True, 2, []),
+        ("services/index.html;touch injected.txt", True, True, 2, []),
+        ("services/index.html\nservices/index.html", True, True, 2, []),
+        ("services/index.html\n\npricing/index.html", True, True, 2, []),
+        ("\n".join(["services/index.html"] * 129), True, True, 2, []),
+    ],
+)
+def test_composite_action_opt_in_critical_inbound_paths(
+    tmp_path: Path, paths: str, service_link: bool, pricing_link: bool,
+    expected: int, missing: list[str],
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    build = tmp_path / "dist"
+    pages = []
+    for name in ("", "services/", "pricing/", "launch page/"):
+        artifact = build / name / "index.html"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        links = ""
+        if not name:
+            links += '<a href="/services/">Services</a>' if service_link else ""
+            links += '<a href="/pricing/">Pricing</a>' if pricing_link else ""
+            links += '<a href="/launch%20page/">Launch page</a>'
+        url = f"https://example.test/{name.replace(' ', '%20')}"
+        artifact.write_text(
+            f'<html><head><title>{name or "Home"}</title>'
+            f'<link rel="canonical" href="{url}">'
+            f'</head><body>{links}</body></html>', encoding="utf-8",
+        )
+        pages.append({
+            "path": f"{name}index.html",
+            "contract": {"url": url, "title_present": True},
+        })
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": 1, "pages": pages}), encoding="utf-8",
+    )
+    (tmp_path / "reports").mkdir()
+    script = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"][0]["run"]
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json", "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false", "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": paths,
+        "SEO_INTERNAL_NOFOLLOW": "false", "SEO_REPORT_DIRECTORY": "reports",
+        "SEO_REVIEWED_NAVIGATION": "false", "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false", "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    assert not (tmp_path / "injected.txt").exists()
+    if expected == 2:
+        assert list((tmp_path / "reports").iterdir()) == []
+        assert not (tmp_path / "summary.md").exists()
+    else:
+        report = json.loads((tmp_path / "reports/seo-site.json").read_text(encoding="utf-8"))
+        assert report["status"] == ("pass" if expected == 0 else "fail")
+        if paths:
+            assert report["reviewed_inbound"]["missing_paths"] == missing
+        assert (tmp_path / "summary.md").exists()
 
 
 def test_composite_action_adoption_guide_preserves_manual_approval_boundary() -> None:

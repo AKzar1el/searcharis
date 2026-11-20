@@ -148,6 +148,34 @@ Older Action pins silently ignore unknown inputs, so recheck compatibility
 when reusing this recipe. Keep the separate trusted-base manual manifest
 approval gate; metadata checks do not make changing reviewed assertions safe.
 
+### Optional inbound links to critical reviewed pages
+
+The **current Action source** also supports `require-inbound-paths`, an optional
+newline-separated list of up to 128 exact *manifest artifact paths*. For example,
+after the Action revision containing this input is independently merged and the
+consumer workflow is advanced to that reviewed full commit SHA:
+
+```yaml
+          require-inbound-paths: |
+            pricing/index.html
+            services/index.html
+```
+
+Each selected page must have at least one normal HTML link from **another**
+reviewed same-origin page. Missing inbound links fail CI (exit 1); unknown,
+duplicated, unsafe or blank listed paths fail as invalid input (exit 2).
+The Action accepts paths containing spaces without shell interpretation. A final
+YAML block-scalar newline is allowed, but empty lines inside the list are not.
+Without this input, no inbound-link requirement is imposed. This is a chosen
+critical-page policy, **not** a blanket claim that all unlinked pages harm SEO;
+unreviewed, JavaScript-created and external links cannot prove a page is linked.
+
+**Pin compatibility:** The copyable `uses:` revision above predates this new
+input and **does not support it yet**. Do not copy the opt-in configuration into
+that workflow until a separately reviewed, independently merged full-SHA pin
+includes it. Manual trusted-base manifest approval remains a separate gate;
+no URL is fetched, customer workflow installed or site changed here.
+
 ### Optional portable reviewer reports
 
 To keep the checker results for a later, separately reviewed CI step, create a
