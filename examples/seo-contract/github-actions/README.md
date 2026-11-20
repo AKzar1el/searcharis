@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@2c60b9af0b0d98e4bb032b43adbe634cb852bafb
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@b661aa122a47025759fe06a9f496ef32cd890139
         with:
           manifest: seo-manifest.json
           build-root: dist
@@ -37,11 +37,13 @@ jobs:
           # After reviewing intentional metadata reuse, opt in independently:
           # check-unique-titles: 'true'
           # check-unique-descriptions: 'true'
+          # After reviewing internal link policies, opt in separately:
+          # check-internal-nofollow: 'true'
 ```
 
-The example pins the **independently merged PR #312** source revision
-`2c60b9af0b0d98e4bb032b43adbe634cb852bafb`, which contains the optional
-report-directory, hreflang reciprocity, and duplicate-metadata inputs. Earlier
+The example pins the **independently merged PR #314** source revision
+`b661aa122a47025759fe06a9f496ef32cd890139`, which contains the optional
+report-directory, hreflang reciprocity, duplicate-metadata, and internal-nofollow inputs. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -76,11 +78,10 @@ and non-HTML targets are not asserted healthy by this check. Page-level
 `robots` nofollow is a separate policy; neither is proof of live crawlability.
 Invalid non-boolean input exits 2 without a reviewer success summary.
 
-**Compatibility:** The copyable `uses:` pin above predates this new input.
-Do not enable it in a consumer workflow until the corresponding Action change
-has independently passed review and merged, then pin that exact full merged
-SHA after owner review. Earlier pins can silently ignore unknown inputs.
-Manual trusted-base manifest approval remains a separate required gate.
+**Pin compatibility:** The copyable `uses:` pin above already supports the internal nofollow input.
+Enable it only after reviewing intentional link restrictions and the pinned
+Action source. Older pins can silently ignore unknown inputs. Manual trusted-base
+manifest approval remains a separate required gate.
 
 ### Optional duplicate metadata regression gate
 
