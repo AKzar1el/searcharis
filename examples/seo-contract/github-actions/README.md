@@ -27,17 +27,19 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@<reviewed-40-character-commit>
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@64244a99bdc89a587ec2ee357a42e7c566f14e4d
         with:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
 ```
 
-Replace the **placeholder** with a full 40-character, reviewed Searcharis commit
-that actually contains this action **after its independent merge**. Do not pin
-`main`, a floating tag or an unmerged branch. Review the action code and the
-website's own workflow before adopting it; nothing is installed automatically.
+The example pins the **independently merged PR #306** source revision
+`64244a99bdc89a587ec2ee357a42e7c566f14e4d`, which contains the action at
+the referenced subdirectory. Review that source and the website's own workflow
+before adoption; nothing is installed automatically. Advance the pin only to a
+newer, independently reviewed, full 40-character merged commit. Do not pin
+`main`, a floating tag or an unmerged branch.
 The action needs Python 3.11+ and Bash, but neither downloads dependencies nor
 contacts a live URL or cloud service. It uses the source bundled with the pinned
 action, reads only supplied local HTML/JSON and appends a bounded GitHub step

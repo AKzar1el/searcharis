@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -116,7 +117,17 @@ def test_composite_action_shell_preserves_gates_and_summary(
 
 def test_composite_action_adoption_guide_preserves_manual_approval_boundary() -> None:
     guide = (ACTION.parent.parent / "README.md").read_text(encoding="utf-8")
-    assert "seo-site-action@<reviewed-40-character-commit>" in guide
+    # A copyable example must resolve to an independently merged action, not
+    # an unresolvable placeholder or mutable ref.
+    pin = re.search(
+        r"uses: AKzar1el/searcharis/examples/seo-contract/github-actions/"
+        r"seo-site-action@([0-9a-f]{40})",
+        guide,
+    )
+    assert pin is not None
+    assert pin.group(1) == "64244a99bdc89a587ec2ee357a42e7c566f14e4d"
+    assert "<reviewed-40-character-commit>" not in guide
+    assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
     assert "manual approval" in guide.lower()
     assert "manifest_review_cli" in guide
