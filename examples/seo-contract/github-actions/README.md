@@ -27,13 +27,15 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@abb5c6fcf9f952f00d1973ff71b316106a02454b
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@d4f1b74e58fc539ebd58f01cb0c45ece0c644b12
         with:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
           # For multilingual sites, opt in to local hreflang return-link checks:
           # check-hreflang-reciprocity: 'true'
+          # Only for complete language sets, check consistent locale clusters:
+          # check-hreflang-clusters: 'true'
           # After reviewing intentional metadata reuse, opt in independently:
           # check-unique-titles: 'true'
           # check-unique-descriptions: 'true'
@@ -45,10 +47,10 @@ jobs:
           # check-reviewed-fragments: 'true'
 ```
 
-The example pins the **independently merged PR #316** source revision
-`abb5c6fcf9f952f00d1973ff71b316106a02454b`, which contains the optional
+The example pins the **independently merged PR #318** source revision
+`d4f1b74e58fc539ebd58f01cb0c45ece0c644b12`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
-reviewed-navigation, and reviewed-fragments inputs. Earlier
+reviewed-navigation, reviewed-fragments, and strict locale-cluster inputs. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -74,7 +76,7 @@ Neither policy replaces the separate manual trusted-base manifest approval gate.
 
 ### Optional strict locale-cluster consistency
 
-The composite Action **source** also supports an independent, default-off
+The pinned composite Action also supports an independent, default-off
 `check-hreflang-clusters: 'true'` input. It compares the local hreflang
 locale-to-URL map (including `x-default`) between linked, manifest-reviewed
 HTML pages. Missing or conflicting local mappings and duplicate language labels
@@ -84,12 +86,11 @@ deliberately publishing the same complete language set on every translated
 page: partial reciprocal language links may be intentional, and Google does
 not mandate complete locale clusters.
 
-**Pin compatibility:** The copyable `uses:` example above still pins the
-independently merged #316 revision, which **does not yet support this new
-input**. Do not enable it in that example until this source change has passed
-independent guarded review/merge and the pinned immutable SHA is updated.
-No URL is fetched, and separate manual trusted-base manifest approval remains
-required.
+**Pin compatibility:** The copyable `uses:` example above already supports the strict locale-cluster input
+at the independently merged full SHA. Enable it only after reviewing the site's
+complete locale mapping and the pinned Action source. Older pins may silently
+ignore this input. No URL is fetched, and separate manual trusted-base manifest
+approval remains required.
 
 ### Optional internal-link nofollow policy
 

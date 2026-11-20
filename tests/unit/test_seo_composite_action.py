@@ -580,9 +580,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision implementing both reviewed
-    # navigation and fragment checks, not an older revision ignoring them.
-    assert pin.group(1) == "abb5c6fcf9f952f00d1973ff71b316106a02454b"
+    # Pin the independently merged Action revision implementing strict hreflang
+    # clusters, not the older revision that silently ignores this input.
+    assert pin.group(1) == "d4f1b74e58fc539ebd58f01cb0c45ece0c644b12"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -594,6 +594,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "does not replace" in guide.lower()
     assert "report-directory: seo-ci-reports" in guide
     assert "check-hreflang-reciprocity: 'true'" in guide
+    assert "# check-hreflang-clusters: 'true'" in guide
+    assert "already supports the strict locale-cluster input" in guide
+    assert "does not yet support this new" not in guide
     assert "check-unique-titles: 'true'" in guide
     assert "check-unique-descriptions: 'true'" in guide
     assert "# check-internal-nofollow: 'true'" in guide
