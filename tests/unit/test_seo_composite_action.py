@@ -240,8 +240,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # The documented optional report bundle must exist in the reviewed pin.
-    assert pin.group(1) == "533c4d046a34055764f7974b52b06ab7f9509f15"
+    # The pinned merged revision must implement both optional report retention
+    # and hreflang reciprocity; earlier merged pins silently ignore the latter.
+    assert pin.group(1) == "694facad3be7f33da03f065519f797e5d655edb9"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
