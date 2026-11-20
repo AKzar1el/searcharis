@@ -65,6 +65,23 @@ The action does not fetch other languages or enforce a complete language
 cluster. It does not replace the separate manual trusted-base manifest
 approval gate.
 
+### Optional internal-link nofollow policy
+
+The Action source also provides a default-off
+`check-internal-nofollow: 'true'` input that checks active `a` and `area`
+links to **reviewed same-origin HTML** for `rel=nofollow`. When enabled,
+matching links fail the offline check (exit 1), so teams can review accidental
+internal link restrictions without contacting live URLs. External, unreviewed
+and non-HTML targets are not asserted healthy by this check. Page-level
+`robots` nofollow is a separate policy; neither is proof of live crawlability.
+Invalid non-boolean input exits 2 without a reviewer success summary.
+
+**Compatibility:** The copyable `uses:` pin above predates this new input.
+Do not enable it in a consumer workflow until the corresponding Action change
+has independently passed review and merged, then pin that exact full merged
+SHA after owner review. Earlier pins can silently ignore unknown inputs.
+Manual trusted-base manifest approval remains a separate required gate.
+
 ### Optional duplicate metadata regression gate
 
 For reviewed same-origin **indexable** HTML pages, this Action revision adds
