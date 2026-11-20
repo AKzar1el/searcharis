@@ -496,9 +496,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision implementing every
-    # advertised input, including the default-off internal nofollow gate.
-    assert pin.group(1) == "b661aa122a47025759fe06a9f496ef32cd890139"
+    # Pin the independently merged Action revision implementing both reviewed
+    # navigation and fragment checks, not an older revision ignoring them.
+    assert pin.group(1) == "abb5c6fcf9f952f00d1973ff71b316106a02454b"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -516,7 +516,10 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "already supports the internal nofollow input" in guide
     assert "check-reviewed-navigation: 'true'" in guide
     assert "check-reviewed-fragments: 'true'" in guide
-    assert "**does not** contain these two new Action inputs" in guide
+    assert "# check-reviewed-navigation: 'true'" in guide
+    assert "# check-reviewed-fragments: 'true'" in guide
+    assert "already supports both reviewed navigation and fragment inputs" in guide
+    assert "**does not** contain these two new Action inputs" not in guide
     assert "public route list is complete" in guide
     assert "predates this new input" not in guide
     assert "already supports these two inputs" in guide
