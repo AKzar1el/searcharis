@@ -27,16 +27,16 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@64244a99bdc89a587ec2ee357a42e7c566f14e4d
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@533c4d046a34055764f7974b52b06ab7f9509f15
         with:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
 ```
 
-The example pins the **independently merged PR #306** source revision
-`64244a99bdc89a587ec2ee357a42e7c566f14e4d`, which contains the action at
-the referenced subdirectory. Review that source and the website's own workflow
+The example pins the **independently merged PR #308** source revision
+`533c4d046a34055764f7974b52b06ab7f9509f15`, which contains the action and
+its optional report-directory input. Review that source and the website's own workflow
 before adoption; nothing is installed automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
 `main`, a floating tag or an unmerged branch.
@@ -58,10 +58,9 @@ dedicated directory **outside the compiled build** before invoking the action:
 ```
 
 Then add `report-directory: seo-ci-reports` under the existing action step's
-`with:` inputs, **only after** reviewing and advancing the action pin to an
-independently merged full SHA that includes this option. The original pinned
-`64244a99bdc89a587ec2ee357a42e7c566f14e4d` version predates the option;
-do not assume it will retain reports merely because the input is present.
+`with:` inputs. The reviewed full SHA in the example above already supports
+this input. Report retention remains opt-in and is disabled when the input is
+omitted.
 
 On a valid check (exit 0 or blocking SEO finding exit 1), that directory retains
 four UTF-8, **create-only** files: `seo-site.json`, `seo-site.xml` (JUnit),

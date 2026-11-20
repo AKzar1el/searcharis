@@ -158,7 +158,8 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    assert pin.group(1) == "64244a99bdc89a587ec2ee357a42e7c566f14e4d"
+    # The documented optional report bundle must exist in the reviewed pin.
+    assert pin.group(1) == "533c4d046a34055764f7974b52b06ab7f9509f15"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -170,4 +171,4 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "does not replace" in guide.lower()
     assert "report-directory: seo-ci-reports" in guide
     assert "seo-site.json" in guide
-    assert "predates the option" in guide
+    assert "predates the option" not in guide
