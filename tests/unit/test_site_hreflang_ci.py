@@ -3,6 +3,8 @@
 import json
 import socket
 
+import pytest
+
 from searcharis.site_ci import verify_manifest
 from searcharis.site_cli import main
 
@@ -60,6 +62,47 @@ def test_valid_bilingual_links_are_bidirectional_and_deterministic(tmp_path):
     assert first["hreflang_reciprocity"] == {"checked_pairs": 2, "unverified_targets": []}
     assert first["summary"] == {"checked": 2, "passed": 2, "failed": 0}
     assert all("observed_hreflang" not in page for page in first["pages"])
+
+
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.com:443/sl/",
+    "https://example.com/%73l/",
+    "https://example.com/archive/../sl/",
+])
+@pytest.mark.parametrize("policy", [
+    "check_hreflang_reciprocity", "check_hreflang_clusters",
+])
+def test_local_hreflang_url_alias_cannot_hide_missing_return(tmp_path, alias, policy):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", _alternate("sl", "/sl/"), _alternate("sl", alias))
+    _replace(tmp_path, "sl", _alternate("en", "/en/"), "")
+
+    report = verify_manifest(manifest, tmp_path, **{policy: True})
+    assert report["status"] == "fail"
+    assert report[policy.removeprefix("check_")]["checked_pairs"] == 1
+    assert report[policy.removeprefix("check_")]["unverified_targets"] == []
+    expected_code = (
+        "hreflang_return:en" if policy == "check_hreflang_reciprocity"
+        else "hreflang_cluster_mismatch:en"
+    )
+    assert expected_code in {issue["code"] for issue in _issues(report, "en")}
+
+
+@pytest.mark.parametrize("policy", [
+    "check_hreflang_reciprocity", "check_hreflang_clusters",
+])
+def test_equivalent_local_hreflang_aliases_are_valid_returns(tmp_path, policy):
+    manifest = _build(tmp_path)
+    _replace(tmp_path, "en", _alternate("sl", "/sl/"),
+             _alternate("sl", "https://EXAMPLE.com:443/sl/"))
+    _replace(tmp_path, "sl", _alternate("en", "/en/"),
+             _alternate("en", "https://example.com/%65n/"))
+
+    report = verify_manifest(manifest, tmp_path, **{policy: True})
+    assert report["status"] == "pass"
+    assert report[policy.removeprefix("check_")] == {
+        "checked_pairs": 2, "unverified_targets": [],
+    }
 
 
 def test_missing_return_link_fails_source_that_needs_it(tmp_path):

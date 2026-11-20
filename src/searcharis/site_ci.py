@@ -107,6 +107,17 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     )
 
 
+def _hreflang_peer_targets(links: dict[str, list[str]], source_identity: tuple) -> dict[tuple, str]:
+    """Deduplicate equivalent peer URLs but retain their original report spelling."""
+    peers: dict[tuple, str] = {}
+    for values in links.values():
+        for url in values:
+            identity = _page_url_identity(url)
+            if identity != source_identity:
+                peers[identity] = min(url, peers.get(identity, url))
+    return peers
+
+
 def verify_manifest(
     manifest: object,
     build_dir: Path,
@@ -462,17 +473,28 @@ def verify_manifest(
             "unverified_targets": sorted(unverified, key=lambda item: (item["path"], item["target"])),
         }
 
+    hreflang_pages = (
+        {_page_url_identity(page["checked_url"]): page for page in reports}
+        if observed_links else {}
+    )
+    hreflang_ids = {
+        url: {
+            language: tuple(_page_url_identity(target) for target in targets)
+            for language, targets in links.items()
+        }
+        for url, links in observed_links.items()
+    }
     hreflang_summary = None
     if check_hreflang_reciprocity:
-        by_url = {report["checked_url"]: report for report in reports}
         checked_pairs = 0
         unverified_targets: list[dict[str, str]] = []
         for report in reports:
             source_url = report["checked_url"]
+            source_identity = _page_url_identity(source_url)
             links = observed_links[source_url]
             self_languages = sorted(
-                language for language, targets in links.items()
-                if language != "x-default" and source_url in targets
+                language for language, targets in hreflang_ids[source_url].items()
+                if language != "x-default" and source_identity in targets
             )
             if any(language != "x-default" for language in links) and not self_languages:
                 report["issues"].append({
@@ -482,12 +504,10 @@ def verify_manifest(
                 })
 
             # A pair is checked once even when several locale labels target it.
-            targets = sorted({
-                target for values in links.values() for target in values
-                if target != source_url
-            })
-            for target in targets:
-                if target not in by_url:
+            targets = _hreflang_peer_targets(links, source_identity)
+            for identity, target in sorted(targets.items(), key=lambda item: item[1]):
+                peer = hreflang_pages.get(identity)
+                if peer is None:
                     unverified_targets.append({
                         "path": report["path"], "target": target,
                     })
@@ -496,8 +516,9 @@ def verify_manifest(
                     continue  # The missing self-label is already reported above.
                 checked_pairs += 1
                 for language in self_languages:
-                    actual = observed_links[target].get(language, [])
-                    if actual != [source_url]:
+                    peer_url = peer["checked_url"]
+                    actual = observed_links[peer_url].get(language, [])
+                    if hreflang_ids[peer_url].get(language, ()) != (source_identity,):
                         report["issues"].append({
                             "code": f"hreflang_return:{language}",
                             "target": target,
@@ -515,11 +536,11 @@ def verify_manifest(
 
     cluster_summary = None
     if check_hreflang_clusters:
-        by_url = {report["checked_url"]: report for report in reports}
         checked_pairs = 0
         unverified_targets: list[dict[str, str]] = []
         for report in reports:
             source_url = report["checked_url"]
+            source_identity = _page_url_identity(source_url)
             links = observed_links[source_url]
             for language, values in sorted(links.items()):
                 if len(values) != 1:
@@ -529,26 +550,28 @@ def verify_manifest(
                         "actual": values,
                     })
                 for target in values:
-                    if target not in by_url:
+                    if _page_url_identity(target) not in hreflang_pages:
                         unverified_targets.append({
                             "path": report["path"], "language": language, "target": target,
                         })
 
             # Compare only locally supplied destinations. External language
             # variants are inconclusive, never inferred to be missing or valid.
-            peers = sorted({
-                target for values in links.values() for target in values
-                if target != source_url and target in by_url
-            })
-            for target in peers:
+            peers = _hreflang_peer_targets(links, source_identity)
+            for identity, target in sorted(peers.items(), key=lambda item: item[1]):
+                if identity not in hreflang_pages:
+                    continue
                 checked_pairs += 1
-                peer_links = observed_links[target]
+                peer_url = hreflang_pages[identity]["checked_url"]
+                peer_links = observed_links[peer_url]
                 for language in sorted(set(links) | set(peer_links)):
                     expected = links.get(language, [])
                     actual = peer_links.get(language, [])
-                    if any(value not in by_url for value in expected + actual):
+                    expected_ids = hreflang_ids[source_url].get(language, ())
+                    actual_ids = hreflang_ids[peer_url].get(language, ())
+                    if any(value not in hreflang_pages for value in expected_ids + actual_ids):
                         continue
-                    if actual != expected:
+                    if actual_ids != expected_ids:
                         report["issues"].append({
                             "code": f"hreflang_cluster_mismatch:{language}",
                             "target": target,
