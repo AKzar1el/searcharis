@@ -15,6 +15,10 @@ inputs:
     description: Optionally check return links between manifest-listed local language variants.
     required: false
     default: 'false'
+  check-hreflang-clusters:
+    description: Optionally require consistent complete local hreflang locale maps between reviewed pages.
+    required: false
+    default: 'false'
   check-internal-nofollow:
     description: Optionally reject rel=nofollow links to reviewed same-origin HTML pages.
     required: false
@@ -49,6 +53,7 @@ runs:
         SEO_BUILD_ROOT: ${{ inputs.build-root }}
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
         SEO_HREFLANG_RECIPROCITY: ${{ inputs.check-hreflang-reciprocity }}
+        SEO_HREFLANG_CLUSTERS: ${{ inputs.check-hreflang-clusters }}
         SEO_INTERNAL_NOFOLLOW: ${{ inputs.check-internal-nofollow }}
         SEO_REVIEWED_NAVIGATION: ${{ inputs.check-reviewed-navigation }}
         SEO_REVIEWED_FRAGMENTS: ${{ inputs.check-reviewed-fragments }}
@@ -73,6 +78,13 @@ runs:
           true|false) ;;
           *)
             echo "check-hreflang-reciprocity must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        case "${SEO_HREFLANG_CLUSTERS:-false}" in
+          true|false) ;;
+          *)
+            echo "check-hreflang-clusters must be exactly true or false." >&2
             exit 2
             ;;
         esac
@@ -125,6 +137,9 @@ runs:
         fi
         if [ "$SEO_HREFLANG_RECIPROCITY" = true ]; then
           options+=(--check-hreflang-reciprocity)
+        fi
+        if [ "${SEO_HREFLANG_CLUSTERS:-false}" = true ]; then
+          options+=(--check-hreflang-clusters)
         fi
         if [ "$SEO_INTERNAL_NOFOLLOW" = true ]; then
           options+=(--check-internal-nofollow)

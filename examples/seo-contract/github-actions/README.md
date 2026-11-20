@@ -68,9 +68,28 @@ existing runs. This optional **offline** check requires a reciprocal
 `hreflang` link between each pair of language pages represented in the
 reviewed manifest; missing return links fail CI (exit 1). Targets without
 local manifest-listed HTML remain **unverified**, not confirmed healthy.
-The action does not fetch other languages or enforce a complete language
-cluster. It does not replace the separate manual trusted-base manifest
-approval gate.
+The action does not fetch other languages; by default, it does not enforce a
+complete language cluster (a separate strict opt-in is described below).
+Neither policy replaces the separate manual trusted-base manifest approval gate.
+
+### Optional strict locale-cluster consistency
+
+The composite Action **source** also supports an independent, default-off
+`check-hreflang-clusters: 'true'` input. It compares the local hreflang
+locale-to-URL map (including `x-default`) between linked, manifest-reviewed
+HTML pages. Missing or conflicting local mappings and duplicate language labels
+fail CI (exit 1); invalid input values exit 2. Outside-manifest destinations are
+reported as **unverified**, not necessarily broken. Enable only for sites
+deliberately publishing the same complete language set on every translated
+page: partial reciprocal language links may be intentional, and Google does
+not mandate complete locale clusters.
+
+**Pin compatibility:** The copyable `uses:` example above still pins the
+independently merged #316 revision, which **does not yet support this new
+input**. Do not enable it in that example until this source change has passed
+independent guarded review/merge and the pinned immutable SHA is updated.
+No URL is fetched, and separate manual trusted-base manifest approval remains
+required.
 
 ### Optional internal-link nofollow policy
 

@@ -28,6 +28,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert set(metadata["inputs"]) == {
         "manifest", "build-root", "require-full-coverage", "report-directory",
         "check-hreflang-reciprocity",
+        "check-hreflang-clusters",
         "check-internal-nofollow",
         "check-unique-titles", "check-unique-descriptions",
         "check-reviewed-navigation", "check-reviewed-fragments",
@@ -37,6 +38,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
     assert metadata["inputs"]["check-hreflang-reciprocity"]["default"] == "false"
+    assert metadata["inputs"]["check-hreflang-clusters"]["default"] == "false"
     assert metadata["inputs"]["check-internal-nofollow"]["default"] == "false"
     assert metadata["inputs"]["check-unique-titles"]["default"] == "false"
     assert metadata["inputs"]["check-unique-descriptions"]["default"] == "false"
@@ -47,6 +49,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
     assert step["env"]["SEO_HREFLANG_RECIPROCITY"] == "${{ inputs.check-hreflang-reciprocity }}"
+    assert step["env"]["SEO_HREFLANG_CLUSTERS"] == "${{ inputs.check-hreflang-clusters }}"
     assert step["env"]["SEO_INTERNAL_NOFOLLOW"] == "${{ inputs.check-internal-nofollow }}"
     assert step["env"]["SEO_UNIQUE_TITLES"] == "${{ inputs.check-unique-titles }}"
     assert step["env"]["SEO_UNIQUE_DESCRIPTIONS"] == "${{ inputs.check-unique-descriptions }}"
@@ -58,6 +61,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "python3 -S -m searcharis.site_cli" in script
     assert "--check-canonical-consistency" in script
     assert "--check-hreflang-reciprocity" in script
+    assert "--check-hreflang-clusters" in script
     assert "--check-internal-nofollow" in script
     assert "--check-unique-titles" in script
     assert "--check-unique-descriptions" in script
@@ -378,6 +382,86 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
                 issue["code"].startswith("hreflang_return:")
                 for page in report["pages"] for issue in page["issues"]
             )
+
+
+@pytest.mark.parametrize(
+    ("different_default", "check", "expected"),
+    [
+        (False, "true", 0),
+        (True, "true", 1),
+        (True, "false", 0),
+        (False, "TRUE", 2),
+    ],
+)
+def test_composite_action_opt_in_hreflang_cluster_consistency(
+    tmp_path: Path, different_default: bool, check: str, expected: int,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    pages = []
+    for language in ("en", "sl"):
+        destination = "/sl/" if language == "sl" and different_default else "/en/"
+        alternates = (
+            '<link rel="alternate" hreflang="en" href="/en/">'
+            '<link rel="alternate" hreflang="sl" href="/sl/">'
+            f'<link rel="alternate" hreflang="x-default" href="{destination}">'
+        )
+        page = tmp_path / "dist" / language / "index.html"
+        page.parent.mkdir(parents=True)
+        page.write_text(
+            f'<html><head><title>Example</title><link rel="canonical" '
+            f'href="https://example.test/{language}/">{alternates}</head>'
+            '<body><h1>Example</h1></body></html>',
+            encoding="utf-8",
+        )
+        pages.append({
+            "path": f"{language}/index.html",
+            "contract": {"url": f"https://example.test/{language}/", "title_present": True},
+        })
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": 1, "pages": pages}), encoding="utf-8",
+    )
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": check,
+        "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list(reports.iterdir()) == []
+        return
+    report = json.loads((reports / "seo-site.json").read_text(encoding="utf-8"))
+    assert report["status"] == ("pass" if expected == 0 else "fail")
+    assert (tmp_path / "summary.md").exists()
+    if check == "true":
+        assert report["hreflang_clusters"]["checked_pairs"] == 2
+        codes = {issue["code"] for page in report["pages"] for issue in page["issues"]}
+        assert ("hreflang_cluster_mismatch:x-default" in codes) == different_default
 
 
 @pytest.mark.parametrize(
