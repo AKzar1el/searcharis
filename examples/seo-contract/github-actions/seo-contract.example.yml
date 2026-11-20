@@ -73,6 +73,13 @@ jobs:
             exit "$approval_status"
           else
             echo "::notice title=Initial SEO manifest adoption::No approved base manifest; human review required."
+            printf '%s\n' \
+              '### Initial SEO manifest adoption - manual review required' \
+              '' \
+              'No previously approved `seo-manifest.json` exists at the trusted PR base.' \
+              'Approval-integrity comparison was **not run**. A passing compiled-site check' \
+              'does **not** approve the new manifest or unreviewed pages. Review the' \
+              'candidate manifest in this pull request before accepting it.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Verify developer-reviewed SEO contracts

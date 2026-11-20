@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -162,6 +164,54 @@ def test_consumer_example_surfaces_approval_markdown_without_masking_gate() -> N
     assert "Initial SEO manifest adoption" in approval_step
 
 
+def test_consumer_example_marks_missing_approved_base_in_step_summary() -> None:
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval_step = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    first_use = approval_step.split("\n          else\n", 1)[1]
+    assert "printf '%s\\n'" in first_use
+    assert '>> "$GITHUB_STEP_SUMMARY"' in first_use
+    assert "manual review required" in first_use
+    assert "Approval-integrity comparison was **not run**" in first_use
+    assert "does **not** approve" in first_use
+    assert "--markdown-file" not in first_use
+
+
+def test_consumer_first_use_shell_writes_only_unapproved_notice(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(git_bash) if git_bash.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("Git Bash or POSIX Bash is required to execute the consumer recipe")
+
+    workflow = EXAMPLE.read_text(encoding="utf-8")
+    approval_step = workflow.split("- name: Reject changed previously approved assertions", 1)[1].split(
+        "- name: Verify developer-reviewed SEO contracts", 1
+    )[0]
+    script = textwrap.dedent(approval_step.split("        run: |\n", 1)[1])
+    env = os.environ.copy()
+    env["GITHUB_STEP_SUMMARY"] = "summary.md"
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert "manual review required" in summary
+    assert "Approval-integrity comparison was **not run**" in summary
+    assert "does **not** approve" in summary
+    assert "Initial SEO manifest adoption" in result.stdout
+    assert not (tmp_path / "seo-ci-reports").exists()
+
+
 def test_consumer_guide_explains_approval_summary_and_fail_closed_inputs() -> None:
     guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
     assert "#302" in guide
@@ -169,6 +219,13 @@ def test_consumer_guide_explains_approval_summary_and_fail_closed_inputs() -> No
     assert "GITHUB_STEP_SUMMARY" in guide
     assert "exit 2" in guide
     assert "UNREVIEWED" in guide
+
+
+def test_consumer_guide_explains_first_use_summary_without_claiming_approval() -> None:
+    guide = EXAMPLE.with_name("README.md").read_text(encoding="utf-8")
+    assert "first-use job summary" in guide.lower()
+    assert "no approval-integrity comparison" in guide.lower()
+    assert "manual review" in guide.lower()
 
 
 def test_consumer_guide_requires_trusted_base_not_candidate_approval() -> None:
