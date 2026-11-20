@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@d4f1b74e58fc539ebd58f01cb0c45ece0c644b12
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@c81e291c2b9bbaa8b19d417090b5efe2f2c982c3
         with:
           manifest: seo-manifest.json
           build-root: dist
@@ -45,12 +45,17 @@ jobs:
           # check-reviewed-navigation: 'true'
           # Independently check static anchors on reviewed local HTML:
           # check-reviewed-fragments: 'true'
+          # After reviewing important pages and their inbound links:
+          # require-inbound-paths: |
+          #   pricing/index.html
+          #   services/index.html
 ```
 
-The example pins the **independently merged PR #318** source revision
-`d4f1b74e58fc539ebd58f01cb0c45ece0c644b12`, which contains the optional
+The example pins the **independently merged PR #320** source revision
+`c81e291c2b9bbaa8b19d417090b5efe2f2c982c3`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
-reviewed-navigation, reviewed-fragments, and strict locale-cluster inputs. Earlier
+reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
+inbound-path inputs. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -150,10 +155,10 @@ approval gate; metadata checks do not make changing reviewed assertions safe.
 
 ### Optional inbound links to critical reviewed pages
 
-The **current Action source** also supports `require-inbound-paths`, an optional
+The **pinned Action source** also supports `require-inbound-paths`, an optional
 newline-separated list of up to 128 exact *manifest artifact paths*. For example,
-after the Action revision containing this input is independently merged and the
-consumer workflow is advanced to that reviewed full commit SHA:
+the commented configuration in the copyable example can be enabled after the
+site owner reviews the complete manifest and intended inbound-link policy:
 
 ```yaml
           require-inbound-paths: |
@@ -170,10 +175,10 @@ Without this input, no inbound-link requirement is imposed. This is a chosen
 critical-page policy, **not** a blanket claim that all unlinked pages harm SEO;
 unreviewed, JavaScript-created and external links cannot prove a page is linked.
 
-**Pin compatibility:** The copyable `uses:` revision above predates this new
-input and **does not support it yet**. Do not copy the opt-in configuration into
-that workflow until a separately reviewed, independently merged full-SHA pin
-includes it. Manual trusted-base manifest approval remains a separate gate;
+**Pin compatibility:** The copyable `uses:` revision above already supports the critical inbound
+path input at the independently merged full SHA. Older revisions may silently
+ignore this input; verify the pinned Action before enabling it. Manual trusted-base
+manifest approval remains a separate gate;
 no URL is fetched, customer workflow installed or site changed here.
 
 ### Optional portable reviewer reports
