@@ -48,6 +48,32 @@ exits **2** without a misleading success summary. By default, unreviewed HTML
 remains reported but not blocked; set `require-full-coverage: 'true'` only after
 all pages are deliberately reviewed.
 
+### Optional portable reviewer reports
+
+To keep the checker results for a later, separately reviewed CI step, create a
+dedicated directory **outside the compiled build** before invoking the action:
+
+```yaml
+      - run: mkdir -p seo-ci-reports
+```
+
+Then add `report-directory: seo-ci-reports` under the existing action step's
+`with:` inputs, **only after** reviewing and advancing the action pin to an
+independently merged full SHA that includes this option. The original pinned
+`64244a99bdc89a587ec2ee357a42e7c566f14e4d` version predates the option;
+do not assume it will retain reports merely because the input is present.
+
+On a valid check (exit 0 or blocking SEO finding exit 1), that directory retains
+four UTF-8, **create-only** files: `seo-site.json`, `seo-site.xml` (JUnit),
+`seo-site.md`, and `seo-site.sarif`. An invalid manifest or report directory
+exits 2; existing report filenames are never overwritten. The parent directory
+must already exist, and the checker rejects report paths inside the compiled
+build. Without this optional input, the action keeps its previous temporary
+report behavior and still appends the same GitHub step summary. It does **not**
+upload, publish, or authorize use of these files; an owner must separately review
+any collection or retention step. A passing artifact does not approve changes to
+the reviewed manifest: the trusted-base manual approval check remains separate.
+
 **This does not replace manual approval integrity review.** The composite action
 does not compare a PR's manifest with its trusted base, so changing approved
 assertions in the candidate is outside its scope. For the stronger dual-gate

@@ -11,6 +11,10 @@ inputs:
     description: Reject unreviewed built HTML paths after the site has completed manual onboarding.
     required: false
     default: 'false'
+  report-directory:
+    description: Optional existing directory outside the compiled build for create-only JSON/JUnit/Markdown/SARIF reports.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -20,6 +24,7 @@ runs:
         SEO_MANIFEST: ${{ inputs.manifest }}
         SEO_BUILD_ROOT: ${{ inputs.build-root }}
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
+        SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
         PYTHONPATH: ${{ github.action_path }}/../../../../src
       run: |
         set -euo pipefail
@@ -35,7 +40,12 @@ runs:
             ;;
         esac
 
-        report_dir="$(mktemp -d)"
+        if [ -n "$SEO_REPORT_DIRECTORY" ]; then
+          # A consumer-owned existing directory preserves reviewer artifacts.
+          report_dir="$SEO_REPORT_DIRECTORY"
+        else
+          report_dir="$(mktemp -d)"
+        fi
         options=("$SEO_MANIFEST" "$SEO_BUILD_ROOT")
         options+=(--check-canonical-consistency --github-annotations --report-dir "$report_dir")
         if [ "$SEO_STRICT_COVERAGE" = true ]; then
