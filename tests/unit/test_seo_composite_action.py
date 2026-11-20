@@ -667,9 +667,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision implementing strict hreflang
-    # clusters, not the older revision that silently ignores this input.
-    assert pin.group(1) == "d4f1b74e58fc539ebd58f01cb0c45ece0c644b12"
+    # Pin the independently merged Action revision implementing critical inbound
+    # reviewed paths, not the older revision that silently ignores this input.
+    assert pin.group(1) == "c81e291c2b9bbaa8b19d417090b5efe2f2c982c3"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -692,6 +692,10 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "check-reviewed-fragments: 'true'" in guide
     assert "# check-reviewed-navigation: 'true'" in guide
     assert "# check-reviewed-fragments: 'true'" in guide
+    assert "# require-inbound-paths: |" in guide
+    assert "#   pricing/index.html" in guide
+    assert "already supports the critical inbound" in guide
+    assert "predates this new" not in guide
     assert "already supports both reviewed navigation and fragment inputs" in guide
     assert "**does not** contain these two new Action inputs" not in guide
     assert "public route list is complete" in guide
