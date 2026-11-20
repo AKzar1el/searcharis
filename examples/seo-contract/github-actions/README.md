@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@b661aa122a47025759fe06a9f496ef32cd890139
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@abb5c6fcf9f952f00d1973ff71b316106a02454b
         with:
           manifest: seo-manifest.json
           build-root: dist
@@ -39,11 +39,16 @@ jobs:
           # check-unique-descriptions: 'true'
           # After reviewing internal link policies, opt in separately:
           # check-internal-nofollow: 'true'
+          # Only with a complete reviewed route list, check navigation targets:
+          # check-reviewed-navigation: 'true'
+          # Independently check static anchors on reviewed local HTML:
+          # check-reviewed-fragments: 'true'
 ```
 
-The example pins the **independently merged PR #314** source revision
-`b661aa122a47025759fe06a9f496ef32cd890139`, which contains the optional
-report-directory, hreflang reciprocity, duplicate-metadata, and internal-nofollow inputs. Earlier
+The example pins the **independently merged PR #316** source revision
+`abb5c6fcf9f952f00d1973ff71b316106a02454b`, which contains the optional
+report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
+reviewed-navigation, and reviewed-fragments inputs. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -98,11 +103,12 @@ responses are not verified. These opt-ins can be enabled separately, return exit
 Neither check fetches URLs or replaces separate manual trusted-base manifest
 approval.
 
-**Pin compatibility:** The copyable example above still pins merged PR #314,
-which **does not** contain these two new Action inputs. Do not enable them in
-the example until this Action revision has passed independent guarded merge and
-the site owner deliberately advances to a verified, reviewed 40-character
-merged commit. An older Action may silently ignore unsupported inputs.
+**Pin compatibility:** The copyable example above already supports both reviewed navigation and fragment inputs
+at the independently merged 40-character SHA. Enable either only after reviewing
+the pinned Action and the site's route/anchor expectations; incomplete manifests
+can create intentional failures. An older Action pin may silently ignore these
+inputs. Neither check approves newly added manifest assertions or substitutes
+for a separate trusted-base manual approval gate.
 
 ### Optional duplicate metadata regression gate
 
