@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import sys
+from html import escape
 from pathlib import Path
 
 from searcharis.cli_error_display import human_input_error
@@ -52,6 +53,61 @@ def _github_approval_error(message: str, *, kind: str) -> str:
     return f"::error title=SEO approval {kind}::{human_input_error(ValueError(safe), limit=240)}"
 
 
+def _approval_markdown(report: dict) -> str:
+    """Render a bounded reviewer summary without treating additions as approved."""
+    def label(value: object) -> str:
+        # repr makes control characters visible; HTML escaping protects Markdown.
+        shown = repr(value)
+        if len(shown) > 160:
+            shown = shown[:157] + "..."
+        return f"<code>{escape(shown, quote=True)}</code>"
+
+    lines = [
+        "# Searcharis SEO manifest approval",
+        "",
+        f"**Result: {report['status'].upper()}** (offline approval integrity only)",
+        "",
+    ]
+    if report["status"] == "fail":
+        lines.extend([
+            "## Blocking changes to approved assertions",
+            "",
+            f"- {label(report['reason'])}",
+            "",
+            "Restore the previously approved assertions or obtain a separate "
+            "explicit review of the changed contract.",
+        ])
+    else:
+        count = report["new_pages"]
+        lines.extend([
+            f"- **Approved prefix:** {report['approved_pages']} previously approved pages unchanged",
+            f"- **Appended pages:** {count} (not automatically approved)",
+            "",
+        ])
+        if count:
+            lines.extend([
+                "## UNREVIEWED new pages (manual review required)",
+                "",
+                "The candidate added these exact built HTML paths; check each "
+                "new contract in the pull-request diff:",
+            ])
+            lines.extend(f"- {label(path)}" for path in report["unreviewed_paths"][:10])
+            if count > 10:
+                lines.append(
+                    f"- ... and {count - 10} more unreviewed paths; "
+                    "use --json for the full list"
+                )
+            lines.append("Passing this gate does not approve any appended page.")
+        else:
+            lines.append("No newly appended pages require manual review.")
+    lines.extend([
+        "",
+        "_This checks supplied local manifests, not live SEO, indexing, "
+        "customer adoption or revenue. Run the independent site verifier._",
+    ])
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Require an extended reviewed SEO manifest to retain every approved assertion"
@@ -64,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     output.add_argument(
         "--json-file", type=Path, metavar="PATH",
         help="Write complete review JSON to a new UTF-8 file outside the build; never overwrite",
+    )
+    output.add_argument(
+        "--markdown-file", type=Path, metavar="PATH",
+        help="Write a bounded, escaped manual-review summary to a new UTF-8 file",
     )
     parser.add_argument(
         "--github-annotations", action="store_true",
@@ -103,23 +163,29 @@ def main(argv: list[str] | None = None) -> int:
             ],
         }
     )
-    if args.json_file:
-        target = args.json_file
+    if args.json_file or args.markdown_file:
+        is_markdown = bool(args.markdown_file)
+        target = args.markdown_file if is_markdown else args.json_file
+        kind = "Markdown" if is_markdown else "JSON"
+        payload = (
+            _approval_markdown(report) if is_markdown
+            else json.dumps(report, indent=2, sort_keys=True) + "\n"
+        )
         created_identity: tuple[int, int] | None = None
         created = False
         try:
             if target.resolve().is_relative_to(args.build_dir.resolve(strict=True)):
-                raise ValueError("JSON report must be outside the static build")
+                raise ValueError(f"{kind} report must be outside the static build")
             if target.exists() or target.is_symlink():
-                raise FileExistsError(f"JSON report already exists: {target}")
+                raise FileExistsError(f"{kind} report already exists: {target}")
             if not target.parent.is_dir():
-                raise ValueError(f"JSON report parent must be an existing directory: {target.parent}")
+                raise ValueError(f"{kind} report parent must be an existing directory: {target.parent}")
             # Exclusive creation protects against another CI process winning the path.
             with target.open("x", encoding="utf-8", newline="\n") as output_file:
                 created = True
                 info = os.fstat(output_file.fileno())
                 created_identity = (info.st_dev, info.st_ino)
-                output_file.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+                output_file.write(payload)
         except (OSError, UnicodeError, ValueError) as error:
             cleanup = ""
             if created:
