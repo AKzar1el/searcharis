@@ -203,7 +203,7 @@ def _read_sitemaps(
 
     urls: dict[tuple, str] = {}
     seen_files: set[Path] = set()
-    host: str | None = None
+    site_scope: tuple[str, str, int | None] | None = None
     total_bytes = 0
     for path in files:
         if path in seen_files:
@@ -221,10 +221,15 @@ def _read_sitemaps(
         if index_site is not None and any(key[:3] != index_site for key in shard):
             raise ValueError("Indexed sitemap URL site differs from local shard page URLs")
         for identity, location in shard.items():
-            current_host = urlsplit(location).hostname
-            if host is not None and current_host != host:
-                raise ValueError("Sitemap loc URLs must belong to the same host across files")
-            host = current_host
+            # Mirror the single-urlset and sitemap-index site identity guard.
+            # A common hostname alone does not make HTTP, HTTPS or alternate
+            # effective ports interchangeable across explicit local shards.
+            current_scope = identity[:3]
+            if site_scope is not None and current_scope != site_scope:
+                raise ValueError(
+                    "Sitemap loc URLs must share scheme, host, and effective port across files; the same host alone is insufficient"
+                )
+            site_scope = current_scope
             if identity in urls:
                 raise ValueError(f"Duplicate sitemap loc URL identity across files: {location!r}")
             urls[identity] = location
