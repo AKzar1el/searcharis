@@ -34,7 +34,7 @@ class ContractCLIReadBoundsTests(unittest.TestCase):
                 self.assertEqual(contract_cli._read(self.path), text)
 
     def test_oversized_ascii_and_multibyte_inputs_are_rejected(self):
-        for data in (b"a" * 4_000_001, "é".encode("utf-8") * 2_000_001):
+        for data in (b"a" * 4_000_001, "é".encode() * 2_000_001):
             with self.subTest(size=len(data)):
                 self.path.write_bytes(data)
                 with self.assertRaisesRegex(ValueError, "File exceeds 4000000 bytes"):
@@ -47,7 +47,7 @@ class ContractCLIReadBoundsTests(unittest.TestCase):
 
     def test_stale_small_stat_cannot_allow_oversized_input(self):
         # Invalid UTF-8 at the boundary also proves size is checked before decoding.
-        for suffix in (b"a", b"\xff", "é".encode("utf-8")):
+        for suffix in (b"a", b"\xff", "é".encode()):
             with self.subTest(suffix=suffix):
                 self.path.write_bytes(b"a" * 4_000_000 + suffix)
                 with (
