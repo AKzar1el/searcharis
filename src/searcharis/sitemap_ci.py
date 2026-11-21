@@ -227,7 +227,7 @@ def _read_sitemaps(
             current_scope = identity[:3]
             if site_scope is not None and current_scope != site_scope:
                 raise ValueError(
-                    "Sitemap loc URLs must share scheme, host, and effective port across files"
+                    "Sitemap loc URLs must share scheme, host, and effective port across files; the same host alone is insufficient"
                 )
             site_scope = current_scope
             if identity in urls:
