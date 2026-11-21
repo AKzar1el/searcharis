@@ -934,9 +934,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged incremental-coverage Action revision, not
-    # an older revision that silently ignores the two new baseline options.
-    assert pin.group(1) == "c8cd398ec642b348f5b526cfb60b1fb23840e6f9"
+    # The earlier merged pin accepted explicitly blank opt-in boolean values.
+    # The copyable recipe must use the independently merged fail-closed fix.
+    assert pin.group(1) == "7194455b5e16b02052adfe7216922c423df1294e"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
