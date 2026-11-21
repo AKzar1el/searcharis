@@ -31,10 +31,12 @@ jobs:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
       # - run: mkdir -p seo-ci-reports  # Only when retaining local reports.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@64eb1509d0cb42a30fd6644b4e3817645a71bea4
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@25a6b057d7b936376b371eca0426f1cb96569459
         with:
           manifest: seo-manifest.json
           build-root: dist
+          # Only with a separately prepared, trusted baseline, not PR content:
+          # baseline-build-root: trusted-baseline-dist
           require-full-coverage: 'false'
           # To retain source-linked SARIF, enable both options after reviewing
           # and committing seo-source-map.json and creating seo-ci-reports/:
@@ -65,11 +67,12 @@ the runner image's changing default Node version. Adjust the pinned runtime to
 the consumer site's supported Node version, retain immutable Action references,
 and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
-The example pins the **independently merged PR #324** source revision
-`64eb1509d0cb42a30fd6644b4e3817645a71bea4`, which contains the optional
+The example pins the **independently merged PR #326** source revision
+`25a6b057d7b936376b371eca0426f1cb96569459`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
 reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
-inbound-path inputs, plus reviewed SARIF source hints. Earlier
+inbound-path inputs, reviewed SARIF source hints, and regression-only baseline
+comparison. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -104,11 +107,12 @@ against the immutable trusted PR base remains a **separate mandatory gate**:
 regression-only results cannot authorize new or weakened manifest assertions.
 
 **Pin compatibility:** The compact copyable `uses:` example above pins the
-independently merged #324 revision, which **does not** expose
-`baseline-build-root`. Do not add this input to that snippet until the
-new composite source is independently reviewed, guarded-merged and the
-40-character pin is advanced in a separate change. No customer installation,
-ranking improvement or revenue is asserted by local tests.
+independently merged #326 revision and already supports the regression-only input.
+The commented `baseline-build-root` is **not enabled by default**. Its example
+directory name is a placeholder: separately prepare and review a real baseline
+outside untrusted pull-request content before enabling it. Older pins may ignore
+unknown inputs without failing. No customer installation, ranking improvement
+or revenue is asserted by local tests.
 
 For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
 under the action step's `with:` inputs. The default `'false'` preserves
