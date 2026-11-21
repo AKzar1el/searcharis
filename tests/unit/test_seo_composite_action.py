@@ -26,7 +26,9 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["shell"] == "bash"
     assert "uses" not in step
     assert set(metadata["inputs"]) == {
-        "manifest", "build-root", "require-full-coverage", "report-directory",
+        "manifest", "build-root", "baseline-build-root", "require-full-coverage", "report-directory",
+        "fail-on-new-unlisted", "fail-on-new-unverified-targets",
+        "sarif-source-map",
         "check-hreflang-reciprocity",
         "check-hreflang-clusters",
         "check-internal-nofollow",
@@ -36,8 +38,12 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     }
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
+    assert metadata["inputs"]["baseline-build-root"]["default"] == ""
+    assert metadata["inputs"]["fail-on-new-unlisted"]["default"] == "false"
+    assert metadata["inputs"]["fail-on-new-unverified-targets"]["default"] == "false"
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
+    assert metadata["inputs"]["sarif-source-map"]["default"] == ""
     assert metadata["inputs"]["check-hreflang-reciprocity"]["default"] == "false"
     assert metadata["inputs"]["check-hreflang-clusters"]["default"] == "false"
     assert metadata["inputs"]["check-internal-nofollow"]["default"] == "false"
@@ -48,8 +54,12 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["require-inbound-paths"]["default"] == ""
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
+    assert step["env"]["SEO_BASELINE_BUILD_ROOT"] == "${{ inputs.baseline-build-root }}"
+    assert step["env"]["SEO_FAIL_ON_NEW_UNLISTED"] == "${{ inputs.fail-on-new-unlisted }}"
+    assert step["env"]["SEO_FAIL_ON_NEW_UNVERIFIED"] == "${{ inputs.fail-on-new-unverified-targets }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
+    assert step["env"]["SEO_SOURCE_MAP"] == "${{ inputs.sarif-source-map }}"
     assert step["env"]["SEO_HREFLANG_RECIPROCITY"] == "${{ inputs.check-hreflang-reciprocity }}"
     assert step["env"]["SEO_HREFLANG_CLUSTERS"] == "${{ inputs.check-hreflang-clusters }}"
     assert step["env"]["SEO_INTERNAL_NOFOLLOW"] == "${{ inputs.check-internal-nofollow }}"
@@ -62,7 +72,10 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert ACTION.parent.parents[3] == ROOT
     script = step["run"]
     assert "python3 -S -m searcharis.site_cli" in script
+    assert "python3 -S -m searcharis.build_compare" in script
     assert "--check-canonical-consistency" in script
+    assert "--fail-on-new-unlisted" in script
+    assert "--fail-on-new-unverified-targets" in script
     assert "--check-hreflang-reciprocity" in script
     assert "--check-hreflang-clusters" in script
     assert "--check-internal-nofollow" in script
@@ -72,6 +85,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "--check-reviewed-fragments" in script
     assert "--require-inbound-link" in script
     assert "--require-full-coverage" in script
+    assert "--sarif-source-map" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
     assert "exit \"$status\"" in script
@@ -395,6 +409,7 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
         (True, "true", 1),
         (True, "false", 0),
         (False, "TRUE", 2),
+        (False, "", 2),
     ],
 )
 def test_composite_action_opt_in_hreflang_cluster_consistency(
@@ -657,6 +672,258 @@ def test_composite_action_opt_in_critical_inbound_paths(
         assert (tmp_path / "summary.md").exists()
 
 
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    [("disabled", 1), ("valid", 1), ("unknown-artifact", 2), ("missing-map", 2)],
+)
+def test_composite_action_optional_sarif_source_provenance(
+    tmp_path: Path, mapping: str, expected: int,
+) -> None:
+    """Real Bash Action must map SARIF source hints without relaxing exit gates."""
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist/index.html").write_text(
+        '<html><head><link rel="canonical" href="https://example.test/"></head>'
+        '<body><h1>Home</h1></body></html>', encoding="utf-8",
+    )
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "version": 1, "pages": [{
+            "path": "index.html",
+            "contract": {"url": "https://example.test/", "title_present": True},
+        }],
+    }), encoding="utf-8")
+    source = tmp_path / "src/pages/index.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Home</h1>", encoding="utf-8")
+    if mapping in {"valid", "unknown-artifact"}:
+        (tmp_path / "map.json").write_text(json.dumps({
+            "version": 1,
+            "sources": {
+                "index.html" if mapping == "valid" else "unknown.html":
+                    "src/pages/index.astro",
+            },
+        }), encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json", "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false", "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": "false", "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_REVIEWED_NAVIGATION": "false", "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false", "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": "",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "SEO_SOURCE_MAP": "" if mapping == "disabled" else "map.json",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list((tmp_path / "reports").iterdir()) == []
+        return
+    report = json.loads((tmp_path / "reports/seo-site.sarif").read_text(encoding="utf-8"))
+    finding = report["runs"][0]["results"][0]
+    location = finding["locations"][0]["physicalLocation"]["artifactLocation"]
+    if mapping == "valid":
+        assert location == {"uri": "src/pages/index.astro"}
+        assert finding["relatedLocations"][0]["physicalLocation"]["artifactLocation"] == {
+            "uri": "index.html", "uriBaseId": "%BUILDROOT%",
+        }
+    else:
+        assert location == {"uri": "index.html", "uriBaseId": "%BUILDROOT%"}
+    assert (tmp_path / "summary.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("existing_failure", 0),
+        ("new_regression", 1),
+        ("same_root", 2),
+        ("missing_baseline", 2),
+        ("quoted_baseline", 0),
+    ],
+)
+def test_composite_action_opt_in_regression_only_baseline(
+    tmp_path: Path, case: str, expected: int,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    baseline_name = (
+        "prior build;touch hacked.txt" if case == "quoted_baseline" else "baseline"
+    )
+    shutil.copytree(FIXTURE / "artifacts", tmp_path / "dist")
+    shutil.copytree(FIXTURE / "artifacts", tmp_path / baseline_name)
+    shutil.copy2(FIXTURE / "manifest.json", tmp_path / "manifest.json")
+    if case == "existing_failure":
+        roots = (tmp_path / "dist", tmp_path / baseline_name)
+    elif case == "new_regression":
+        roots = (tmp_path / "dist",)
+    else:
+        roots = ()
+    for root in roots:
+        page = root / "index.html"
+        html = page.read_text(encoding="utf-8")
+        assert 'href="https://fixtures.invalid/"' in html
+        page.write_text(
+            html.replace(
+                'href="https://fixtures.invalid/"',
+                'href="https://fixtures.invalid/bad/"',
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_BASELINE_BUILD_ROOT": (
+            "dist" if case == "same_root" else
+            "missing-build" if case == "missing_baseline" else baseline_name
+        ),
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": "false",
+        "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": "",
+        "SEO_SOURCE_MAP": "",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    assert not (tmp_path / "hacked.txt").exists()
+    summary = tmp_path / "summary.md"
+    if expected == 2:
+        assert not summary.exists()
+        assert not list((tmp_path / "reports").iterdir())
+    else:
+        assert f"**Result: {'PASS' if expected == 0 else 'REGRESSION'}**" in summary.read_text(
+            encoding="utf-8",
+        )
+        assert sorted(p.name for p in (tmp_path / "reports").iterdir()) == [
+            "seo-comparison.json", "seo-comparison.md",
+            "seo-comparison.sarif", "seo-comparison.xml",
+        ]
+        assert ('::error' in result.stdout) == (expected == 1)
+
+
+@pytest.mark.parametrize(
+    ("case", "new_unlisted", "new_unverified", "expected"),
+    [
+        ("new_unlisted", "false", "false", 0),
+        ("new_unlisted", "true", "false", 1),
+        ("existing_unlisted", "true", "false", 0),
+        ("new_unverified", "false", "false", 0),
+        ("new_unverified", "false", "true", 1),
+        ("new_unlisted", "enabled", "false", 2),
+        ("new_unverified", "false", "TRUE", 2),
+        ("new_unlisted", "", "false", 2),
+        ("new_unverified", "false", "", 2),
+        ("no_baseline", "true", "false", 2),
+        ("no_baseline", "false", "true", 2),
+    ],
+)
+def test_composite_action_incremental_coverage_options(
+    tmp_path: Path, case: str, new_unlisted: str, new_unverified: str, expected: int,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    baseline = tmp_path / "baseline"
+    build = tmp_path / "dist"
+    baseline.mkdir()
+    build.mkdir()
+    page = (
+        '<html><head><title>Reviewed</title>'
+        '<link rel="canonical" href="https://example.test/"></head><body></body></html>'
+    )
+    for root in (baseline, build):
+        (root / "index.html").write_text(page, encoding="utf-8")
+    if case in ("new_unlisted", "existing_unlisted"):
+        (build / "extra.html").write_text("<html><title>Extra</title></html>", encoding="utf-8")
+    if case == "existing_unlisted":
+        (baseline / "extra.html").write_text("<html><title>Extra</title></html>", encoding="utf-8")
+    if case == "new_unverified":
+        (build / "index.html").write_text(
+            page.replace("https://example.test/", "https://outside.test/"), encoding="utf-8",
+        )
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "version": 1,
+        "pages": [{"path": "index.html", "contract": {
+            "url": "https://example.test/", "title_present": True,
+        }}],
+    }), encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_BASELINE_BUILD_ROOT": "" if case == "no_baseline" else "baseline",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": "false",
+        "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": "",
+        "SEO_SOURCE_MAP": "",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "SEO_FAIL_ON_NEW_UNLISTED": new_unlisted,
+        "SEO_FAIL_ON_NEW_UNVERIFIED": new_unverified,
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert not list((tmp_path / "reports").iterdir())
+    else:
+        assert (tmp_path / "summary.md").is_file()
+
+
 def test_composite_action_adoption_guide_preserves_manual_approval_boundary() -> None:
     guide = (ACTION.parent.parent / "README.md").read_text(encoding="utf-8")
     # A copyable example must resolve to an independently merged action, not
@@ -667,9 +934,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision implementing critical inbound
-    # reviewed paths, not the older revision that silently ignores this input.
-    assert pin.group(1) == "c81e291c2b9bbaa8b19d417090b5efe2f2c982c3"
+    # The earlier merged pin accepted explicitly blank opt-in boolean values.
+    # The copyable recipe must use the independently merged fail-closed fix.
+    assert pin.group(1) == "7194455b5e16b02052adfe7216922c423df1294e"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -695,6 +962,11 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "# require-inbound-paths: |" in guide
     assert "#   pricing/index.html" in guide
     assert "already supports the critical inbound" in guide
+    assert "# - run: mkdir -p seo-ci-reports" in guide
+    assert "# report-directory: seo-ci-reports" in guide
+    assert "# sarif-source-map: seo-source-map.json" in guide
+    assert "already supports the optional source-map input" in guide
+    assert "does not yet support\n`sarif-source-map`" not in guide
     assert "predates this new" not in guide
     assert "already supports both reviewed navigation and fragment inputs" in guide
     assert "**does not** contain these two new Action inputs" not in guide
@@ -705,6 +977,21 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "# check-unique-descriptions: 'true'" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
+    # The example must expose the opt-in without ever enabling it by default.
+    assert "baseline-build-root" in guide
+    assert "# baseline-build-root: trusted-baseline-dist" in guide
+    assert "# fail-on-new-unlisted: 'true'" in guide
+    assert "# fail-on-new-unverified-targets: 'true'" in guide
+    assert "already supports both incremental coverage inputs" in guide
+    assert "already supports the regression-only input" in guide
+    assert "which **does not** expose" not in guide
+    assert "Manifest approval" in guide
+    recipe = re.search(r"```yaml\n(.*?)\n```", guide, re.DOTALL)
+    assert recipe is not None
+    assert "# baseline-build-root: trusted-baseline-dist" in recipe.group(1)
+    assert "\n          baseline-build-root:" not in recipe.group(1)
+    assert "\n          fail-on-new-unlisted:" not in recipe.group(1)
+    assert "\n          fail-on-new-unverified-targets:" not in recipe.group(1)
 
 
 def test_compact_consumer_recipe_pins_the_same_node_runtime_as_full_recipe() -> None:

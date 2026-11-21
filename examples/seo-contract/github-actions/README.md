@@ -30,11 +30,21 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@c81e291c2b9bbaa8b19d417090b5efe2f2c982c3
+      # - run: mkdir -p seo-ci-reports  # Only when retaining local reports.
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@7194455b5e16b02052adfe7216922c423df1294e
         with:
           manifest: seo-manifest.json
           build-root: dist
+          # Only with a separately prepared, trusted baseline, not PR content:
+          # baseline-build-root: trusted-baseline-dist
+          # With that trusted baseline, opt in to only *new* coverage gaps:
+          # fail-on-new-unlisted: 'true'
+          # fail-on-new-unverified-targets: 'true'
           require-full-coverage: 'false'
+          # To retain source-linked SARIF, enable both options after reviewing
+          # and committing seo-source-map.json and creating seo-ci-reports/:
+          # report-directory: seo-ci-reports
+          # sarif-source-map: seo-source-map.json
           # For multilingual sites, opt in to local hreflang return-link checks:
           # check-hreflang-reciprocity: 'true'
           # Only for complete language sets, check consistent locale clusters:
@@ -60,12 +70,15 @@ the runner image's changing default Node version. Adjust the pinned runtime to
 the consumer site's supported Node version, retain immutable Action references,
 and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
-The example pins the **independently merged PR #320** source revision
-`c81e291c2b9bbaa8b19d417090b5efe2f2c982c3`, which contains the optional
+The example pins the **independently merged PR #332** main revision
+`7194455b5e16b02052adfe7216922c423df1294e`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
 reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
-inbound-path inputs. Earlier
-pinned revisions silently ignore unrecognized inputs. Review that source
+inbound-path inputs, reviewed SARIF source hints, and regression-only baseline
+comparison including incremental coverage checks. This revision also rejects
+explicitly blank optional boolean inputs (exit 2) instead of silently
+disabling requested checks. Earlier pinned revisions may silently ignore
+unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
@@ -77,6 +90,55 @@ summary on exit **0** (pass) or **1** (policy regression). Invalid/missing input
 exits **2** without a misleading success summary. By default, unreviewed HTML
 remains reported but not blocked; set `require-full-coverage: 'true'` only after
 all pages are deliberately reviewed.
+
+### Optional regression-only comparison against a trusted build
+
+The composite Action source also accepts a default-empty
+`baseline-build-root` input. When supplied, the Action delegates to the
+existing offline `searcharis.build_compare` instead of the strict
+`searcharis.site_cli`: **existing baseline failures do not block**, but newly
+introduced SEO regressions fail with exit **1**. Invalid or overlapping build
+roots fail with exit **2** without a success summary. The same manually
+reviewed manifest and opt-in checks apply to both local builds. The Action
+does **not** fetch, generate, deploy or authenticate the baseline.
+
+Prepare a **trusted, independently reviewed** baseline build in a distinct
+directory before invoking the Action; do not reuse a pull-request-controlled
+build as its own baseline or alias it through shared HTML hard links. When
+retaining reports, the Action writes `seo-comparison.{json,xml,md,sarif}`
+create-only into the existing `report-directory` and appends the Markdown
+comparison to the GitHub step summary only on exits 0 or 1. Manifest approval
+against the immutable trusted PR base remains a **separate mandatory gate**:
+regression-only results cannot authorize new or weakened manifest assertions.
+
+**Pin compatibility:** The compact copyable `uses:` example above pins the
+independently merged #332 main revision and already supports the regression-only input.
+The commented `baseline-build-root` is **not enabled by default**. Its example
+directory name is a placeholder: separately prepare and review a real baseline
+outside untrusted pull-request content before enabling it. Older pins may ignore
+unknown inputs without failing. No customer installation, ranking improvement
+or revenue is asserted by local tests.
+
+### Incremental coverage for gradually reviewed sites
+
+For a trusted baseline comparison, two independent, default-off Action inputs
+expose existing offline `build_compare` checks:
+`fail-on-new-unlisted: 'true'` rejects newly created HTML outside the reviewed
+manifest while tolerating *inherited* unlisted pages. Separately,
+`fail-on-new-unverified-targets: 'true'` rejects newly unverified canonical or
+hreflang destinations from enabled cross-page checks (the Action already enables
+canonical consistency). These checks do not approve any new manifest entries,
+fetch URLs, or claim that targets are broken on the live site. Invalid boolean
+values (including explicitly empty strings), or enabling either without
+`baseline-build-root`, fail as input error 2.
+Both flags stay false for strict single-build checks and for comparisons unless
+the operator deliberately opts in.
+
+**Compatibility:** The copyable `uses:` reference above already supports both incremental coverage inputs through the independently merged #332 main revision.
+Both inputs are shown as comments and remain disabled by default; do not enable
+either without a separately prepared trusted baseline. Keep that baseline
+independent of pull-request-controlled content and run the separate
+approved-manifest comparison against the immutable PR base.
 
 For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
 under the action step's `with:` inputs. The default `'false'` preserves
@@ -189,6 +251,41 @@ path input at the independently merged full SHA. Older revisions may silently
 ignore this input; verify the pinned Action before enabling it. Manual trusted-base
 manifest approval remains a separate gate;
 no URL is fetched, customer workflow installed or site changed here.
+
+### Optional source-linked SARIF hints
+
+The **Action source** now offers a default-off `sarif-source-map` input. It
+reuses the existing offline CLI's explicit source mapping when producing the
+`seo-site.sarif` report, so a reviewed built HTML finding can point to a
+corresponding checked-in Astro/Vite template instead of only the compiled
+`dist/` artifact. For example, from the site repository root, commit and
+review a separate `seo-source-map.json`:
+
+```json
+{
+  "version": 1,
+  "sources": {
+    "index.html": "src/pages/index.astro"
+  }
+}
+```
+
+On an Action revision containing this input, optionally supply
+`sarif-source-map: seo-source-map.json` under `with:`. Source paths must be
+existing repository files, and artifact keys must name built HTML paths
+from the supplied manifest or discovered build. A missing or invalid map is
+an input error (exit **2**) with no trusted report bundle; omitting the input
+preserves the ordinary compiled-artifact SARIF locations. The map is only a
+reviewer-provided source *hint*: it cannot establish precise source line
+provenance, source-map generation correctness, live page behavior or indexing.
+
+**Pin compatibility:** The copyable `uses:` snippet above already supports the optional source-map input
+at the independently merged full SHA. To retain source-linked SARIF for local
+review, first commit a manually reviewed source map, uncomment the directory
+creation step and both `report-directory` and `sarif-source-map` inputs.
+Earlier pins may silently ignore unknown inputs. SARIF remains a local
+create-only file in the optional report directory; nothing uploads it or
+changes the separate manual manifest-approval gate.
 
 ### Optional portable reviewer reports
 

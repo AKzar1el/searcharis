@@ -7,6 +7,18 @@ inputs:
   build-root:
     description: Site-relative path to the already compiled HTML directory.
     required: true
+  baseline-build-root:
+    description: Optional separate trusted compiled baseline directory; enables regression-only comparisons, never fetches a baseline.
+    required: false
+    default: ''
+  fail-on-new-unlisted:
+    description: With a trusted baseline, reject only newly unlisted HTML paths without blocking inherited coverage gaps.
+    required: false
+    default: 'false'
+  fail-on-new-unverified-targets:
+    description: With a trusted baseline, reject newly unverified canonical or hreflang targets from enabled cross-page checks.
+    required: false
+    default: 'false'
   require-full-coverage:
     description: Reject unreviewed built HTML paths after the site has completed manual onboarding.
     required: false
@@ -47,6 +59,10 @@ inputs:
     description: Optional existing directory outside the compiled build for create-only JSON/JUnit/Markdown/SARIF reports.
     required: false
     default: ''
+  sarif-source-map:
+    description: Optional reviewed JSON map of built HTML artifacts to existing repository source files for local SARIF hints.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -55,6 +71,9 @@ runs:
       env:
         SEO_MANIFEST: ${{ inputs.manifest }}
         SEO_BUILD_ROOT: ${{ inputs.build-root }}
+        SEO_BASELINE_BUILD_ROOT: ${{ inputs.baseline-build-root }}
+        SEO_FAIL_ON_NEW_UNLISTED: ${{ inputs.fail-on-new-unlisted }}
+        SEO_FAIL_ON_NEW_UNVERIFIED: ${{ inputs.fail-on-new-unverified-targets }}
         SEO_STRICT_COVERAGE: ${{ inputs.require-full-coverage }}
         SEO_HREFLANG_RECIPROCITY: ${{ inputs.check-hreflang-reciprocity }}
         SEO_HREFLANG_CLUSTERS: ${{ inputs.check-hreflang-clusters }}
@@ -65,6 +84,7 @@ runs:
         SEO_UNIQUE_TITLES: ${{ inputs.check-unique-titles }}
         SEO_UNIQUE_DESCRIPTIONS: ${{ inputs.check-unique-descriptions }}
         SEO_REPORT_DIRECTORY: ${{ inputs.report-directory }}
+        SEO_SOURCE_MAP: ${{ inputs.sarif-source-map }}
         PYTHONPATH: ${{ github.action_path }}/../../../../src
       run: |
         set -euo pipefail
@@ -86,7 +106,7 @@ runs:
             exit 2
             ;;
         esac
-        case "${SEO_HREFLANG_CLUSTERS:-false}" in
+        case "${SEO_HREFLANG_CLUSTERS-false}" in
           true|false) ;;
           *)
             echo "check-hreflang-clusters must be exactly true or false." >&2
@@ -128,6 +148,26 @@ runs:
             exit 2
             ;;
         esac
+        case "${SEO_FAIL_ON_NEW_UNLISTED-false}" in
+          true|false) ;;
+          *)
+            echo "fail-on-new-unlisted must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        case "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" in
+          true|false) ;;
+          *)
+            echo "fail-on-new-unverified-targets must be exactly true or false." >&2
+            exit 2
+            ;;
+        esac
+        if [ -z "${SEO_BASELINE_BUILD_ROOT:-}" ] && {
+          [ "${SEO_FAIL_ON_NEW_UNLISTED-false}" = true ] ||
+          [ "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" = true ]; }; then
+          echo "Incremental coverage options require a trusted baseline-build-root." >&2
+          exit 2
+        fi
 
         if [ -n "$SEO_REPORT_DIRECTORY" ]; then
           # A consumer-owned existing directory preserves reviewer artifacts.
@@ -135,8 +175,23 @@ runs:
         else
           report_dir="$(mktemp -d)"
         fi
-        options=("$SEO_MANIFEST" "$SEO_BUILD_ROOT")
+        if [ -n "${SEO_BASELINE_BUILD_ROOT:-}" ]; then
+          options=("$SEO_MANIFEST" "$SEO_BASELINE_BUILD_ROOT" "$SEO_BUILD_ROOT")
+          summary_name=seo-comparison.md
+        else
+          options=("$SEO_MANIFEST" "$SEO_BUILD_ROOT")
+          summary_name=seo-site.md
+        fi
         options+=(--check-canonical-consistency --github-annotations --report-dir "$report_dir")
+        if [ "${SEO_FAIL_ON_NEW_UNLISTED-false}" = true ]; then
+          options+=(--fail-on-new-unlisted)
+        fi
+        if [ "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" = true ]; then
+          options+=(--fail-on-new-unverified-targets)
+        fi
+        if [ -n "${SEO_SOURCE_MAP:-}" ]; then
+          options+=(--sarif-source-map "$SEO_SOURCE_MAP")
+        fi
         if [ "$SEO_STRICT_COVERAGE" = true ]; then
           options+=(--require-full-coverage)
         fi
@@ -181,12 +236,16 @@ runs:
 
         # Both a failing assertion (1) and invalid input (2) must still fail CI.
         set +e
-        python3 -S -m searcharis.site_cli "${options[@]}"
+        if [ -n "${SEO_BASELINE_BUILD_ROOT:-}" ]; then
+          python3 -S -m searcharis.build_compare "${options[@]}"
+        else
+          python3 -S -m searcharis.site_cli "${options[@]}"
+        fi
         status=$?
         set -e
-        if [ "$status" -le 1 ] && [ -f "$report_dir/seo-site.md" ]; then
+        if [ "$status" -le 1 ] && [ -f "$report_dir/$summary_name" ]; then
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-            cat "$report_dir/seo-site.md" >> "$GITHUB_STEP_SUMMARY"
+            cat "$report_dir/$summary_name" >> "$GITHUB_STEP_SUMMARY"
           fi
         fi
         exit "$status"
