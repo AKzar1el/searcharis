@@ -75,10 +75,15 @@ def _check_independent_snapshots(
 
 def compare_sitemap_reports(baseline: dict, candidate: dict) -> dict:
     """Compare verified reports using exact reviewed URL identities."""
+    optional_checks = ("present_noncanonical", "unreviewed_urls")
+    if any((check in baseline) != (check in candidate) for check in optional_checks):
+        raise ValueError(
+            "Sitemap reports use different optional checks; "
+            "regenerate both with matching policies"
+        )
     categories = tuple(
-        category for category in (
-            *_DEFAULT_CATEGORIES, "present_noncanonical", "unreviewed_urls",
-        ) if category in baseline and category in candidate
+        category for category in (*_DEFAULT_CATEGORIES, *optional_checks)
+        if category in baseline and category in candidate
     )
     sections: dict[str, dict[str, list[str]]] = {
         "new": {}, "inherited": {}, "resolved": {},
