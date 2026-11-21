@@ -27,6 +27,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "uses" not in step
     assert set(metadata["inputs"]) == {
         "manifest", "build-root", "baseline-build-root", "require-full-coverage", "report-directory",
+        "fail-on-new-unlisted", "fail-on-new-unverified-targets",
         "sarif-source-map",
         "check-hreflang-reciprocity",
         "check-hreflang-clusters",
@@ -38,6 +39,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["manifest"]["required"] is True
     assert metadata["inputs"]["build-root"]["required"] is True
     assert metadata["inputs"]["baseline-build-root"]["default"] == ""
+    assert metadata["inputs"]["fail-on-new-unlisted"]["default"] == "false"
+    assert metadata["inputs"]["fail-on-new-unverified-targets"]["default"] == "false"
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
     assert metadata["inputs"]["sarif-source-map"]["default"] == ""
@@ -52,6 +55,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["env"]["SEO_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_BASELINE_BUILD_ROOT"] == "${{ inputs.baseline-build-root }}"
+    assert step["env"]["SEO_FAIL_ON_NEW_UNLISTED"] == "${{ inputs.fail-on-new-unlisted }}"
+    assert step["env"]["SEO_FAIL_ON_NEW_UNVERIFIED"] == "${{ inputs.fail-on-new-unverified-targets }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
     assert step["env"]["SEO_SOURCE_MAP"] == "${{ inputs.sarif-source-map }}"
@@ -69,6 +74,8 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "python3 -S -m searcharis.site_cli" in script
     assert "python3 -S -m searcharis.build_compare" in script
     assert "--check-canonical-consistency" in script
+    assert "--fail-on-new-unlisted" in script
+    assert "--fail-on-new-unverified-targets" in script
     assert "--check-hreflang-reciprocity" in script
     assert "--check-hreflang-clusters" in script
     assert "--check-internal-nofollow" in script
@@ -828,6 +835,90 @@ def test_composite_action_opt_in_regression_only_baseline(
             "seo-comparison.sarif", "seo-comparison.xml",
         ]
         assert ('::error' in result.stdout) == (expected == 1)
+
+
+@pytest.mark.parametrize(
+    ("case", "new_unlisted", "new_unverified", "expected"),
+    [
+        ("new_unlisted", "false", "false", 0),
+        ("new_unlisted", "true", "false", 1),
+        ("existing_unlisted", "true", "false", 0),
+        ("new_unverified", "false", "false", 0),
+        ("new_unverified", "false", "true", 1),
+        ("new_unlisted", "enabled", "false", 2),
+        ("new_unverified", "false", "TRUE", 2),
+        ("no_baseline", "true", "false", 2),
+        ("no_baseline", "false", "true", 2),
+    ],
+)
+def test_composite_action_incremental_coverage_options(
+    tmp_path: Path, case: str, new_unlisted: str, new_unverified: str, expected: int,
+) -> None:
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    baseline = tmp_path / "baseline"
+    build = tmp_path / "dist"
+    baseline.mkdir()
+    build.mkdir()
+    page = (
+        '<html><head><title>Reviewed</title>'
+        '<link rel="canonical" href="https://example.test/"></head><body></body></html>'
+    )
+    for root in (baseline, build):
+        (root / "index.html").write_text(page, encoding="utf-8")
+    if case in ("new_unlisted", "existing_unlisted"):
+        (build / "extra.html").write_text("<html><title>Extra</title></html>", encoding="utf-8")
+    if case == "existing_unlisted":
+        (baseline / "extra.html").write_text("<html><title>Extra</title></html>", encoding="utf-8")
+    if case == "new_unverified":
+        (build / "index.html").write_text(
+            page.replace("https://example.test/", "https://outside.test/"), encoding="utf-8",
+        )
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "version": 1,
+        "pages": [{"path": "index.html", "contract": {
+            "url": "https://example.test/", "title_present": True,
+        }}],
+    }), encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json",
+        "SEO_BUILD_ROOT": "dist",
+        "SEO_BASELINE_BUILD_ROOT": "" if case == "no_baseline" else "baseline",
+        "SEO_STRICT_COVERAGE": "false",
+        "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": "false",
+        "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_REVIEWED_NAVIGATION": "false",
+        "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false",
+        "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": "",
+        "SEO_SOURCE_MAP": "",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "SEO_FAIL_ON_NEW_UNLISTED": new_unlisted,
+        "SEO_FAIL_ON_NEW_UNVERIFIED": new_unverified,
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert not list((tmp_path / "reports").iterdir())
+    else:
+        assert (tmp_path / "summary.md").is_file()
 
 
 def test_composite_action_adoption_guide_preserves_manual_approval_boundary() -> None:

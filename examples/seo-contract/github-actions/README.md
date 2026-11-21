@@ -114,6 +114,27 @@ outside untrusted pull-request content before enabling it. Older pins may ignore
 unknown inputs without failing. No customer installation, ranking improvement
 or revenue is asserted by local tests.
 
+### Incremental coverage for gradually reviewed sites (new Action source)
+
+For a trusted baseline comparison, two independent, default-off Action inputs
+expose existing offline `build_compare` checks:
+`fail-on-new-unlisted: 'true'` rejects newly created HTML outside the reviewed
+manifest while tolerating *inherited* unlisted pages. Separately,
+`fail-on-new-unverified-targets: 'true'` rejects newly unverified canonical or
+hreflang destinations from enabled cross-page checks (the Action already enables
+canonical consistency). These checks do not approve any new manifest entries,
+fetch URLs, or claim that targets are broken on the live site. Invalid boolean
+values, or enabling either without `baseline-build-root`, fail as input error 2.
+Both flags stay false for strict single-build checks and for comparisons unless
+the operator deliberately opts in.
+
+**Compatibility:** The copyable `uses:` reference above intentionally stays
+pinned to independently merged #326, which **does not support these two new
+inputs**. Do not add them to that snippet: after this Action change is independently
+reviewed and merged, advance the consumer pin in a separate reviewed change.
+Keep the trusted baseline independent of pull-request-controlled content and
+run the separate approved-manifest comparison against the immutable PR base.
+
 For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
 under the action step's `with:` inputs. The default `'false'` preserves
 existing runs. This optional **offline** check requires a reciprocal
