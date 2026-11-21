@@ -705,3 +705,17 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "# check-unique-descriptions: 'true'" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
+
+
+def test_compact_consumer_recipe_pins_the_same_node_runtime_as_full_recipe() -> None:
+    guide = (ACTION.parent.parent / "README.md").read_text(encoding="utf-8")
+    full_recipe = (ACTION.parent.parent / "seo-contract.example.yml").read_text(encoding="utf-8")
+    snippet_match = re.search(r"```yaml\n(.*?)\n```", guide, re.DOTALL)
+    assert snippet_match is not None
+    snippet = snippet_match.group(1)
+
+    pinned_setup_node = re.search(r"uses: (actions/setup-node@[0-9a-f]{40})", full_recipe)
+    assert pinned_setup_node is not None
+    assert f"uses: {pinned_setup_node.group(1)}" in snippet
+    assert "node-version: '22'" in snippet
+    assert snippet.index("actions/setup-node@") < snippet.index("npm ci && npm run build")
