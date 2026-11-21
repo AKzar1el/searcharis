@@ -1079,6 +1079,43 @@ def test_invalid_contract_url_cannot_pass_title_only_check(bad_url):
         verify_contract({"url": bad_url, "title_present": True}, HTML)
 
 
+@pytest.mark.parametrize("control", [
+    "\u202e", "\u2066", "\u200b", "\ufeff", "\u200e", "\u2069", "\x7f",
+] + [chr(code) for code in range(0x80, 0xa0)])
+@pytest.mark.parametrize("template", [
+    "{}https://example.com/en/",
+    "https://ex{}ample.com/en/",
+    "https://example.com/en/{}page",
+    "https://example.com/en/?q=a{}b",
+    "https://example.com/en/{}",
+])
+def test_raw_invisible_controls_cannot_pass_title_only_contract(control, template):
+    with pytest.raises(ValueError, match="HTTP\\(S\\) URL"):
+        verify_contract({"url": template.format(control), "title_present": True}, HTML)
+
+
+@pytest.mark.parametrize("field", [
+    "canonical", "hreflang", "og_url_equals", "og_image_equals", "twitter_image_equals",
+])
+def test_raw_invisible_control_in_expected_seo_url_is_input_error(field):
+    target = "https://example.com/en/\u202e"
+    value = {"en": target} if field == "hreflang" else target
+    with pytest.raises(ValueError, match="absolute HTTP\\(S\\) URL"):
+        verify_contract({"url": URL, field: value}, HTML)
+
+
+@pytest.mark.parametrize("url", [
+    "https://example.com/café/東京",
+    "http://example.com:8080/café/東京?q=été",
+    "https://example.com/caf%C3%A9/%E6%9D%B1%E4%BA%AC",
+    "https://example.com/a%20b/%23/%E2%80%AE/%7F/%C2%80",
+])
+def test_printable_international_and_percent_encoded_url_paths_remain_supported(url):
+    html = f'<html><head><title>Page</title><link rel="canonical" href="{url}"></head></html>'
+    report = verify_contract({"url": url, "title_present": True, "canonical": url}, html)
+    assert report["status"] == "pass", report["issues"]
+
+
 @pytest.mark.parametrize("fragment_url", [
     URL + "#section", URL + "#", URL + "?view=full#section",
 ])
@@ -1163,6 +1200,10 @@ def test_encoded_host_in_observed_canonical_is_not_treated_as_valid():
     "https://[::1]:/en/",
     "https://example.com/en/#section",
     "https://example.com/en/#",
+    "https://ex\u200bample.com/en/",
+    "https://example.com/en/\u202e",
+    "https://example.com/en/\x7f",
+    "https://example.com/en/\x80",
 ])
 def test_invalid_observed_canonical_does_not_pass_presence(observed):
     html = f'<html><head><link rel="canonical" href="{observed}"></head></html>'
