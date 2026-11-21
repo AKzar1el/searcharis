@@ -931,9 +931,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged regression-only Action revision, not an
-    # older revision that silently ignores baseline-build-root.
-    assert pin.group(1) == "25a6b057d7b936376b371eca0426f1cb96569459"
+    # Pin the independently merged incremental-coverage Action revision, not
+    # an older revision that silently ignores the two new baseline options.
+    assert pin.group(1) == "c8cd398ec642b348f5b526cfb60b1fb23840e6f9"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -977,6 +977,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     # The example must expose the opt-in without ever enabling it by default.
     assert "baseline-build-root" in guide
     assert "# baseline-build-root: trusted-baseline-dist" in guide
+    assert "# fail-on-new-unlisted: 'true'" in guide
+    assert "# fail-on-new-unverified-targets: 'true'" in guide
+    assert "already supports both incremental coverage inputs" in guide
     assert "already supports the regression-only input" in guide
     assert "which **does not** expose" not in guide
     assert "Manifest approval" in guide
@@ -984,6 +987,8 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert recipe is not None
     assert "# baseline-build-root: trusted-baseline-dist" in recipe.group(1)
     assert "\n          baseline-build-root:" not in recipe.group(1)
+    assert "\n          fail-on-new-unlisted:" not in recipe.group(1)
+    assert "\n          fail-on-new-unverified-targets:" not in recipe.group(1)
 
 
 def test_compact_consumer_recipe_pins_the_same_node_runtime_as_full_recipe() -> None:
