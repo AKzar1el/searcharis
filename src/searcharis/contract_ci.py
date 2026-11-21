@@ -11,6 +11,7 @@ import json
 import re
 from html.parser import HTMLParser
 from math import isfinite
+from unicodedata import category
 from urllib.parse import urljoin, urlsplit
 
 _ALLOWED = frozenset({
@@ -604,7 +605,8 @@ def _is_http_url(value: str) -> bool:
             # Browsers interpret backslashes as slashes in HTTP(S) URLs,
             # while urlsplit preserves them and may infer a different host.
             and "\\" not in value
-            and not any(char.isspace() or ord(char) < 32 for char in value)
+            # Raw controls and invisible formatting cannot identify public URLs.
+            and not any(char.isspace() or category(char) in {"Cc", "Cf"} for char in value)
         )
     except ValueError:
         return False
