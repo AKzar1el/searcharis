@@ -24,12 +24,14 @@ class SourceMapReadBoundsTests(unittest.TestCase):
     def test_stale_small_stat_cannot_accept_oversized_map(self):
         prefix = b'{"version":1,"sources":{}}'
         self.path.write_bytes(prefix + b" " * (_MAX_BYTES + 1 - len(prefix)))
-        with patch.object(Path, "stat", return_value=SimpleNamespace(st_size=1)):
-            with self.assertRaisesRegex(ValueError, "Source map exceeds 1000000 bytes"):
-                self.read_map()
+        with (
+            patch.object(Path, "stat", return_value=SimpleNamespace(st_size=1)),
+            self.assertRaisesRegex(ValueError, "Source map exceeds 1000000 bytes"),
+        ):
+            self.read_map()
 
     def test_exact_byte_limit_and_utf8_crlf_are_supported(self):
-        prefix = '{\r\n"version": 1, "sources": {}\r\n}'.encode("utf-8")
+        prefix = b'{\r\n"version": 1, "sources": {}\r\n}'
         self.path.write_bytes(prefix + b" " * (_MAX_BYTES - len(prefix)))
         self.assertEqual(self.read_map(), {})
 
@@ -54,9 +56,11 @@ class SourceMapReadBoundsTests(unittest.TestCase):
                 return super().read(size)
 
         stream = RecordedStream(b" " * (_MAX_BYTES + 20))
-        with patch.object(Path, "open", return_value=stream) as opened:
-            with self.assertRaisesRegex(ValueError, "Source map exceeds 1000000 bytes"):
-                self.read_map()
+        with (
+            patch.object(Path, "open", return_value=stream) as opened,
+            self.assertRaisesRegex(ValueError, "Source map exceeds 1000000 bytes"),
+        ):
+            self.read_map()
         opened.assert_called_once_with("rb")
         self.assertEqual(stream.sizes, [_MAX_BYTES + 1])
         self.assertTrue(stream.closed)
