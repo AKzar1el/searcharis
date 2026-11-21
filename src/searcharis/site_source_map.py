@@ -39,10 +39,16 @@ def _relative_posix(value: object) -> str:
 
 def read_source_map(file: Path, report: dict, *, source_root: Path) -> dict[str, str]:
     """Read bounded explicit mappings, requiring each source within source_root."""
-    if file.stat().st_size > _MAX_BYTES:
+    # A source-map producer may append bytes between a stat check and a read.
+    # Enforce the limit on bytes actually consumed before decoding or parsing.
+    with file.open("rb") as stream:
+        data = stream.read(_MAX_BYTES + 1)
+    if len(data) > _MAX_BYTES:
         raise ValueError(f"Source map exceeds {_MAX_BYTES} bytes: {file}")
     try:
-        mapping = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+        # Preserve Path.read_text's universal-newline normalization.
+        mapping = json.loads(data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n"),
+                             object_pairs_hook=_unique_object)
     except RecursionError as error:
         # A small, deeply nested map must be an input error, not a CLI traceback.
         raise ValueError("Source-map JSON exceeds supported nesting depth") from error
