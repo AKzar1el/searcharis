@@ -840,9 +840,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision with source-linked SARIF
-    # hints, not the older revision that silently ignores that input.
-    assert pin.group(1) == "64eb1509d0cb42a30fd6644b4e3817645a71bea4"
+    # Pin the independently merged regression-only Action revision, not an
+    # older revision that silently ignores baseline-build-root.
+    assert pin.group(1) == "25a6b057d7b936376b371eca0426f1cb96569459"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -883,14 +883,16 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "# check-unique-descriptions: 'true'" in guide
     assert "seo-site.json" in guide
     assert "predates the option" not in guide
-    # The new regression-only input is not usable by the currently merged
-    # consumer pin; onboarding must not silently enable an unsupported input.
+    # The example must expose the opt-in without ever enabling it by default.
     assert "baseline-build-root" in guide
-    assert "which **does not** expose" in guide
+    assert "# baseline-build-root: trusted-baseline-dist" in guide
+    assert "already supports the regression-only input" in guide
+    assert "which **does not** expose" not in guide
     assert "Manifest approval" in guide
     recipe = re.search(r"```yaml\n(.*?)\n```", guide, re.DOTALL)
     assert recipe is not None
-    assert "baseline-build-root:" not in recipe.group(1)
+    assert "# baseline-build-root: trusted-baseline-dist" in recipe.group(1)
+    assert "\n          baseline-build-root:" not in recipe.group(1)
 
 
 def test_compact_consumer_recipe_pins_the_same_node_runtime_as_full_recipe() -> None:
