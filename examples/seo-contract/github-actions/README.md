@@ -190,6 +190,41 @@ ignore this input; verify the pinned Action before enabling it. Manual trusted-b
 manifest approval remains a separate gate;
 no URL is fetched, customer workflow installed or site changed here.
 
+### Optional source-linked SARIF hints
+
+The **Action source** now offers a default-off `sarif-source-map` input. It
+reuses the existing offline CLI's explicit source mapping when producing the
+`seo-site.sarif` report, so a reviewed built HTML finding can point to a
+corresponding checked-in Astro/Vite template instead of only the compiled
+`dist/` artifact. For example, from the site repository root, commit and
+review a separate `seo-source-map.json`:
+
+```json
+{
+  "version": 1,
+  "sources": {
+    "index.html": "src/pages/index.astro"
+  }
+}
+```
+
+On an Action revision containing this input, optionally supply
+`sarif-source-map: seo-source-map.json` under `with:`. Source paths must be
+existing repository files, and artifact keys must name built HTML paths
+from the supplied manifest or discovered build. A missing or invalid map is
+an input error (exit **2**) with no trusted report bundle; omitting the input
+preserves the ordinary compiled-artifact SARIF locations. The map is only a
+reviewer-provided source *hint*: it cannot establish precise source line
+provenance, source-map generation correctness, live page behavior or indexing.
+
+**Pin compatibility:** The copyable `uses:` snippet above pins an older,
+independently merged Action revision that **does not yet support**
+`sarif-source-map`. Do not add the input to that snippet: unknown Action
+inputs can be ignored. First require independent guarded merge and an
+explicitly reviewed advance to a full 40-character commit containing this
+option. SARIF remains a local create-only file in the optional report directory;
+nothing uploads it or changes the separate manual manifest-approval gate.
+
 ### Optional portable reviewer reports
 
 To keep the checker results for a later, separately reviewed CI step, create a
