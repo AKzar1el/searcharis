@@ -30,11 +30,16 @@ jobs:
         with:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@c81e291c2b9bbaa8b19d417090b5efe2f2c982c3
+      # - run: mkdir -p seo-ci-reports  # Only when retaining local reports.
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@64eb1509d0cb42a30fd6644b4e3817645a71bea4
         with:
           manifest: seo-manifest.json
           build-root: dist
           require-full-coverage: 'false'
+          # To retain source-linked SARIF, enable both options after reviewing
+          # and committing seo-source-map.json and creating seo-ci-reports/:
+          # report-directory: seo-ci-reports
+          # sarif-source-map: seo-source-map.json
           # For multilingual sites, opt in to local hreflang return-link checks:
           # check-hreflang-reciprocity: 'true'
           # Only for complete language sets, check consistent locale clusters:
@@ -60,11 +65,11 @@ the runner image's changing default Node version. Adjust the pinned runtime to
 the consumer site's supported Node version, retain immutable Action references,
 and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
-The example pins the **independently merged PR #320** source revision
-`c81e291c2b9bbaa8b19d417090b5efe2f2c982c3`, which contains the optional
+The example pins the **independently merged PR #324** source revision
+`64eb1509d0cb42a30fd6644b4e3817645a71bea4`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
 reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
-inbound-path inputs. Earlier
+inbound-path inputs, plus reviewed SARIF source hints. Earlier
 pinned revisions silently ignore unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
@@ -217,13 +222,13 @@ preserves the ordinary compiled-artifact SARIF locations. The map is only a
 reviewer-provided source *hint*: it cannot establish precise source line
 provenance, source-map generation correctness, live page behavior or indexing.
 
-**Pin compatibility:** The copyable `uses:` snippet above pins an older,
-independently merged Action revision that **does not yet support**
-`sarif-source-map`. Do not add the input to that snippet: unknown Action
-inputs can be ignored. First require independent guarded merge and an
-explicitly reviewed advance to a full 40-character commit containing this
-option. SARIF remains a local create-only file in the optional report directory;
-nothing uploads it or changes the separate manual manifest-approval gate.
+**Pin compatibility:** The copyable `uses:` snippet above already supports the optional source-map input
+at the independently merged full SHA. To retain source-linked SARIF for local
+review, first commit a manually reviewed source map, uncomment the directory
+creation step and both `report-directory` and `sarif-source-map` inputs.
+Earlier pins may silently ignore unknown inputs. SARIF remains a local
+create-only file in the optional report directory; nothing uploads it or
+changes the separate manual manifest-approval gate.
 
 ### Optional portable reviewer reports
 

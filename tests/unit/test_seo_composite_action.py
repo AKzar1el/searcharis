@@ -746,9 +746,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged Action revision implementing critical inbound
-    # reviewed paths, not the older revision that silently ignores this input.
-    assert pin.group(1) == "c81e291c2b9bbaa8b19d417090b5efe2f2c982c3"
+    # Pin the independently merged Action revision with source-linked SARIF
+    # hints, not the older revision that silently ignores that input.
+    assert pin.group(1) == "64eb1509d0cb42a30fd6644b4e3817645a71bea4"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -774,6 +774,11 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert "# require-inbound-paths: |" in guide
     assert "#   pricing/index.html" in guide
     assert "already supports the critical inbound" in guide
+    assert "# - run: mkdir -p seo-ci-reports" in guide
+    assert "# report-directory: seo-ci-reports" in guide
+    assert "# sarif-source-map: seo-source-map.json" in guide
+    assert "already supports the optional source-map input" in guide
+    assert "does not yet support\n`sarif-source-map`" not in guide
     assert "predates this new" not in guide
     assert "already supports both reviewed navigation and fragment inputs" in guide
     assert "**does not** contain these two new Action inputs" not in guide
