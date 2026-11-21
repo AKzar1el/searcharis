@@ -15,7 +15,7 @@ from pathlib import Path
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
 from searcharis.contract_ci import _is_canonical_url, _is_http_url
-from searcharis.site_ci import _page_url_identity
+from searcharis.site_ci import _manifest_path, _page_url_identity
 from searcharis.site_junit import build_comparison_junit
 from searcharis.site_sarif import build_comparison_sarif
 
@@ -33,6 +33,15 @@ _UNIQUE_CHECKS = ("unique_titles", "unique_descriptions")
 
 def _int(value: object) -> bool:
     return type(value) is int and value >= 0
+
+
+def _valid_build_path(value: object) -> bool:
+    # Archived reports must obey the same relative HTML path rules as live manifests.
+    try:
+        _manifest_path(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
@@ -61,7 +70,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
         if not isinstance(page, dict):
             raise ValueError(f"{name}: invalid page entry")
         path, url, issues = page.get("path"), page.get("checked_url"), page.get("issues")
-        if (not isinstance(path, str) or not path or not isinstance(url, str)
+        if (not _valid_build_path(path) or not isinstance(url, str)
                 or not _is_http_url(url)):
             raise ValueError(f"{name}: invalid page path or URL")
         # Historical reports may predate the manifest's URL alias checks.
@@ -113,7 +122,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     strict = coverage.get("require_full_coverage")
     if (
         not isinstance(unlisted, list)
-        or any(not isinstance(path, str) or not path for path in unlisted)
+        or any(not _valid_build_path(path) for path in unlisted)
         or len(set(unlisted)) != len(unlisted)
         or not isinstance(strict, bool)
         or not _int(coverage.get("checked"))

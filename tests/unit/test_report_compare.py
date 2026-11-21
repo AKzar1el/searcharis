@@ -72,6 +72,36 @@ def test_comparison_rejects_invalid_archived_checked_url(bad_url):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("bad_path", [
+    "../outside.html",
+    "/absolute.html",
+    "nested\\page.html",
+    "no-extension",
+    "nested//index.html",
+    "nested/./page.html",
+    "C:secret.html",
+])
+def test_archived_comparison_rejects_unsafe_page_paths(bad_path):
+    report = _report([("index.html", [])])
+    report["pages"][0]["path"] = bad_path
+    with pytest.raises(ValueError, match="invalid page path"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("bad_path", [
+    "../outside.html", "/absolute.html", "nested\\page.html", "no-extension",
+])
+def test_archived_comparison_rejects_unsafe_unlisted_paths(bad_path):
+    report = _report([("index.html", [])], unlisted=[bad_path])
+    with pytest.raises(ValueError, match="invalid coverage data"):
+        compare_reports(report, report)
+
+
+def test_archived_comparison_preserves_valid_relative_htm_and_unicode_paths():
+    report = _report([("fa/سلام.htm", [])], unlisted=["blog/other.html"])
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 def test_archived_cli_rejects_invalid_checked_url_with_json_error(tmp_path, capsys):
     report = _report([("index.html", [])])
     report["pages"][0]["checked_url"] = "ftp://example.test/index.html"
@@ -1730,7 +1760,7 @@ def test_cli_new_issue_shows_bounded_actionable_expected_and_observed(
 
 
 def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp_path, capsys):
-    bad_path = "index.html\nFORGED PATH"
+    bad_path = "index\nFORGED PATH.html"
     baseline = _report([(bad_path, [])], strict=True, checks=("hreflang_clusters",))
     candidate = _report(
         [(bad_path, [{"code": "title\nFORGED ISSUE", "expected": True, "actual": False}])],
@@ -1754,7 +1784,7 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     assert len(lines) == 5  # Summary, issue, unlisted, unverified summary and target.
     assert all(not line.startswith("FORGED") for line in lines)
     assert "title\\nFORGED ISSUE" in lines[1]
-    assert "index.html\\nFORGED PATH" in lines[1]
+    assert "index\\nFORGED PATH.html" in lines[1]
     assert "other\\nFORGED UNLISTED.html" in lines[2]
     assert "de\\nFORGED LOCALE" in lines[4]
     assert "a\\nFORGED TARGET" in lines[4]
