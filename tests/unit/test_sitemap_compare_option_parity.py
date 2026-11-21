@@ -2,9 +2,8 @@
 
 import pytest
 
-from searcharis.sitemap_compare import compare_sitemap_reports
 from searcharis.sitemap_ci import verify_sitemap_manifest
-
+from searcharis.sitemap_compare import compare_sitemap_reports
 
 MANIFEST = {
     "version": 1,
