@@ -27,6 +27,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "uses" not in step
     assert set(metadata["inputs"]) == {
         "manifest", "build-root", "require-full-coverage", "report-directory",
+        "sarif-source-map",
         "check-hreflang-reciprocity",
         "check-hreflang-clusters",
         "check-internal-nofollow",
@@ -38,6 +39,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert metadata["inputs"]["build-root"]["required"] is True
     assert metadata["inputs"]["require-full-coverage"]["default"] == "false"
     assert metadata["inputs"]["report-directory"]["default"] == ""
+    assert metadata["inputs"]["sarif-source-map"]["default"] == ""
     assert metadata["inputs"]["check-hreflang-reciprocity"]["default"] == "false"
     assert metadata["inputs"]["check-hreflang-clusters"]["default"] == "false"
     assert metadata["inputs"]["check-internal-nofollow"]["default"] == "false"
@@ -50,6 +52,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert step["env"]["SEO_BUILD_ROOT"] == "${{ inputs.build-root }}"
     assert step["env"]["SEO_STRICT_COVERAGE"] == "${{ inputs.require-full-coverage }}"
     assert step["env"]["SEO_REPORT_DIRECTORY"] == "${{ inputs.report-directory }}"
+    assert step["env"]["SEO_SOURCE_MAP"] == "${{ inputs.sarif-source-map }}"
     assert step["env"]["SEO_HREFLANG_RECIPROCITY"] == "${{ inputs.check-hreflang-reciprocity }}"
     assert step["env"]["SEO_HREFLANG_CLUSTERS"] == "${{ inputs.check-hreflang-clusters }}"
     assert step["env"]["SEO_INTERNAL_NOFOLLOW"] == "${{ inputs.check-internal-nofollow }}"
@@ -72,6 +75,7 @@ def test_composite_action_is_inert_read_only_and_uses_reviewed_inputs() -> None:
     assert "--check-reviewed-fragments" in script
     assert "--require-inbound-link" in script
     assert "--require-full-coverage" in script
+    assert "--sarif-source-map" in script
     assert "--github-annotations" in script
     assert "GITHUB_STEP_SUMMARY" in script
     assert "exit \"$status\"" in script
@@ -655,6 +659,81 @@ def test_composite_action_opt_in_critical_inbound_paths(
         if paths:
             assert report["reviewed_inbound"]["missing_paths"] == missing
         assert (tmp_path / "summary.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    [("disabled", 1), ("valid", 1), ("unknown-artifact", 2), ("missing-map", 2)],
+)
+def test_composite_action_optional_sarif_source_provenance(
+    tmp_path: Path, mapping: str, expected: int,
+) -> None:
+    """Real Bash Action must map SARIF source hints without relaxing exit gates."""
+    if sys.platform == "win32":
+        candidate = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(candidate) if candidate.is_file() else None
+    else:
+        bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash required for runnable composite-action regression")
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist/index.html").write_text(
+        '<html><head><link rel="canonical" href="https://example.test/"></head>'
+        '<body><h1>Home</h1></body></html>', encoding="utf-8",
+    )
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "version": 1, "pages": [{
+            "path": "index.html",
+            "contract": {"url": "https://example.test/", "title_present": True},
+        }],
+    }), encoding="utf-8")
+    source = tmp_path / "src/pages/index.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Home</h1>", encoding="utf-8")
+    if mapping in {"valid", "unknown-artifact"}:
+        (tmp_path / "map.json").write_text(json.dumps({
+            "version": 1,
+            "sources": {
+                "index.html" if mapping == "valid" else "unknown.html":
+                    "src/pages/index.astro",
+            },
+        }), encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    metadata = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env.update({
+        "PYTHONPATH": str(ROOT / "src"),
+        "SEO_MANIFEST": "manifest.json", "SEO_BUILD_ROOT": "dist",
+        "SEO_STRICT_COVERAGE": "false", "SEO_HREFLANG_RECIPROCITY": "false",
+        "SEO_HREFLANG_CLUSTERS": "false", "SEO_INTERNAL_NOFOLLOW": "false",
+        "SEO_REVIEWED_NAVIGATION": "false", "SEO_REVIEWED_FRAGMENTS": "false",
+        "SEO_UNIQUE_TITLES": "false", "SEO_UNIQUE_DESCRIPTIONS": "false",
+        "SEO_REQUIRED_INBOUND_PATHS": "",
+        "SEO_REPORT_DIRECTORY": "reports",
+        "SEO_SOURCE_MAP": "" if mapping == "disabled" else "map.json",
+        "GITHUB_STEP_SUMMARY": "summary.md",
+    })
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", metadata["runs"]["steps"][0]["run"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == expected, result.stdout + "\n" + result.stderr
+    if expected == 2:
+        assert not (tmp_path / "summary.md").exists()
+        assert list((tmp_path / "reports").iterdir()) == []
+        return
+    report = json.loads((tmp_path / "reports/seo-site.sarif").read_text(encoding="utf-8"))
+    finding = report["runs"][0]["results"][0]
+    location = finding["locations"][0]["physicalLocation"]["artifactLocation"]
+    if mapping == "valid":
+        assert location == {"uri": "src/pages/index.astro"}
+        assert finding["relatedLocations"][0]["physicalLocation"]["artifactLocation"] == {
+            "uri": "index.html", "uriBaseId": "%BUILDROOT%",
+        }
+    else:
+        assert location == {"uri": "index.html", "uriBaseId": "%BUILDROOT%"}
+    assert (tmp_path / "summary.md").exists()
 
 
 def test_composite_action_adoption_guide_preserves_manual_approval_boundary() -> None:
