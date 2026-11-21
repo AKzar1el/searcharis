@@ -25,9 +25,13 @@ def _preview(value: object, *, limit: int = 120) -> str:
 
 
 def _read(path: Path) -> str:
-    if path.stat().st_size > _MAX_INPUT_BYTES:
+    # Bound actual bytes: a producer may grow the file after a stat check.
+    with path.open("rb") as stream:
+        data = stream.read(_MAX_INPUT_BYTES + 1)
+    if len(data) > _MAX_INPUT_BYTES:
         raise ValueError(f"File exceeds {_MAX_INPUT_BYTES} bytes: {path}")
-    return path.read_text(encoding="utf-8")
+    # Preserve read_text's universal newline normalization.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _unique_contract_keys(pairs: list[tuple[str, object]]) -> dict:
