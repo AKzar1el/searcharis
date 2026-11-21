@@ -83,6 +83,33 @@ exits **2** without a misleading success summary. By default, unreviewed HTML
 remains reported but not blocked; set `require-full-coverage: 'true'` only after
 all pages are deliberately reviewed.
 
+### Optional regression-only comparison against a trusted build
+
+The composite Action source also accepts a default-empty
+`baseline-build-root` input. When supplied, the Action delegates to the
+existing offline `searcharis.build_compare` instead of the strict
+`searcharis.site_cli`: **existing baseline failures do not block**, but newly
+introduced SEO regressions fail with exit **1**. Invalid or overlapping build
+roots fail with exit **2** without a success summary. The same manually
+reviewed manifest and opt-in checks apply to both local builds. The Action
+does **not** fetch, generate, deploy or authenticate the baseline.
+
+Prepare a **trusted, independently reviewed** baseline build in a distinct
+directory before invoking the Action; do not reuse a pull-request-controlled
+build as its own baseline or alias it through shared HTML hard links. When
+retaining reports, the Action writes `seo-comparison.{json,xml,md,sarif}`
+create-only into the existing `report-directory` and appends the Markdown
+comparison to the GitHub step summary only on exits 0 or 1. Manifest approval
+against the immutable trusted PR base remains a **separate mandatory gate**:
+regression-only results cannot authorize new or weakened manifest assertions.
+
+**Pin compatibility:** The compact copyable `uses:` example above pins the
+independently merged #324 revision, which **does not** expose
+`baseline-build-root`. Do not add this input to that snippet until the
+new composite source is independently reviewed, guarded-merged and the
+40-character pin is advanced in a separate change. No customer installation,
+ranking improvement or revenue is asserted by local tests.
+
 For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
 under the action step's `with:` inputs. The default `'false'` preserves
 existing runs. This optional **offline** check requires a reciprocal
