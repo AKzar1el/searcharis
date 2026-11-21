@@ -23,6 +23,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.13'
@@ -50,6 +53,12 @@ jobs:
           #   pricing/index.html
           #   services/index.html
 ```
+
+The short recipe pins the same Node 22 build runtime as the fuller
+[`seo-contract.example.yml`](seo-contract.example.yml) instead of depending on
+the runner image's changing default Node version. Adjust the pinned runtime to
+the consumer site's supported Node version, retain immutable Action references,
+and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
 The example pins the **independently merged PR #320** source revision
 `c81e291c2b9bbaa8b19d417090b5efe2f2c982c3`, which contains the optional
