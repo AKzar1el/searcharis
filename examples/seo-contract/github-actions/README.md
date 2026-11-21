@@ -127,7 +127,8 @@ manifest while tolerating *inherited* unlisted pages. Separately,
 hreflang destinations from enabled cross-page checks (the Action already enables
 canonical consistency). These checks do not approve any new manifest entries,
 fetch URLs, or claim that targets are broken on the live site. Invalid boolean
-values, or enabling either without `baseline-build-root`, fail as input error 2.
+values (including explicitly empty strings), or enabling either without
+`baseline-build-root`, fail as input error 2.
 Both flags stay false for strict single-build checks and for comparisons unless
 the operator deliberately opts in.
 

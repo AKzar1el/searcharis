@@ -409,6 +409,7 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
         (True, "true", 1),
         (True, "false", 0),
         (False, "TRUE", 2),
+        (False, "", 2),
     ],
 )
 def test_composite_action_opt_in_hreflang_cluster_consistency(
@@ -847,6 +848,8 @@ def test_composite_action_opt_in_regression_only_baseline(
         ("new_unverified", "false", "true", 1),
         ("new_unlisted", "enabled", "false", 2),
         ("new_unverified", "false", "TRUE", 2),
+        ("new_unlisted", "", "false", 2),
+        ("new_unverified", "false", "", 2),
         ("no_baseline", "true", "false", 2),
         ("no_baseline", "false", "true", 2),
     ],
