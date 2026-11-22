@@ -99,6 +99,13 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
         rules for agents, rules in groups if "*" in agents
     ]
     applicable = [rule for group in selected for rule in group]
+    # An anchored /$ blocks only the homepage, but is more specific than
+    # a plain Allow: / (or its equivalent trailing-wildcard spelling).
+    if any(name == "disallow" and value == "/$" for name, value in applicable):
+        return not any(
+            name == "allow" and value in {"/$", "/*$"}
+            for name, value in applicable
+        )
     if not any(name == "disallow" and value == "/" for name, value in applicable):
         return False
     # Only these simple allow rules can explicitly admit the homepage itself.
