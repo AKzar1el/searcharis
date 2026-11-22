@@ -358,6 +358,26 @@ def test_archived_reviewed_link_matching_issues_remain_comparable(check, key, co
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("target", [
+    "https://example.test/other.html",
+    "https://EXAMPLE.TEST:443/%6fther.html",
+    "https://outside.test/not-reviewed.html",
+])
+def test_archived_navigation_rejects_reviewed_or_external_target(target):
+    issue = {
+        "code": "navigation_target_unreviewed",
+        "expected": "a URL listed in the reviewed manifest",
+        "actual": target,
+    }
+    report = _report([("index.html", [issue]), ("other.html", [])])
+    report["reviewed_navigation"] = {
+        "checked_links": 1,
+        "unreviewed_targets": [{"path": "index.html", "target": target}],
+    }
+    with pytest.raises(ValueError, match="inconsistent reviewed_navigation"):
+        compare_reports(report, report)
+
+
 def test_archived_navigation_issue_without_enabled_summary_is_invalid():
     report = _report([("index.html", [{
         "code": "navigation_target_unreviewed",
