@@ -1234,7 +1234,10 @@ The offline comparator rejects missing or changed inbound-link policies as
 incompatible input (exit **2**), even when both HTML builds pass. It rejects
 malformed inbound summaries rather than silently treating them as PASS.
 Previously archived site reports without this opt-in check remain comparable
-to other reports that also omit it.
+to other reports that also omit it, provided they contain no
+`reviewed_inbound_link_missing` findings. A saved report containing such a
+finding without its `reviewed_inbound` policy summary is invalid input
+(exit **2**) even when both archived reports are identically malformed.
 
 For a **one-command baseline-versus-candidate** check, the same option is
 available in `build_compare`:

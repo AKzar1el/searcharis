@@ -272,6 +272,10 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     # Opt-in critical-page inbound policy is a selected set of paths, not
     # merely a boolean: changing the targets can silently weaken a CI gate.
     inbound_paths: tuple[str, ...] = ()
+    actual_missing = {
+        page["path"] for page in pages
+        if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
+    }
     if "reviewed_inbound" in report:
         inbound = report["reviewed_inbound"]
         if not isinstance(inbound, dict):
@@ -292,13 +296,11 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             or set(linked) | set(missing) != set(required)
         ):
             raise ValueError(f"{name}: invalid reviewed_inbound data")
-        actual_missing = {
-            page["path"] for page in pages
-            if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
-        }
         if set(missing) != actual_missing:
             raise ValueError(f"{name}: invalid reviewed_inbound missing-page findings")
         inbound_paths = tuple(sorted(required))
+    elif actual_missing:
+        raise ValueError(f"{name}: reviewed_inbound issues without enabled policy")
 
     options = (
         strict,
