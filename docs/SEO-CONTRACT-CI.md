@@ -111,6 +111,12 @@ dot-like text inside a path segment or query is not normalized.
 This follows [RFC 3986 sections 5.2.4, 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
 Reports retain original URLs; different schemes, non-default ports, and
 non-equivalent paths/queries (including path and query casing) remain distinct.
+Literal Unicode characters in reviewed URL paths and queries compare equal to
+their UTF-8 percent-encoded spellings (for example `/café/` and
+`/caf%C3%A9/`), including local navigation and inbound checks. Legacy non-UTF-8
+percent encodings are not guessed, and Unicode normalization is not applied.
+This follows the IRI-to-URI mapping in
+[RFC 3987 section 3.1](https://www.rfc-editor.org/rfc/rfc3987#section-3.1).
 For multi-page URL identity, Unicode hostnames are mapped to their ASCII
 Punycode equivalents with nontransitional UTS #46, so e.g. a Unicode-host
 reviewed page cannot evade same-origin navigation or duplicate-URL checks by

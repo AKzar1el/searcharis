@@ -77,6 +77,35 @@ def test_idna_equivalent_navigation_does_not_skip_broken_same_origin_link(tmp_pa
     ]
 
 
+@pytest.mark.parametrize(
+    ("iri", "uri"),
+    [
+        ("https://example.test/caf\u00e9/", "https://example.test/caf%C3%A9/"),
+        ("https://example.test/search?q=\u00fc", "https://example.test/search?q=%C3%BC"),
+    ],
+)
+def test_unicode_path_and_query_have_utf8_uri_identity(iri, uri):
+    assert site_ci._page_url_identity(iri) == site_ci._page_url_identity(uri)
+
+
+def test_uri_identity_does_not_guess_legacy_encodings_or_unicode_normalization():
+    unicode_url = "https://example.test/caf\u00e9/"
+    assert site_ci._page_url_identity(unicode_url) != (
+        site_ci._page_url_identity("https://example.test/caf%E9/")
+    )
+    assert site_ci._page_url_identity(unicode_url) != (
+        site_ci._page_url_identity("https://example.test/cafe\u0301/")
+    )
+
+
+def test_unicode_and_utf8_encoded_paths_are_duplicate_manifest_pages(tmp_path):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://example.com/caf\u00e9/"
+    manifest["pages"][1]["contract"]["url"] = "https://example.com/caf%C3%A9/"
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
 def _page(url):
     return (
         "<!doctype html><html><head><title>Page</title>"

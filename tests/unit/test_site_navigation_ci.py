@@ -58,6 +58,19 @@ def test_navigation_accepts_relative_and_normalized_local_links(tmp_path):
     assert result['reviewed_navigation']['checked_links'] >= 2
 
 
+def test_reviewed_unicode_path_matches_utf8_encoded_navigation_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/caf%C3%A9/">Caf\u00e9</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/caf\u00e9/'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        result = verify_manifest(
+            manifest, build, check_reviewed_navigation=True,
+            required_inbound_paths=('about/index.html',),
+        )
+    assert result['status'] == 'pass'
+    assert result['reviewed_navigation']['unreviewed_targets'] == []
+    assert result['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
 def test_backslash_path_does_not_hide_unreviewed_browser_navigation(tmp_path):
     build, manifest = _site(tmp_path, r'<a href="\missing/">Missing</a>')
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
