@@ -1315,6 +1315,8 @@ It decodes HTML entities and collapses whitespace before comparing text
 **case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
 on all affected pages (exit **1**), with one other matching built HTML path,
 a bounded title prefix and a SHA-256 fingerprint in the JSON findings.
+Archived site-report comparisons reject `title_duplicate` findings when the
+saved report lacks its `unique_titles: true` check marker (input error **2**).
 Pages explicitly declared `indexable: false` in the reviewed manifest are
 excluded. Blank titles are outside this comparison; require
 `title_present: true` to reject them independently. The option is off by
@@ -1342,6 +1344,8 @@ entity decoding and whitespace collapsing (case-sensitive). Nonblank
 duplicates produce `description_duplicate` on all affected pages (exit **1**).
 JSON, JUnit and Markdown reports show one other matching local page, a
 120-character maximum prefix and an SHA-256 digest, not the entire description.
+Archived site-report comparisons likewise require `unique_descriptions: true`
+whenever a saved page reports `description_duplicate` (input error **2**).
 An absent or empty description is not a duplicate: explicitly require
 `description_present: true` for those pages if needed.
 
