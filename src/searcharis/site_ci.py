@@ -94,6 +94,22 @@ def _remove_dot_segments(path: str) -> str:
 def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     """Compare HTTP(S) page identities without collapsing distinct routes or queries."""
     parts = urlsplit(url)
+    hostname = parts.hostname or ""
+    if not hostname.isascii():
+        # Python's built-in IDNA codec uses IDNA2003, which would incorrectly
+        # equate fa\u00df.de with fass.de. The installed idna package implements
+        # browser-compatible, nontransitional UTS #46 mapping. Without it,
+        # reject Unicode host comparisons instead of silently passing a CI gate.
+        try:
+            import idna
+        except ImportError as error:
+            raise ValueError(
+                "Unicode URL hosts require the idna package for safe offline comparison"
+            ) from error
+        try:
+            hostname = idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+        except idna.IDNAError as error:
+            raise ValueError("Invalid internationalized URL hostname") from error
     # RFC 3986 6.2.2 and 6.2.3: default ports, empty roots and percent-
     # encoded unreserved octets and complete dot-segments do not identify
     # separate resources. Do not rewrite observed URL strings in reports.
@@ -101,7 +117,7 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     default_port = 80 if parts.scheme == "http" else 443
     port = None if parts.port in (None, default_port) else parts.port
     return (
-        parts.scheme, parts.hostname or "", port,
+        parts.scheme, hostname, port,
         _remove_dot_segments(_normalize_percent_encoding(parts.path or "/")),
         _normalize_percent_encoding(parts.query),
     )
