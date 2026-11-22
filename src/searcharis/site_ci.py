@@ -59,6 +59,18 @@ def _normalize_percent_encoding(component: str) -> str:
     return _ENCODED_OCTET.sub(replacement, component)
 
 
+def _iri_component_as_uri(component: str) -> str:
+    """Map literal Unicode to UTF-8 URL octets without rewriting ASCII syntax."""
+    try:
+        return re.sub(
+            r"[^\x00-\x7f]",
+            lambda match: "".join(f"%{octet:02X}" for octet in match.group().encode("utf-8")),
+            component,
+        )
+    except UnicodeEncodeError as error:
+        raise ValueError("Invalid Unicode URL path or query") from error
+
+
 def _remove_dot_segments(path: str) -> str:
     """Remove whole URI dot-segments, preserving empty and reserved path segments."""
     remaining = path
@@ -118,8 +130,8 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     port = None if parts.port in (None, default_port) else parts.port
     return (
         parts.scheme, hostname, port,
-        _remove_dot_segments(_normalize_percent_encoding(parts.path or "/")),
-        _normalize_percent_encoding(parts.query),
+        _remove_dot_segments(_normalize_percent_encoding(_iri_component_as_uri(parts.path or "/"))),
+        _normalize_percent_encoding(_iri_component_as_uri(parts.query)),
     )
 
 
