@@ -1794,6 +1794,22 @@ duplicate findings as release blockers. It cannot observe deployed pages,
 Google-selected titles or search appearance; inspect deliberate duplicate
 titles/descriptions before enabling these opt-in checks.
 
+For a reviewed two-page site, the navigation, fragment, metadata, canonical
+and critical-page inbound options can run in **one** offline release gate:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-reviewed-navigation --check-reviewed-fragments \
+  --check-unique-titles --check-unique-descriptions \
+  --check-canonical-consistency --require-inbound-link services/index.html --json
+```
+
+The critical path must already be listed in the reviewed manifest. The trusted
+baseline may have existing SEO issues: those are reported but do not block
+the candidate unless a new issue appears. Exit **0** means no new regression,
+**1** means new blocking findings, and **2** means invalid input. This checks
+only supplied local built HTML; it never requests URLs or checks live indexing.
+
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
 ```sh
