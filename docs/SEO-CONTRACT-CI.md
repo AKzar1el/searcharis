@@ -1542,13 +1542,12 @@ For a separate, **opt-in** indexing-risk check on the standalone robots gate,
 add `--check-root-crawl-block`. A reviewed `robots.txt` that exactly matches its
 compiled copy may still explicitly block Googlebot at the site root. This flag
 fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
-`Googlebot` group declares `Disallow: /` or equivalent `Disallow: /*`
-without a basic root `Allow: /`,
-`Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. It also detects the
-more-specific, homepage-only `Disallow: /$`, and the anchored wildcard
-`Disallow: /*$`, which also matches the root. A plain `Allow: /` or
-`Allow: /*` does not override these anchored root blocks, but an anchored
-`Allow: /$` or `Allow: /*$` does. Googlebot-specific groups
+`Googlebot` group has a winning root `Disallow: /`, `/*`, `/$`, or `/*$` rule.
+For these four basic root patterns, Google ranks matching rules by pattern
+length (including `*` and `$`) and prefers `Allow` on ties. For example,
+`Disallow: /*` beats `Allow: /`, while `Allow: /*` ties and overrides
+`Disallow: /$`; `Disallow: /*$` beats `Allow: /$`. This remains a narrow
+root-only check, not a general robots.txt path matcher. Googlebot-specific groups
 take precedence over the wildcard group, and multiple matching groups are
 combined. By default this additional check is off; existing parity-only runs
 are unchanged. Failure details appear in JSON, JUnit, Markdown, human output
