@@ -56,6 +56,13 @@ def test_staging_disallow_all_drift_blocks_release_without_interpreting_rules(
 @pytest.mark.parametrize("policy,should_block", [
     ("User-agent: *\nDisallow: /\n", True),
     ("User-agent: Googlebot\nDisallow: /\n", True),
+    ("User-agent: *\nDisallow: /$\n", True),
+    ("User-agent: Googlebot\nDisallow: /$\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /*\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /$\n", False),
+    ("User-agent: *\nDisallow: /$\nAllow: /*$\n", False),
+    ("User-agent: *\nDisallow: /$\nUser-agent: Googlebot\nAllow: /\n", False),
     ("user-agent: *\nSitemap: https://example.test/map.xml\n disallow : / # staging\n", True),
     ("User-agent: Bingbot\nDisallow: /\n", False),
     ("User-agent: *\nDisallow: /private/\n", False),
