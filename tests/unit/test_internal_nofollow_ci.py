@@ -153,6 +153,39 @@ def test_internal_nofollow_archived_inconsistent_report_fails_closed(tmp_path, m
         compare_reports(bad, bad)
 
 
+def test_archived_nofollow_rejects_foreign_origin_even_if_target_is_reviewed(tmp_path):
+    manifest = _manifest()
+    manifest["pages"][1]["contract"]["url"] = "https://other.test/about/"
+    report = verify_manifest(
+        manifest,
+        _build(tmp_path / "dist", '<a href="https://other.test/about/" rel="nofollow">Other</a>'),
+        check_internal_nofollow=True,
+    )
+    assert report["status"] == "pass"
+    assert report["internal_nofollow"]["nofollow_targets"] == []
+    assert compare_reports(report, report)["status"] == "pass"
+
+    # Forged archived findings must not turn a cross-origin link into an
+    # internal SEO regression merely because its target is also reviewed.
+    bad = deepcopy(report)
+    target = "https://other.test/about/"
+    source = next(page for page in bad["pages"] if page["path"] == "en/index.html")
+    source["issues"].append({
+        "code": "internal_link_nofollow",
+        "expected": "reviewed same-origin links without rel=nofollow",
+        "actual": target,
+    })
+    source["status"] = "fail"
+    bad["summary"].update({"passed": 1, "failed": 1})
+    bad["status"] = "fail"
+    bad["internal_nofollow"].update({
+        "checked_links": 1,
+        "nofollow_targets": [{"path": "en/index.html", "target": target}],
+    })
+    with pytest.raises(ValueError, match="internal_nofollow"):
+        compare_reports(bad, bad)
+
+
 def test_internal_nofollow_build_comparison_flag_gates_new_issues(tmp_path, capsys):
     before = _build(tmp_path / "before", '<a href="/about/">About</a>')
     after = _build(tmp_path / "after", '<a href="/about/" rel="nofollow">About</a>')

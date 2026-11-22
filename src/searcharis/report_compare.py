@@ -262,7 +262,8 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             or any(
                 not _is_http_url(target)
                 or _page_url_identity(target) not in url_identities
-                for _, target in entries
+                or _page_url_identity(target)[:3] != identities_by_path[path][:3]
+                for path, target in entries
             )
         ):
             raise ValueError(f"{name}: inconsistent internal_nofollow findings")

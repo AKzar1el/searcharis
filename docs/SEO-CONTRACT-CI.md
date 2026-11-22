@@ -1213,6 +1213,9 @@ lists checked links and affected source paths/targets. The default is unchanged.
 
 Links to unreviewed routes (for example, intentionally restricted account
 pages), external origins, non-HTTP URLs and inert HTML are out of scope.
+Archived baseline/candidate comparisons also reject a saved
+`internal_link_nofollow` finding that points from one origin to a reviewed
+page on another origin (input error 2), even when both archives agree.
 `sponsored` or `ugc` alone does not trigger this particular gate. Saved report
 comparisons reject differing enabled/disabled policies (exit 2), and a new
 restricted link is a regression when both policies are enabled. This is a
