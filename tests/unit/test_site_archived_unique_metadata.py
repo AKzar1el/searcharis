@@ -97,6 +97,21 @@ def test_archive_rejects_malformed_uniqueness_provenance(marker, bad):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("option,marker,code", [
+    ("check_unique_titles", "unique_titles", "title_duplicate"),
+    ("check_unique_descriptions", "unique_descriptions", "description_duplicate"),
+])
+def test_archived_duplicate_issue_requires_enabled_uniqueness_policy(
+    tmp_path, option, marker, code,
+):
+    root, manifest, _ = _site(tmp_path)
+    report = verify_manifest(manifest, root, **{option: True})
+    assert any(issue["code"] == code for page in report["pages"] for issue in page["issues"])
+    report.pop(marker)
+    with pytest.raises(ValueError, match=f"{marker} issues without enabled policy"):
+        compare_reports(report, report)
+
+
 def test_new_duplicate_is_regression_but_inherited_duplicate_is_not(tmp_path):
     root, manifest, _ = _site(tmp_path, duplicate=False)
     baseline = verify_manifest(manifest, root, check_unique_titles=True)

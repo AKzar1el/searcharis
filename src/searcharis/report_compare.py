@@ -257,9 +257,17 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     elif nofollow_issues:
         raise ValueError(f"{name}: internal_nofollow issues without enabled policy")
 
-    for check in _UNIQUE_CHECKS:
-        if check in report and report[check] is not True:
-            raise ValueError(f"{name}: invalid {check} provenance")
+    for check, issue_code in (
+        ("unique_titles", "title_duplicate"),
+        ("unique_descriptions", "description_duplicate"),
+    ):
+        if check in report:
+            if report[check] is not True:
+                raise ValueError(f"{name}: invalid {check} provenance")
+        elif any(
+            issue["code"] == issue_code for page in pages for issue in page["issues"]
+        ):
+            raise ValueError(f"{name}: {check} issues without enabled policy")
 
     # Opt-in critical-page inbound policy is a selected set of paths, not
     # merely a boolean: changing the targets can silently weaken a CI gate.
