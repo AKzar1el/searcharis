@@ -2132,6 +2132,10 @@ agree with their corresponding page issue details. Missing or invented
 unreviewed-link, missing-fragment or ambiguous-fragment findings, or counts too
 small to contain those findings, are invalid saved inputs (exit **2**), not a
 PASS. The comparator does not re-open built HTML when reading saved reports.
+Archived canonical-consistency, hreflang-reciprocity and hreflang-cluster page
+issues also require their matching opt-in policy summary. Removing that summary
+from both saved reports is invalid input (exit **2**), not inherited PASS;
+reports with disabled checks and no corresponding findings remain comparable.
 Saved unreviewed-navigation findings must target a previously unreviewed URL
 on the source page's own origin. A target already present among reviewed pages
 (including equivalent URL aliases), or on another origin, is inconsistent

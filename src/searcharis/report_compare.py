@@ -183,6 +183,23 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
         ):
             raise ValueError(f"{name}: invalid {check} unverified targets")
 
+    # Cross-page issue rows must retain the enabled policy that produced them;
+    # otherwise two identically corrupted reports compare as inherited PASS.
+    for page in pages:
+        for issue in page["issues"]:
+            code = issue["code"]
+            if code in ("canonical_count", "canonical_invalid_url", "canonical_target_not_self"):
+                check = "canonical_consistency"
+            elif code == "hreflang_self_missing" or code.startswith("hreflang_return:"):
+                check = "hreflang_reciprocity"
+            elif code.startswith(("hreflang_cluster_duplicate:",
+                                  "hreflang_cluster_mismatch:")):
+                check = "hreflang_clusters"
+            else:
+                continue
+            if check not in report:
+                raise ValueError(f"{name}: {check} issues without enabled policy")
+
     # A saved report with one of these opt-in checks disabled cannot be
     # compared against one with it enabled, even if both found zero issues.
     for check, count_key, target_keys in _REVIEWED_CHECKS:

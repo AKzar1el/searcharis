@@ -289,6 +289,24 @@ def test_archived_cli_inbound_option_mismatch_exits_two(tmp_path, capsys):
     assert "different check options" in response["error"]
 
 
+@pytest.mark.parametrize("check, issue_code", [
+    ("canonical_consistency", "canonical_count"),
+    ("canonical_consistency", "canonical_invalid_url"),
+    ("canonical_consistency", "canonical_target_not_self"),
+    ("hreflang_reciprocity", "hreflang_self_missing"),
+    ("hreflang_reciprocity", "hreflang_return:de"),
+    ("hreflang_clusters", "hreflang_cluster_duplicate:de"),
+    ("hreflang_clusters", "hreflang_cluster_mismatch:de"),
+])
+def test_archived_cross_page_issues_require_enabled_policy(check, issue_code):
+    issue = {"code": issue_code, "expected": "expected", "actual": "observed"}
+    report = _report([("index.html", [issue])], checks=(check,))
+    assert compare_reports(report, report)["status"] == "pass"
+    report.pop(check)
+    with pytest.raises(ValueError, match=f"{check} issues without enabled policy"):
+        compare_reports(report, report)
+
+
 @pytest.mark.parametrize("field, bad_summary", [
     ("reviewed_navigation", {"checked_links": -1, "unreviewed_targets": []}),
     ("reviewed_fragments", {"checked_fragments": "not-a-count", "missing_targets": [],
