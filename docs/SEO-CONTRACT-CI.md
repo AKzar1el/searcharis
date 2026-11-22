@@ -1545,9 +1545,10 @@ fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
 `Googlebot` group declares `Disallow: /` or equivalent `Disallow: /*`
 without a basic root `Allow: /`,
 `Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. It also detects the
-more-specific, homepage-only `Disallow: /$`; a plain `Allow: /` or `Allow: /*`
-does not override this anchored root block, but `Allow: /$` or `Allow: /*$`
-does. Googlebot-specific groups
+more-specific, homepage-only `Disallow: /$`, and the anchored wildcard
+`Disallow: /*$`, which also matches the root. A plain `Allow: /` or
+`Allow: /*` does not override these anchored root blocks, but an anchored
+`Allow: /$` or `Allow: /*$` does. Googlebot-specific groups
 take precedence over the wildcard group, and multiple matching groups are
 combined. By default this additional check is off; existing parity-only runs
 are unchanged. Failure details appear in JSON, JUnit, Markdown, human output
@@ -1569,7 +1570,7 @@ uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
   --check-root-crawl-block --report-dir reports
 ```
 
-An identical reviewed and built policy with a basic root `Disallow: /`, `/*` or `/$`
+An identical reviewed and built policy with a root `Disallow: /`, `/*`, `/$` or `/*$`
 now fails the combined gate (exit 1, `root_crawl_block`), while HTML and
 sitemap results remain independently reported. Its JSON, JUnit, Markdown,
 SARIF and GitHub annotations identify a distinct root-crawl failure rather

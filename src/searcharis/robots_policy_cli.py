@@ -99,9 +99,12 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
         rules for agents, rules in groups if "*" in agents
     ]
     applicable = [rule for group in selected for rule in group]
-    # An anchored /$ blocks only the homepage, but is more specific than
-    # a plain Allow: / (or its equivalent trailing-wildcard spelling).
-    if any(name == "disallow" and value == "/$" for name, value in applicable):
+    # Both /$ and /*$ match the root with an end anchor, which a plain
+    # Allow: / (or trailing /*) does not override in this narrow guard.
+    if any(
+        name == "disallow" and value in {"/$", "/*$"}
+        for name, value in applicable
+    ):
         return not any(
             name == "allow" and value in {"/$", "/*$"}
             for name, value in applicable
