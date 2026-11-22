@@ -1164,6 +1164,10 @@ uv run python -m searcharis.site_cli manifest.json dist \
 `<base href>` (otherwise the reviewed page URL), ignores URL fragments and
 deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
+For HTTP(S) anchor destinations, backslashes in the URL path portion resolve
+as browser-style separators, so a backslash cannot silently hide a reviewed
+local route or a missing route. Queries and fragments are not rewritten;
+declared contract and manifest URLs retain their strict input validation.
 An internal link whose destination is not listed in the manifest fails with
 `navigation_target_unreviewed` and exit **1**, with source path and target
 available in JSON. The `reviewed_navigation` record reports distinct local

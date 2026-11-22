@@ -107,6 +107,22 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     )
 
 
+def _resolve_anchor_href(base: str, href: str) -> str | None:
+    # Browsers treat reverse solidus as a path separator for HTTP(S) URLs.
+    # Normalize only the URL path portion, not a query or fragment payload.
+    path_end = len(href)
+    for separator in "?#":
+        at = href.find(separator)
+        if at >= 0:
+            path_end = min(path_end, at)
+    browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    try:
+        resolved = urljoin(base, browser_href)
+        return resolved if _is_http_url(resolved) else None
+    except ValueError:
+        return None
+
+
 def _hreflang_peer_targets(links: dict[str, list[str]], source_identity: tuple) -> dict[tuple, str]:
     """Deduplicate equivalent peer URLs but retain their original report spelling."""
     peers: dict[tuple, str] = {}
@@ -282,11 +298,8 @@ def verify_manifest(
             source_identity = _page_url_identity(source_url)
             anchors = observed_anchors[source_url]
             for href in anchors["hrefs"]:
-                try:
-                    resolved = urljoin(anchors["base_url"], href)
-                except ValueError:
-                    continue
-                if not _is_http_url(resolved):
+                resolved = _resolve_anchor_href(anchors["base_url"], href)
+                if resolved is None:
                     continue
                 target_url = urlsplit(resolved)._replace(fragment="").geturl()
                 identity = _page_url_identity(target_url)
@@ -323,11 +336,8 @@ def verify_manifest(
             # harmless URL spelling differences. Never fetch any destination.
             local: dict[tuple[str, str, int | None, str, str], str] = {}
             for href in anchors["hrefs"]:
-                try:
-                    resolved = urljoin(anchors["base_url"], href)
-                except ValueError:
-                    continue
-                if not _is_http_url(resolved):
+                resolved = _resolve_anchor_href(anchors["base_url"], href)
+                if resolved is None:
                     continue  # External protocols and malformed URLs are outside this check.
                 target = urlsplit(resolved)._replace(fragment="").geturl()
                 identity = _page_url_identity(target)
@@ -359,8 +369,8 @@ def verify_manifest(
             targets: dict[tuple, str] = {}
             for href in hrefs:
                 try:
-                    resolved = urljoin(base, href)
-                    if not _is_http_url(resolved):
+                    resolved = _resolve_anchor_href(base, href)
+                    if resolved is None:
                         continue
                     target = urlsplit(resolved)._replace(fragment="").geturl()
                     identity = _page_url_identity(target)
@@ -420,12 +430,12 @@ def verify_manifest(
                 if "#" not in href:
                     continue
                 try:
-                    resolved = urljoin(anchors["base_url"], href)
+                    resolved = _resolve_anchor_href(anchors["base_url"], href)
+                    if resolved is None:
+                        continue
+                    parts = urlsplit(resolved)
                 except ValueError:
                     continue
-                if not _is_http_url(resolved):
-                    continue
-                parts = urlsplit(resolved)
                 if not parts.fragment:
                     continue  # Empty fragments scroll to the top, not an element ID.
                 if ":~:" in parts.fragment:
