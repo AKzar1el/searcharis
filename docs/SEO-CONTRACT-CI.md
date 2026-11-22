@@ -73,6 +73,7 @@ how valid contracts or manifests are read.
 | `twitter_image_alt_equals` | Match the first explicit head `<meta name="twitter:image:alt">` image description (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
+| `meta_refresh_content_equals` | Require exactly one active head refresh declaration with an exact `content` string (opt-in; guards delay and redirect target drift) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `html_lang_present` | Require a non-blank root HTML `lang` attribute (`true`), or require it to be absent (`false`); blank values satisfy neither |
 | `canonical` | Require exactly one matching canonical link, without a URL fragment |
@@ -428,6 +429,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   handles the redirect. Google distinguishes instant and delayed meta refresh
   redirects; see [Google Search Central](https://developers.google.com/search/docs/crawling-indexing/301-redirects)
   and [MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/http-equiv).
+  For intentional static redirect pages, `meta_refresh_content_equals` can
+  pin the complete declaration, such as `"0; url=/moved/"`. It requires
+  exactly one active head refresh directive and compares the HTML-decoded
+  `content` attribute exactly (including spacing and case); a missing or
+  repeated directive or changed delay/target fails CI. Expected content must
+  be a non-blank string. This is an explicit literal regression contract, not
+  browser refresh parsing, URL resolution, destination existence or a network
+  request. It does not weaken `meta_refresh_present: false` for regular pages.
   `html_lang` is an optional multilingual publishing assertion against the
   root `<html lang="...">` attribute. Language-tag casing is ignored, but
   region subtags are not interchangeable (`en` and `en-US` differ). A missing
