@@ -61,6 +61,9 @@ def test_opt_in_policy_passes_offline_without_changing_default_json(inputs, caps
     (b"User-agent: *\nDisallow: /\nUser-agent: Googlebot\nAllow: /\n", False),
     (b"User-agent: *\nDisallow: /private/\n", False),
     (b"User-agent: *\nDisallow: /*$\n", True),
+    (b"User-agent: *\nDisallow: /*\nAllow: /\n", True),
+    (b"User-agent: *\nDisallow: /*$\nAllow: /$\n", True),
+    (b"User-agent: *\nDisallow: /$\nAllow: /*\n", False),
 ])
 def test_combined_release_opt_in_root_crawl_guard_matches_standalone_semantics(
     inputs, capsys, monkeypatch, policy, blocked,

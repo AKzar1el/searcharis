@@ -99,27 +99,18 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
         rules for agents, rules in groups if "*" in agents
     ]
     applicable = [rule for group in selected for rule in group]
-    # Both /$ and /*$ match the root with an end anchor, which a plain
-    # Allow: / (or trailing /*) does not override in this narrow guard.
-    if any(
-        name == "disallow" and value in {"/$", "/*$"}
-        for name, value in applicable
-    ):
-        return not any(
-            name == "allow" and value in {"/$", "/*$"}
-            for name, value in applicable
-        )
-    # Google ignores a trailing wildcard: /* is equivalent to / at the root.
-    if not any(
-        name == "disallow" and value in {"/", "/*"}
-        for name, value in applicable
-    ):
-        return False
-    # Only these simple allow rules can explicitly admit the homepage itself.
-    return not any(
-        name == "allow" and value in {"/", "/$", "/*", "/*$"}
-        for name, value in applicable
-    )
+    # All four basic patterns match the root. Google ranks matching rules by
+    # pattern length even when '*' matches zero characters; Allow wins ties.
+    root_patterns = {"/", "/*", "/$", "/*$"}
+    strongest_disallow = max((
+        len(value) for name, value in applicable
+        if name == "disallow" and value in root_patterns
+    ), default=0)
+    strongest_allow = max((
+        len(value) for name, value in applicable
+        if name == "allow" and value in root_patterns
+    ), default=0)
+    return strongest_disallow > strongest_allow
 
 
 def verify_reviewed_robots_policy(
