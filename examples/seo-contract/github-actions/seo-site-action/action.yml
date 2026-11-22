@@ -106,7 +106,7 @@ runs:
             exit 2
             ;;
         esac
-        case "${SEO_HREFLANG_CLUSTERS:-false}" in
+        case "${SEO_HREFLANG_CLUSTERS-false}" in
           true|false) ;;
           *)
             echo "check-hreflang-clusters must be exactly true or false." >&2
@@ -148,14 +148,14 @@ runs:
             exit 2
             ;;
         esac
-        case "${SEO_FAIL_ON_NEW_UNLISTED:-false}" in
+        case "${SEO_FAIL_ON_NEW_UNLISTED-false}" in
           true|false) ;;
           *)
             echo "fail-on-new-unlisted must be exactly true or false." >&2
             exit 2
             ;;
         esac
-        case "${SEO_FAIL_ON_NEW_UNVERIFIED:-false}" in
+        case "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" in
           true|false) ;;
           *)
             echo "fail-on-new-unverified-targets must be exactly true or false." >&2
@@ -163,8 +163,8 @@ runs:
             ;;
         esac
         if [ -z "${SEO_BASELINE_BUILD_ROOT:-}" ] && {
-          [ "${SEO_FAIL_ON_NEW_UNLISTED:-false}" = true ] ||
-          [ "${SEO_FAIL_ON_NEW_UNVERIFIED:-false}" = true ]; }; then
+          [ "${SEO_FAIL_ON_NEW_UNLISTED-false}" = true ] ||
+          [ "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" = true ]; }; then
           echo "Incremental coverage options require a trusted baseline-build-root." >&2
           exit 2
         fi
@@ -183,10 +183,10 @@ runs:
           summary_name=seo-site.md
         fi
         options+=(--check-canonical-consistency --github-annotations --report-dir "$report_dir")
-        if [ "${SEO_FAIL_ON_NEW_UNLISTED:-false}" = true ]; then
+        if [ "${SEO_FAIL_ON_NEW_UNLISTED-false}" = true ]; then
           options+=(--fail-on-new-unlisted)
         fi
-        if [ "${SEO_FAIL_ON_NEW_UNVERIFIED:-false}" = true ]; then
+        if [ "${SEO_FAIL_ON_NEW_UNVERIFIED-false}" = true ]; then
           options+=(--fail-on-new-unverified-targets)
         fi
         if [ -n "${SEO_SOURCE_MAP:-}" ]; then

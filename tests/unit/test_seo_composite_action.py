@@ -409,6 +409,7 @@ def test_composite_action_opt_in_local_hreflang_reciprocity(
         (True, "true", 1),
         (True, "false", 0),
         (False, "TRUE", 2),
+        (False, "", 2),
     ],
 )
 def test_composite_action_opt_in_hreflang_cluster_consistency(
@@ -847,6 +848,8 @@ def test_composite_action_opt_in_regression_only_baseline(
         ("new_unverified", "false", "true", 1),
         ("new_unlisted", "enabled", "false", 2),
         ("new_unverified", "false", "TRUE", 2),
+        ("new_unlisted", "", "false", 2),
+        ("new_unverified", "false", "", 2),
         ("no_baseline", "true", "false", 2),
         ("no_baseline", "false", "true", 2),
     ],
@@ -931,9 +934,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # Pin the independently merged regression-only Action revision, not an
-    # older revision that silently ignores baseline-build-root.
-    assert pin.group(1) == "25a6b057d7b936376b371eca0426f1cb96569459"
+    # The earlier merged pin accepted explicitly blank opt-in boolean values.
+    # The copyable recipe must use the independently merged fail-closed fix.
+    assert pin.group(1) == "7194455b5e16b02052adfe7216922c423df1294e"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide
@@ -977,6 +980,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     # The example must expose the opt-in without ever enabling it by default.
     assert "baseline-build-root" in guide
     assert "# baseline-build-root: trusted-baseline-dist" in guide
+    assert "# fail-on-new-unlisted: 'true'" in guide
+    assert "# fail-on-new-unverified-targets: 'true'" in guide
+    assert "already supports both incremental coverage inputs" in guide
     assert "already supports the regression-only input" in guide
     assert "which **does not** expose" not in guide
     assert "Manifest approval" in guide
@@ -984,6 +990,8 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
     assert recipe is not None
     assert "# baseline-build-root: trusted-baseline-dist" in recipe.group(1)
     assert "\n          baseline-build-root:" not in recipe.group(1)
+    assert "\n          fail-on-new-unlisted:" not in recipe.group(1)
+    assert "\n          fail-on-new-unverified-targets:" not in recipe.group(1)
 
 
 def test_compact_consumer_recipe_pins_the_same_node_runtime_as_full_recipe() -> None:
