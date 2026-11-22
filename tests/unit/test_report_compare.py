@@ -214,6 +214,48 @@ def test_archived_reports_reject_changed_required_inbound_paths():
         compare_reports(before, after)
 
 
+def test_archived_inbound_issue_requires_saved_policy_summary(tmp_path, capsys):
+    (tmp_path / "index.html").write_text(
+        "<html><head><title>Home</title></head><body></body></html>",
+        encoding="utf-8",
+    )
+    services = tmp_path / "services" / "index.html"
+    services.parent.mkdir()
+    services.write_text(
+        "<html><head><title>Services</title></head><body></body></html>",
+        encoding="utf-8",
+    )
+    manifest = {"version": 1, "pages": [
+        {"path": path, "contract": {"url": url, "title_present": True}}
+        for path, url in (
+            ("index.html", "https://example.test/"),
+            ("services/index.html", "https://example.test/services/"),
+        )
+    ]}
+    opted_in = verify_manifest(
+        manifest, tmp_path, required_inbound_paths=("services/index.html",),
+    )
+    assert opted_in["reviewed_inbound"]["missing_paths"] == ["services/index.html"]
+    assert opted_in["pages"][1]["issues"][0]["code"] == "reviewed_inbound_link_missing"
+    assert compare_reports(opted_in, opted_in)["status"] == "pass"
+
+    disabled = verify_manifest(manifest, tmp_path)
+    assert "reviewed_inbound" not in disabled
+    assert compare_reports(disabled, disabled)["status"] == "pass"
+
+    malformed = json.loads(json.dumps(opted_in))
+    del malformed["reviewed_inbound"]
+    with pytest.raises(ValueError, match="reviewed_inbound issues without enabled policy"):
+        compare_reports(malformed, malformed)
+
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(malformed), encoding="utf-8")
+    after.write_text(json.dumps(malformed), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "error"
+
+
 @pytest.mark.parametrize("bad_inbound", [
     {"required_paths": [], "linked_paths": [], "missing_paths": []},
     {"required_paths": ["missing.html"], "linked_paths": [], "missing_paths": ["missing.html"]},
