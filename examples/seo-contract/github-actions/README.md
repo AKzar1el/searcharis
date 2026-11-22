@@ -31,7 +31,7 @@ jobs:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
       # - run: mkdir -p seo-ci-reports  # Only when retaining local reports.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@7194455b5e16b02052adfe7216922c423df1294e
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@edff0f6415e423103a6bc7647f5c3e2f75798467
         with:
           manifest: seo-manifest.json
           build-root: dist
@@ -70,15 +70,16 @@ the runner image's changing default Node version. Adjust the pinned runtime to
 the consumer site's supported Node version, retain immutable Action references,
 and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
-The example pins the **independently merged PR #332** main revision
-`7194455b5e16b02052adfe7216922c423df1294e`, which contains the optional
+The example pins the **independently merged PR #337** main revision
+`edff0f6415e423103a6bc7647f5c3e2f75798467`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
 reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
 inbound-path inputs, reviewed SARIF source hints, and regression-only baseline
-comparison including incremental coverage checks. This revision also rejects
-explicitly blank optional boolean inputs (exit 2) instead of silently
-disabling requested checks. Earlier pinned revisions may silently ignore
-unrecognized inputs. Review that source
+comparison including incremental coverage checks. It rejects explicitly blank
+optional boolean inputs (exit 2), bounds SARIF source-map reads against the
+actual input stream before JSON parsing (merged #334), and includes later
+offline sitemap and archived-report correctness fixes (#335-#337). Earlier
+pinned revisions may silently ignore unrecognized inputs or lack these fixes. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
@@ -112,7 +113,7 @@ against the immutable trusted PR base remains a **separate mandatory gate**:
 regression-only results cannot authorize new or weakened manifest assertions.
 
 **Pin compatibility:** The compact copyable `uses:` example above pins the
-independently merged #332 main revision and already supports the regression-only input.
+independently merged #337 main revision and already supports the regression-only input.
 The commented `baseline-build-root` is **not enabled by default**. Its example
 directory name is a placeholder: separately prepare and review a real baseline
 outside untrusted pull-request content before enabling it. Older pins may ignore
@@ -134,7 +135,8 @@ values (including explicitly empty strings), or enabling either without
 Both flags stay false for strict single-build checks and for comparisons unless
 the operator deliberately opts in.
 
-**Compatibility:** The copyable `uses:` reference above already supports both incremental coverage inputs through the independently merged #332 main revision.
+**Compatibility:** The copyable `uses:` reference above already supports both incremental coverage inputs
+through the independently merged #337 main revision.
 Both inputs are shown as comments and remain disabled by default; do not enable
 either without a separately prepared trusted baseline. Keep that baseline
 independent of pull-request-controlled content and run the separate
