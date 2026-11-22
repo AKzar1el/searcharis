@@ -2129,6 +2129,10 @@ agree with their corresponding page issue details. Missing or invented
 unreviewed-link, missing-fragment or ambiguous-fragment findings, or counts too
 small to contain those findings, are invalid saved inputs (exit **2**), not a
 PASS. The comparator does not re-open built HTML when reading saved reports.
+Saved unreviewed-navigation findings must target a previously unreviewed URL
+on the source page's own origin. A target already present among reviewed pages
+(including equivalent URL aliases), or on another origin, is inconsistent
+archived evidence and returns input error **2**.
 The comparator also rejects impossible cross-page counts: canonical internal
 and outside-manifest destinations combined cannot exceed the number of checked
 pages, while hreflang directed peer-pair counts cannot exceed `pages * (pages - 1)`.

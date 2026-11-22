@@ -64,6 +64,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     paths: set[str] = set()
     urls: set[str] = set()
     url_identities: set[tuple[str, str, int | None, str, str]] = set()
+    identities_by_path: dict[str, tuple[str, str, int | None, str, str]] = {}
     fingerprints: set[bool] = set()
     failed = 0
     for page in pages:
@@ -82,6 +83,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
         paths.add(path)
         urls.add(url)
         url_identities.add(identity)
+        identities_by_path[path] = identity
         has_fingerprint = "contract_sha256" in page
         fingerprints.add(has_fingerprint)
         if has_fingerprint:
@@ -232,6 +234,16 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             or any(not _is_http_url(target) for _, target in findings)
         ):
             raise ValueError(f"{name}: inconsistent {check} findings")
+        if check == "reviewed_navigation":
+            # Generated navigation failures are same-origin links to *unreviewed*
+            # URLs. Both a reviewed alias and a foreign origin are impossible.
+            for path, target in findings:
+                target_identity = _page_url_identity(target)
+                if (
+                    target_identity in url_identities
+                    or target_identity[:3] != identities_by_path[path][:3]
+                ):
+                    raise ValueError(f"{name}: inconsistent {check} findings")
 
     nofollow_issues = [
         (page["path"], issue["actual"])
