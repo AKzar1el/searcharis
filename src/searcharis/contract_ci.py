@@ -97,6 +97,8 @@ class _SEOParser(HTMLParser):
         self.jsonld_chunks: list[str] = []
         self.template_depth = 0
         self.map_depth = 0
+        self.svg_depth = 0
+        self.svg_html_depth = 0
         self.in_textarea = False
         self.in_plaintext = False
 
@@ -168,13 +170,21 @@ class _SEOParser(HTMLParser):
                 self.fragment_ids.add(target)
         if tag == "map":
             self.map_depth += 1
-        if (self.collect_anchors and "href" in values
+        if tag == "svg":
+            self.svg_depth += 1
+        elif tag == "foreignobject" and self.svg_depth:
+            self.svg_html_depth += 1
+        svg_link = (tag == "a" and self.svg_depth > self.svg_html_depth
+                    and "xlink:href" in values)
+        if (self.collect_anchors and ("href" in values or svg_link)
                 and (tag == "a" or (tag == "area" and self.map_depth > 0))):
             # Image-map hotspots are links too; stray area elements outside a
-            # map are not navigable, and template contents were skipped above.
+            # map are not navigable. SVG links also allow legacy xlink:href,
+            # but plain href takes precedence and HTML descendants do not.
             if len(self.anchors) >= 20_000:
                 raise ValueError("Built HTML exceeds 20000 navigational links")
-            href = (values["href"] or "").strip()
+            href = ((values["href"] if "href" in values else values["xlink:href"])
+                    or "").strip()
             self.anchors.append(href)
             if self.collect_anchor_nofollow and "nofollow" in re.split(
                 r"[\s,]+", (values.get("rel") or "").lower(),
@@ -358,6 +368,10 @@ class _SEOParser(HTMLParser):
             return
         if tag == "map":
             self.map_depth = max(0, self.map_depth - 1)
+        if tag == "svg":
+            self.svg_depth = max(0, self.svg_depth - 1)
+        elif tag == "foreignobject":
+            self.svg_html_depth = max(0, self.svg_html_depth - 1)
         if tag == "head":
             self.in_head = False
             self.in_title = False

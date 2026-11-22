@@ -1173,6 +1173,10 @@ uv run python -m searcharis.site_cli manifest.json dist \
 `<base href>` (otherwise the reviewed page URL), ignores URL fragments and
 deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
+Inline SVG `<a href>` links are also checked. Legacy SVG `<a xlink:href>`
+links are included when plain `href` is absent; plain `href` takes precedence.
+An `xlink:href` on an HTML anchor outside SVG is not a navigable link, and
+external SVG image files are not crawled.
 For HTTP(S) anchor destinations, backslashes in the URL path portion resolve
 as browser-style separators, so a backslash cannot silently hide a reviewed
 local route or a missing route. Queries and fragments are not rewritten;
