@@ -58,6 +58,41 @@ def test_navigation_accepts_relative_and_normalized_local_links(tmp_path):
     assert result['reviewed_navigation']['checked_links'] >= 2
 
 
+def test_backslash_path_does_not_hide_unreviewed_browser_navigation(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\missing/">Missing</a>')
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_backslash_path_does_not_hide_broken_reviewed_fragment(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/#absent">Broken jump</a>')
+    report = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#absent'},
+    ]
+
+
+def test_backslash_path_counts_as_real_critical_inbound_link(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/">About</a>')
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_backslash_path_nofollow_link_cannot_evade_opt_in_policy(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/" rel="nofollow">About</a>')
+    report = verify_manifest(manifest, build, check_internal_nofollow=True)
+    assert report['status'] == 'fail'
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
 def test_navigation_ignores_inert_markup_and_deduplicates_missing_targets(tmp_path):
     build, manifest = _site(tmp_path,
         '<template><a href="/ghost/">Ghost</a></template>'
