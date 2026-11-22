@@ -201,6 +201,38 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
 
+    # A saved navigation/fragment summary must describe the same failures as
+    # its page issues; otherwise a modified archive could silently pass CI.
+    for check, key, issue_code, count_key in (
+        ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+         "checked_links"),
+        ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+         "checked_fragments"),
+        ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+         "checked_fragments"),
+    ):
+        page_findings = [
+            (page["path"], issue["actual"])
+            for page in pages for issue in page["issues"]
+            if issue["code"] == issue_code
+        ]
+        if check not in report:
+            if page_findings:
+                raise ValueError(f"{name}: {check} issues without enabled policy")
+            continue
+        if any(not isinstance(target, str) for _, target in page_findings):
+            raise ValueError(f"{name}: inconsistent {check} findings")
+        findings = [
+            (item["path"], item["target"]) for item in report[check][key]
+        ]
+        if (
+            sorted(findings) != sorted(page_findings)
+            or len(findings) > report[check][count_key]
+            or len(set(findings)) != len(findings)
+            or any(not _is_http_url(target) for _, target in findings)
+        ):
+            raise ValueError(f"{name}: inconsistent {check} findings")
+
     nofollow_issues = [
         (page["path"], issue["actual"])
         for page in pages for issue in page["issues"]
