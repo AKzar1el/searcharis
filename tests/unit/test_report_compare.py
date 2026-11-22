@@ -259,6 +259,72 @@ def test_archived_reports_reject_invalid_reviewed_link_summaries(field, bad_summ
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("check, finding, code, target", [
+    ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+     "https://example.test/ghost"),
+    ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+     "https://example.test/#missing"),
+    ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+     "https://example.test/#duplicate"),
+])
+@pytest.mark.parametrize("missing_from", ["issues", "summary"])
+def test_archived_reviewed_link_findings_must_match_page_issues(
+    check, finding, code, target, missing_from,
+):
+    issue = {"code": code, "expected": "reviewed target", "actual": target}
+    report = _report([("index.html", [issue] if missing_from == "summary" else [])])
+    detail = {"path": "index.html", "target": target}
+    if check == "reviewed_navigation":
+        report[check] = {
+            "checked_links": 1,
+            "unreviewed_targets": [detail] if missing_from == "issues" else [],
+        }
+    else:
+        report[check] = {
+            "checked_fragments": 1,
+            "missing_targets": [detail] if finding == "missing_targets"
+                and missing_from == "issues" else [],
+            "ambiguous_targets": [detail] if finding == "ambiguous_targets"
+                and missing_from == "issues" else [],
+            "unverified_targets": [],
+        }
+    with pytest.raises(ValueError, match="inconsistent " + check + " findings"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check, key, code, target", [
+    ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+     "https://example.test/ghost"),
+    ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+     "https://example.test/#missing"),
+    ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+     "https://example.test/#duplicate"),
+])
+def test_archived_reviewed_link_matching_issues_remain_comparable(check, key, code, target):
+    issue = {"code": code, "expected": "reviewed target", "actual": target}
+    report = _report([("index.html", [issue])])
+    summary = {"checked_fragments": 1, "missing_targets": [],
+               "ambiguous_targets": [], "unverified_targets": []}
+    if check == "reviewed_navigation":
+        summary = {"checked_links": 1, "unreviewed_targets": []}
+    summary[key] = [{"path": "index.html", "target": target}]
+    report[check] = summary
+    assert compare_reports(report, report)["status"] == "pass"
+    report[check]["checked_links" if check == "reviewed_navigation"
+                  else "checked_fragments"] = 0
+    with pytest.raises(ValueError, match="inconsistent " + check + " findings"):
+        compare_reports(report, report)
+
+
+def test_archived_navigation_issue_without_enabled_summary_is_invalid():
+    report = _report([("index.html", [{
+        "code": "navigation_target_unreviewed",
+        "expected": "reviewed target", "actual": "https://example.test/ghost",
+    }])])
+    with pytest.raises(ValueError, match="issues without enabled policy"):
+        compare_reports(report, report)
+
+
 def test_archived_cli_rejects_reviewed_check_mismatch_as_input_error(tmp_path, capsys):
     baseline = _report([("index.html", [])])
     candidate = _report([("index.html", [])])

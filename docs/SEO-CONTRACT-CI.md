@@ -2088,7 +2088,11 @@ in that report. An unverified target cannot also be the declared URL of a
 checked page in the same report: such a destination was locally verifiable and
 must not masquerade as outside-manifest. Corrupt or inconsistent summary data
 returns input error **2** instead of being silently accepted as a valid
-comparison.
+comparison. Archived reviewed-navigation and fragment summaries must also
+agree with their corresponding page issue details. Missing or invented
+unreviewed-link, missing-fragment or ambiguous-fragment findings, or counts too
+small to contain those findings, are invalid saved inputs (exit **2**), not a
+PASS. The comparator does not re-open built HTML when reading saved reports.
 The comparator also rejects impossible cross-page counts: canonical internal
 and outside-manifest destinations combined cannot exceed the number of checked
 pages, while hreflang directed peer-pair counts cannot exceed `pages * (pages - 1)`.
