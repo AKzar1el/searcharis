@@ -31,12 +31,15 @@ jobs:
           python-version: '3.13'
       - run: npm ci && npm run build  # Adapt to your static generator.
       # - run: mkdir -p seo-ci-reports  # Only when retaining local reports.
-      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@25a6b057d7b936376b371eca0426f1cb96569459
+      - uses: AKzar1el/searcharis/examples/seo-contract/github-actions/seo-site-action@7194455b5e16b02052adfe7216922c423df1294e
         with:
           manifest: seo-manifest.json
           build-root: dist
           # Only with a separately prepared, trusted baseline, not PR content:
           # baseline-build-root: trusted-baseline-dist
+          # With that trusted baseline, opt in to only *new* coverage gaps:
+          # fail-on-new-unlisted: 'true'
+          # fail-on-new-unverified-targets: 'true'
           require-full-coverage: 'false'
           # To retain source-linked SARIF, enable both options after reviewing
           # and committing seo-source-map.json and creating seo-ci-reports/:
@@ -67,13 +70,15 @@ the runner image's changing default Node version. Adjust the pinned runtime to
 the consumer site's supported Node version, retain immutable Action references,
 and ensure the site has a reviewed `package-lock.json` for `npm ci`.
 
-The example pins the **independently merged PR #326** source revision
-`25a6b057d7b936376b371eca0426f1cb96569459`, which contains the optional
+The example pins the **independently merged PR #332** main revision
+`7194455b5e16b02052adfe7216922c423df1294e`, which contains the optional
 report-directory, hreflang reciprocity, duplicate-metadata, internal-nofollow,
 reviewed-navigation, reviewed-fragments, strict locale-cluster, and critical
 inbound-path inputs, reviewed SARIF source hints, and regression-only baseline
-comparison. Earlier
-pinned revisions silently ignore unrecognized inputs. Review that source
+comparison including incremental coverage checks. This revision also rejects
+explicitly blank optional boolean inputs (exit 2) instead of silently
+disabling requested checks. Earlier pinned revisions may silently ignore
+unrecognized inputs. Review that source
 and the website's own workflow before adoption; nothing is installed
 automatically. Advance the pin only to a
 newer, independently reviewed, full 40-character merged commit. Do not pin
@@ -107,14 +112,14 @@ against the immutable trusted PR base remains a **separate mandatory gate**:
 regression-only results cannot authorize new or weakened manifest assertions.
 
 **Pin compatibility:** The compact copyable `uses:` example above pins the
-independently merged #326 revision and already supports the regression-only input.
+independently merged #332 main revision and already supports the regression-only input.
 The commented `baseline-build-root` is **not enabled by default**. Its example
 directory name is a placeholder: separately prepare and review a real baseline
 outside untrusted pull-request content before enabling it. Older pins may ignore
 unknown inputs without failing. No customer installation, ranking improvement
 or revenue is asserted by local tests.
 
-### Incremental coverage for gradually reviewed sites (new Action source)
+### Incremental coverage for gradually reviewed sites
 
 For a trusted baseline comparison, two independent, default-off Action inputs
 expose existing offline `build_compare` checks:
@@ -124,16 +129,16 @@ manifest while tolerating *inherited* unlisted pages. Separately,
 hreflang destinations from enabled cross-page checks (the Action already enables
 canonical consistency). These checks do not approve any new manifest entries,
 fetch URLs, or claim that targets are broken on the live site. Invalid boolean
-values, or enabling either without `baseline-build-root`, fail as input error 2.
+values (including explicitly empty strings), or enabling either without
+`baseline-build-root`, fail as input error 2.
 Both flags stay false for strict single-build checks and for comparisons unless
 the operator deliberately opts in.
 
-**Compatibility:** The copyable `uses:` reference above intentionally stays
-pinned to independently merged #326, which **does not support these two new
-inputs**. Do not add them to that snippet: after this Action change is independently
-reviewed and merged, advance the consumer pin in a separate reviewed change.
-Keep the trusted baseline independent of pull-request-controlled content and
-run the separate approved-manifest comparison against the immutable PR base.
+**Compatibility:** The copyable `uses:` reference above already supports both incremental coverage inputs through the independently merged #332 main revision.
+Both inputs are shown as comments and remain disabled by default; do not enable
+either without a separately prepared trusted baseline. Keep that baseline
+independent of pull-request-controlled content and run the separate
+approved-manifest comparison against the immutable PR base.
 
 For multilingual static sites, set `check-hreflang-reciprocity: 'true'`
 under the action step's `with:` inputs. The default `'false'` preserves

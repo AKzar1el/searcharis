@@ -1971,6 +1971,10 @@ the comparison, but always stop on **2** (invalid input). The last invocation
 returns **0** if no new regressions are found, **1** for new or changed page
 issues, missing baseline routes, or newly unlisted HTML when full coverage
 is enabled, and **2** for unreadable, malformed or incompatible reports.
+Archived `pages[].path` and `coverage.unlisted` entries must follow the
+same relative POSIX `.html`/`.htm` build-path rules as reviewed manifests.
+Absolute paths, parent-directory traversal, backslashes and non-HTML paths
+are invalid saved-report inputs (exit **2**), not successful comparisons.
 For the final archived comparison, `--json-file PATH` saves the full JSON
 comparison, `--markdown-file PATH` saves a bounded, HTML-escaped human review,
 and `--junit-file PATH` saves JUnit XML for CI test-report consumers (for
