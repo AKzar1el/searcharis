@@ -110,6 +110,15 @@ dot-like text inside a path segment or query is not normalized.
 This follows [RFC 3986 sections 5.2.4, 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
 Reports retain original URLs; different schemes, non-default ports, and
 non-equivalent paths/queries (including path and query casing) remain distinct.
+For multi-page URL identity, Unicode hostnames are mapped to their ASCII
+Punycode equivalents with nontransitional UTS #46, so e.g. a Unicode-host
+reviewed page cannot evade same-origin navigation or duplicate-URL checks by
+using the ASCII hostname form. The UTS #46 sharp-S hostname
+`xn--fa-hia.de` remains distinct from `fass.de`, unlike Python's older
+IDNA2003 mapping. Unicode
+host comparison requires the locally installed `idna` library; if unavailable,
+multi-page checks reject that input rather than silently passing an unsupported
+comparison. The checker never resolves or fetches these hostnames.
 Expected `canonical` and `hreflang` destinations in contracts must also be
 absolute HTTP(S) URLs with valid syntax. Invalid expected destinations (such as
 relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are
