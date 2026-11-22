@@ -1542,7 +1542,8 @@ For a separate, **opt-in** indexing-risk check on the standalone robots gate,
 add `--check-root-crawl-block`. A reviewed `robots.txt` that exactly matches its
 compiled copy may still explicitly block Googlebot at the site root. This flag
 fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
-`Googlebot` group declares `Disallow: /` without a basic root `Allow: /`,
+`Googlebot` group declares `Disallow: /` or equivalent `Disallow: /*`
+without a basic root `Allow: /`,
 `Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. It also detects the
 more-specific, homepage-only `Disallow: /$`; a plain `Allow: /` or `Allow: /*`
 does not override this anchored root block, but `Allow: /$` or `Allow: /*$`
@@ -1568,7 +1569,7 @@ uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
   --check-root-crawl-block --report-dir reports
 ```
 
-An identical reviewed and built policy with a basic root `Disallow: /` or `/$`
+An identical reviewed and built policy with a basic root `Disallow: /`, `/*` or `/$`
 now fails the combined gate (exit 1, `root_crawl_block`), while HTML and
 sitemap results remain independently reported. Its JSON, JUnit, Markdown,
 SARIF and GitHub annotations identify a distinct root-crawl failure rather

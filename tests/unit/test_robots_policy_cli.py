@@ -77,7 +77,12 @@ def test_staging_disallow_all_drift_blocks_release_without_interpreting_rules(
     ("User-agent: Bingbot\nUser-agent: Googlebot\nDisallow: /\n", True),
     ("User-agent: Googlebot*\nDisallow: /\n", True),
     ("User-agent: Googlebot/1.2\nDisallow: /\n", True),
-    ("User-agent: *\nDisallow: /*\n", False),
+    ("User-agent: *\nDisallow: /*\n", True),
+    ("User-agent: Googlebot\nDisallow: /*\n", True),
+    ("User-agent: *\nDisallow: /*\nAllow: /\n", False),
+    ("User-agent: *\nDisallow: /*\nAllow: /*\n", False),
+    ("User-agent: *\nDisallow: /*\nAllow: /public/\n", True),
+    ("User-agent: *\nDisallow: /*\nUser-agent: Googlebot\nAllow: /\n", False),
 ])
 def test_optional_googlebot_root_block_from_identical_reviewed_policy(
     tmp_path, capsys, monkeypatch, policy, should_block,

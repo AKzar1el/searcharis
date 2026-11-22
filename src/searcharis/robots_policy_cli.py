@@ -106,7 +106,11 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
             name == "allow" and value in {"/$", "/*$"}
             for name, value in applicable
         )
-    if not any(name == "disallow" and value == "/" for name, value in applicable):
+    # Google ignores a trailing wildcard: /* is equivalent to / at the root.
+    if not any(
+        name == "disallow" and value in {"/", "/*"}
+        for name, value in applicable
+    ):
         return False
     # Only these simple allow rules can explicitly admit the homepage itself.
     return not any(
