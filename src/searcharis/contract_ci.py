@@ -671,6 +671,22 @@ def verify_contract(
                 extra_slashes = re.match(r"(?i)^(https?):/{3,}", base_href)
                 if extra_slashes:
                     base_href = extra_slashes.group(1) + "://" + base_href[extra_slashes.end():]
+            # Decode only whole dot segments in the path, never an encoded
+            # hostname. WHATWG navigates these segments; urljoin does not.
+            path_end = len(base_href)
+            for separator in "?#":
+                at = base_href.find(separator)
+                if at >= 0:
+                    path_end = min(path_end, at)
+            browser_path = base_href[:path_end]
+            authority = re.match(r"(?i)^(?:https?:)?//[^/]*", browser_path)
+            path_start = authority.end() if authority else 0
+            browser_path = browser_path[:path_start] + "/".join(
+                re.sub(r"(?i)%2e", ".", part)
+                if re.fullmatch(r"(?i)(?:\.|%2e){1,2}", part) else part
+                for part in browser_path[path_start:].split("/")
+            )
+            base_href = browser_path + base_href[path_end:]
             # urljoin silently borrows the document host for an explicit
             # HTTP(S) authority with no host; browsers reject that base URL.
             empty_authority = re.match(

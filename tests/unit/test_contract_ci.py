@@ -1680,6 +1680,37 @@ def test_observed_document_base_path_encodes_browser_whitespace(base, target):
     assert result["observed_canonical"] == [target]
 
 
+@pytest.mark.parametrize(("base", "target"), [
+    ("/docs/%2e%2e/blog/", "https://example.com/blog/post/"),
+    ("/docs/%2E./blog/", "https://example.com/blog/post/"),
+    ("https://example.com/docs/.%2e/blog/", "https://example.com/blog/post/"),
+    ("/docs/%2e/blog/", "https://example.com/docs/blog/post/"),
+    ("/docs/%2efoo/blog/", "https://example.com/docs/%2efoo/blog/post/"),
+])
+def test_observed_document_base_normalizes_only_encoded_dot_segments(base, target):
+    # WHATWG resolves encoded whole dot segments before relative head links.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="post/">'
+            '<link rel="alternate" hreflang="en" href="post/">'
+            '</head><body></body></html>')
+    result = verify_contract(
+        {"url": URL, "canonical": target, "hreflang": {"en": target}}, html,
+        include_canonical=True, include_hreflang=True,
+    )
+    assert result["issues"] == []
+    assert result["observed_canonical"] == [target]
+    assert result["observed_hreflang"] == {"en": [target]}
+
+
+@pytest.mark.parametrize("base", ["https://%2e/", "https://%2e%2e/"])
+def test_document_base_encoded_authority_is_not_rewritten_as_path(base):
+    # Browser-style path normalization must not relax authority validation.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="/en/"></head></html>')
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert [issue["code"] for issue in result["issues"]] == ["document_base_invalid"]
+
+
 def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():
     # Browsers ignore duplicate attributes after the first; Python dict(attrs) does not.
     wrong_first = '''<html><head><link rel="canonical" href="/wrong/" href="/en/">
