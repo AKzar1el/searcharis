@@ -615,6 +615,16 @@ unlisted routes linked in built HTML, but cannot discover routes rendered only
 by JavaScript. Prerender required routes to HTML and review the complete route
 inventory before relying on these offline gates for deployment decisions.
 
+For important published landing pages, add repeatable
+`--require-inbound-link BUILD_PATH` to the same `--check-built` invocation.
+For example, `--require-inbound-link pricing/index.html` fails if no *other*
+reviewed page on the same origin links to the built pricing page. This reuses
+the offline `site_cli` inbound check, so a page linking only to itself does not
+pass. The exact build-relative path must be in the generated/extended reviewed
+manifest; an unknown path is an input error (exit 2). Requiring inbound links
+is opt-in and does not prove search engines actually crawl or index the page;
+only links present in the supplied built HTML can be checked.
+
 To start with only a manually curated set of important pages on a large site,
 put their **exact build-relative HTML paths** in a UTF-8 text file, one per
 LF/CRLF-delimited line. Blank lines and lines beginning with `#` (including

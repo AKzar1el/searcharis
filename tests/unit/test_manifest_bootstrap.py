@@ -195,6 +195,40 @@ def test_bootstrap_fragment_flag_requires_check_built(tmp_path, capsys):
     assert "--check-reviewed-fragments requires --check-built" in capsys.readouterr().err
 
 
+def test_bootstrap_can_require_critical_page_to_have_reviewed_inbound_link(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built"]
+    assert main(args) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+
+    assert main([*args, "--require-inbound-link", "pricing/index.html"]) == 1
+    captured = capsys.readouterr()
+    assert len(json.loads(captured.out)["pages"]) == 2
+    assert "reviewed_inbound_link_missing" in captured.err
+
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body>'
+        '<a href="/pricing/">Pricing</a></body></html>', encoding="utf-8",
+    )
+    assert main([*args, "--require-inbound-link", "pricing/index.html"]) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+
+
+def test_bootstrap_inbound_gate_requires_built_check(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "reviewed.json"
+    assert main([str(build), "https://example.com/", "--require-inbound-link",
+                 "index.html", "--output", str(output)]) == 2
+    assert not output.exists()
+    assert "--require-inbound-link requires --check-built" in capsys.readouterr().err
+
+
 def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys, monkeypatch):
     build = tmp_path / "dist"
     for path in ("index.html", "pricing/index.html", "legal/index.html"):

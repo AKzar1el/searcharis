@@ -458,6 +458,10 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-fragments", action="store_true",
         help="With --check-built, require linked HTML fragments to resolve to unique reviewed targets",
     )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="With --check-built, require another reviewed page to link to this built HTML path (repeatable)",
+    )
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
     mixed_origins = False
@@ -466,6 +470,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--check-reviewed-navigation requires --check-built")
         if args.check_reviewed_fragments and not args.check_built:
             raise ValueError("--check-reviewed-fragments requires --check-built")
+        if args.require_inbound_link and not args.check_built:
+            raise ValueError("--require-inbound-link requires --check-built")
         selected_paths = (
             *args.only,
             *(read_selected_paths(args.only_file) if args.only_file else ()),
@@ -513,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
                 require_full_coverage=not bool(selected_paths),
                 check_reviewed_navigation=args.check_reviewed_navigation,
                 check_reviewed_fragments=args.check_reviewed_fragments,
+                required_inbound_paths=tuple(args.require_inbound_link),
             )
             if args.check_built else None
         )
