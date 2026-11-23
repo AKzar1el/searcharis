@@ -120,7 +120,7 @@ def test_unicode_separators_cannot_create_phantom_sitemap_directives(
     reviewed, build = _fixture(tmp_path)
     required = "https://example.test/required.xml"
     prefix = "" if leading else "Sitemap: https://example.test/other.xml"
-    content = f"User-agent: *\n{prefix}{separator}Sitemap: {required}\n".encode("utf-8")
+    content = f"User-agent: *\n{prefix}{separator}Sitemap: {required}\n".encode()
     reviewed.write_bytes(content)
     (build / "robots.txt").write_bytes(content)
 
@@ -139,7 +139,7 @@ def test_unicode_separators_cannot_create_phantom_disallow_rules(
 ):
     reviewed, build = _fixture(tmp_path)
     before = "User-agent: *\n" if leading else "User-agent: *"
-    content = f"{before}{separator}Disallow: /\n".encode("utf-8")
+    content = f"{before}{separator}Disallow: /\n".encode()
     reviewed.write_bytes(content)
     (build / "robots.txt").write_bytes(content)
 
@@ -152,7 +152,7 @@ def test_unicode_separators_cannot_create_phantom_disallow_rules(
 @pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
 def test_robots_parser_still_respects_rfc_line_endings(tmp_path, capsys, newline):
     reviewed, build = _fixture(tmp_path)
-    content = f"User-agent: *{newline}Disallow: /{newline}".encode("utf-8")
+    content = f"User-agent: *{newline}Disallow: /{newline}".encode()
     reviewed.write_bytes(content)
     (build / "robots.txt").write_bytes(content)
 
