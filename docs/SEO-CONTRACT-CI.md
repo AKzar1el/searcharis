@@ -590,6 +590,26 @@ manifest; on invalid HTML input, no manifest is created. This is an optional
 initial feedback loop, not a replacement for checking the reviewed, committed
 manifest via `site_cli` on future CI builds. No network URLs are fetched.
 
+For static sites with navigable internal links, the optional
+`--check-reviewed-navigation` flag adds a one-command route review to
+`--check-built`:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --check-built --check-reviewed-navigation --output seo-manifest.json
+```
+
+It fails (exit 1) if an active built HTML anchor or navigable image-map hotspot
+points to a same-origin URL absent from the generated manifest. The create-only
+manifest remains available for review. The flag requires `--check-built` and
+does not change default bootstrap behavior. An ordinary single-file React/Vite
+SPA can pass `--check-built` and `site_cli --require-full-coverage` even though
+client-rendered routes were never emitted as HTML: *full coverage* counts built
+HTML files, not all runtime routes. The reviewed-navigation flag catches
+unlisted routes linked in built HTML, but cannot discover routes rendered only
+by JavaScript. Prerender required routes to HTML and review the complete route
+inventory before relying on these offline gates for deployment decisions.
+
 To start with only a manually curated set of important pages on a large site,
 put their **exact build-relative HTML paths** in a UTF-8 text file, one per
 LF/CRLF-delimited line. Blank lines and lines beginning with `#` (including

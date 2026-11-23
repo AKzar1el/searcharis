@@ -121,6 +121,38 @@ def test_opt_in_check_built_accepts_valid_pages_without_network(tmp_path, capsys
     assert verify_manifest(json.loads(target.read_text()), build)["status"] == "pass"
 
 
+def test_bootstrap_reviewed_navigation_detects_unbuilt_spa_routes(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>SPA</title></head><body>'
+        '<a href="/pricing/">Pricing</a><div id="app"></div></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built"]
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+    assert main([*args, "--check-reviewed-navigation"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
+    assert "FAIL 0/1" in captured.err
+    assert "navigation_target_unreviewed" in captured.err
+
+
+def test_bootstrap_navigation_flag_requires_check_built(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "manifest.json"
+    assert main([
+        str(build), "https://example.com/", "--check-reviewed-navigation",
+        "--output", str(output),
+    ]) == 2
+    assert not output.exists()
+    assert "--check-reviewed-navigation requires --check-built" in capsys.readouterr().err
+
+
 def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys, monkeypatch):
     build = tmp_path / "dist"
     for path in ("index.html", "pricing/index.html", "legal/index.html"):
