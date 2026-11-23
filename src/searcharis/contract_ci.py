@@ -646,8 +646,16 @@ def verify_contract(
     base_url = url
     if page.base_href is not None:
         try:
-            candidate = urljoin(url, page.base_href)
-            valid_base = _is_http_url(candidate)
+            # urljoin silently borrows the document host for an explicit
+            # HTTP(S) authority with no host; browsers reject that base URL.
+            empty_authority = re.match(
+                r"(?i)^(?:https?:)?/{2,}(?:[?#]|$)", page.base_href,
+            )
+            if empty_authority:
+                valid_base = False
+            else:
+                candidate = urljoin(url, page.base_href)
+                valid_base = _is_http_url(candidate)
         except ValueError:
             valid_base = False
         if valid_base:

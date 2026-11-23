@@ -1632,6 +1632,17 @@ def test_invalid_document_base_fails_closed(base):
     assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
 
 
+@pytest.mark.parametrize("base", [
+    "https://?q=1", "https://#fragment", "https:////?q=1", "//?q=1",
+])
+def test_browser_invalid_empty_authority_base_fails_closed(base):
+    # WHATWG rejects missing HTTP(S) hosts even if urljoin supplies the page host.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="/en/"></head><body></body></html>')
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
+
+
 def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():
     # Browsers ignore duplicate attributes after the first; Python dict(attrs) does not.
     wrong_first = '''<html><head><link rel="canonical" href="/wrong/" href="/en/">
