@@ -105,6 +105,39 @@ def test_archived_unverified_fragment_target_accepts_unknown_local_route():
     assert compare_reports(report, report)["status"] == "pass"
 
 
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+@pytest.mark.parametrize("target", [
+    "", "not-a-url", "ftp://example.test/peer", "https://user@example.test/peer",
+    "https://outside.test/a\nFORGED TARGET",
+])
+def test_archived_hreflang_unverified_targets_reject_invalid_urls(check, extra, target):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{"path": "index.html", "target": target, **extra}],
+    }
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+def test_archived_hreflang_unverified_targets_allow_external_http_urls(check, extra):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{
+            "path": "index.html", "target": "https://outside.test/peer", **extra,
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 @pytest.mark.parametrize("bad_path", [
     "../outside.html",
     "/absolute.html",
@@ -1952,7 +1985,8 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     candidate["pages"][0]["checked_url"] = "https://example.test/index.html"
     candidate["hreflang_clusters"]["unverified_targets"] = [{
         "path": bad_path, "language": "de\nFORGED LOCALE",
-        "target": "https://elsewhere.test/a\nFORGED TARGET",
+        # Invalid raw URL newlines are now rejected; use a valid encoded URL.
+        "target": "https://elsewhere.test/a%0AFORGED%20TARGET",
     }]
     before, after = tmp_path / "before.json", tmp_path / "after.json"
     before.write_text(json.dumps(baseline), encoding="utf-8")
@@ -1966,7 +2000,7 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     assert "index\\nFORGED PATH.html" in lines[1]
     assert "other\\nFORGED UNLISTED.html" in lines[2]
     assert "de\\nFORGED LOCALE" in lines[4]
-    assert "a\\nFORGED TARGET" in lines[4]
+    assert "a%0AFORGED%20TARGET" in lines[4]
 
 
 def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, capsys):

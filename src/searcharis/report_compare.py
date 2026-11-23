@@ -176,6 +176,9 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             # fragment-free HTTP(S) targets as outside-manifest links.
             or (check == "canonical_consistency"
                 and not _is_canonical_url(item["target"]))
+            # Archived hreflang peers must obey the same HTTP(S) URL rules as
+            # live links; otherwise two malformed reports compare as PASS.
+            or (check != "canonical_consistency" and not _is_http_url(item["target"]))
             or item["target"] in urls
             or (check == "canonical_consistency"
                 and _page_url_identity(item["target"]) in url_identities)
