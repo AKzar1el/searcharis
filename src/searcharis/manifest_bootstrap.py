@@ -454,12 +454,18 @@ def main(argv: list[str] | None = None) -> int:
         "--check-reviewed-navigation", action="store_true",
         help="With --check-built, require active built HTML links to target reviewed manifest URLs",
     )
+    parser.add_argument(
+        "--check-reviewed-fragments", action="store_true",
+        help="With --check-built, require linked HTML fragments to resolve to unique reviewed targets",
+    )
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
     mixed_origins = False
     try:
         if args.check_reviewed_navigation and not args.check_built:
             raise ValueError("--check-reviewed-navigation requires --check-built")
+        if args.check_reviewed_fragments and not args.check_built:
+            raise ValueError("--check-reviewed-fragments requires --check-built")
         selected_paths = (
             *args.only,
             *(read_selected_paths(args.only_file) if args.only_file else ()),
@@ -506,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
                 manifest, args.build_dir,
                 require_full_coverage=not bool(selected_paths),
                 check_reviewed_navigation=args.check_reviewed_navigation,
+                check_reviewed_fragments=args.check_reviewed_fragments,
             )
             if args.check_built else None
         )

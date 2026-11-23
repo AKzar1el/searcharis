@@ -596,13 +596,18 @@ For static sites with navigable internal links, the optional
 
 ```sh
 uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
-  --check-built --check-reviewed-navigation --output seo-manifest.json
+  --check-built --check-reviewed-navigation --check-reviewed-fragments \
+  --output seo-manifest.json
 ```
 
-It fails (exit 1) if an active built HTML anchor or navigable image-map hotspot
-points to a same-origin URL absent from the generated manifest. The create-only
-manifest remains available for review. The flag requires `--check-built` and
-does not change default bootstrap behavior. An ordinary single-file React/Vite
+The navigation flag fails (exit 1) if an active built HTML anchor or navigable
+image-map hotspot points to a same-origin URL absent from the generated
+manifest. The separate optional `--check-reviewed-fragments` flag also fails
+when an active link points to a missing or ambiguous fragment ID on a reviewed
+built page, such as `<a href="#pricing">` without a unique `id="pricing"`.
+Both flags require `--check-built` and can be used independently; neither
+changes default bootstrap behavior. The create-only manifest remains available
+for human review even after a finding. An ordinary single-file React/Vite
 SPA can pass `--check-built` and `site_cli --require-full-coverage` even though
 client-rendered routes were never emitted as HTML: *full coverage* counts built
 HTML files, not all runtime routes. The reviewed-navigation flag catches

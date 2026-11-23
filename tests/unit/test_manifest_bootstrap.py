@@ -153,6 +153,48 @@ def test_bootstrap_navigation_flag_requires_check_built(tmp_path, capsys):
     assert "--check-reviewed-navigation requires --check-built" in capsys.readouterr().err
 
 
+def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        '<a href="#missing">Broken section</a><h2 id="details">Details</h2>'
+        '</body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built",
+            "--check-reviewed-navigation"]
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+    assert main([*args, "--check-reviewed-fragments"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
+    assert "navigation_fragment_missing" in captured.err
+
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        '<a href="#details">Working section</a><h2 id="details">Details</h2>'
+        '</body></html>',
+        encoding="utf-8",
+    )
+    assert main([*args, "--check-reviewed-fragments"]) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+
+def test_bootstrap_fragment_flag_requires_check_built(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "manifest.json"
+    assert main([str(build), "https://example.com/", "--check-reviewed-fragments",
+                 "--output", str(output)]) == 2
+    assert not output.exists()
+    assert "--check-reviewed-fragments requires --check-built" in capsys.readouterr().err
+
+
 def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys, monkeypatch):
     build = tmp_path / "dist"
     for path in ("index.html", "pricing/index.html", "legal/index.html"):
