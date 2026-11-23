@@ -69,6 +69,35 @@ def test_literal_space_in_observed_href_cannot_hide_unreviewed_browser_route(tmp
     ]
 
 
+def test_nonbreaking_space_in_observed_href_cannot_hide_unreviewed_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/missing\u00a0page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%C2%A0page/'},
+    ]
+
+
+def test_nonbreaking_space_link_matches_reviewed_percent_encoded_page(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about\u00a0team/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%C2%A0team/'
+    report = verify_manifest(
+        manifest, build, check_reviewed_navigation=True,
+        required_inbound_paths=('about/index.html',),
+    )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_nonbreaking_space_in_url_authority_is_not_an_internal_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa\u00a0mple.test/about/">Invalid</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
 def test_literal_space_in_query_does_not_hide_unreviewed_browser_route(tmp_path):
     build, manifest = _site(tmp_path, '<a href="/about/?q=two words">Search</a>')
     report = verify_manifest(manifest, build, check_reviewed_navigation=True)

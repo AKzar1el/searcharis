@@ -146,7 +146,14 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
         at = href.find(separator)
         if at >= 0:
             path_end = min(path_end, at)
-    browser_href = (href[:path_end].replace("\\", "/") + href[path_end:]).replace(" ", "%20")
+    browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    # Non-ASCII spaces (for example a pasted NBSP) are UTF-8 URL octets in
+    # browsers. Apply this to observed hrefs only; declared URLs stay strict.
+    browser_href = "".join(
+        "".join(f"%{octet:02X}" for octet in char.encode("utf-8"))
+        if char.isspace() and not char.isascii() else char
+        for char in browser_href
+    ).replace(" ", "%20")
     try:
         resolved = urljoin(base, browser_href)
         return resolved if _is_http_url(resolved) else None
