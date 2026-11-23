@@ -176,6 +176,31 @@ def test_bootstrap_navigation_target_hints_are_bounded_and_hide_query_values(
     assert "PRIVATE" not in err
 
 
+@pytest.mark.parametrize("fragment", (
+    "access_token=PRIVATE_FRAGMENT_TOKEN",
+    "section?token=PRIVATE_FRAGMENT_QUERY",
+    "session%3DPRIVATE_ENCODED_TOKEN",
+    "details&signature=PRIVATE_FRAGMENT_SIGNATURE",
+))
+def test_bootstrap_fragment_hints_hide_parameter_like_values(
+    tmp_path, capsys, monkeypatch, fragment,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        f'<a href="#{fragment}">Broken section</a></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(build), "https://example.com/", "--check-built",
+                 "--check-reviewed-fragments"]) == 1
+    captured = capsys.readouterr()
+    assert "navigation_fragment_missing" in captured.err
+    assert "PRIVATE" not in captured.err
+    assert "target /#[redacted]" in captured.err
+
+
 def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
     tmp_path, capsys, monkeypatch,
 ):

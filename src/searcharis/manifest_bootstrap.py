@@ -600,7 +600,13 @@ def main(argv: list[str] | None = None) -> int:
                 if parts.query:
                     target += "?"
                 if parts.fragment and issue["code"] != "navigation_target_unreviewed":
-                    target += "#" + parts.fragment
+                    # Hash fragments can contain OAuth-style key/value pairs;
+                    # never echo those values into shared CI logs, even when encoded.
+                    fragment = unquote(parts.fragment)
+                    target += "#" + (
+                        "[redacted]" if any(char in fragment for char in "?=&")
+                        else parts.fragment
+                    )
                 print(f"    target {human_input_error(ValueError(target), limit=100)}", file=sys.stderr)
                 examples += 1
                 if examples == 2:
