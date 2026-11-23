@@ -144,6 +144,20 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
         if at >= 0:
             path_end = min(path_end, at)
     browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    # WHATWG special-scheme URLs treat extra slashes as the start of an
+    # authority. urljoin otherwise misreads them as same-origin path segments.
+    if browser_href.startswith("///"):
+        authority = browser_href.lstrip("/")
+        if not authority or authority[0] in "?#":
+            return None  # A browser rejects an empty host; never infer the base host.
+        browser_href = "//" + authority
+    else:
+        extra_slashes = re.match(r"(?i)^(https?):/{3,}", browser_href)
+        if extra_slashes:
+            authority = browser_href[extra_slashes.end():]
+            if not authority or authority[0] in "?#":
+                return None
+            browser_href = extra_slashes.group(1) + "://" + authority
     try:
         resolved = urljoin(base, browser_href)
         parts = urlsplit(resolved)

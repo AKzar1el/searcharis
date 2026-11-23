@@ -216,6 +216,58 @@ def test_invalid_utf8_and_encoded_host_separator_do_not_enter_navigation(tmp_pat
     assert report['reviewed_navigation']['unreviewed_targets'] == []
 
 
+def test_browser_slash_prefixed_authority_keeps_reviewed_and_external_links(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="///example.test/about/">About</a>'
+        '<a href="////other.test/ghost/">External</a>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_multi_slash_https_authority_exposes_missing_internal_link(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https:////example.test/missing/">Missing</a>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_browser_multi_slash_authority_counts_inbound_link(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="///example.test/about/">About</a>')
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_browser_multi_slash_absolute_external_link_is_not_local(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https:///other.test/ghost/">Other</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_empty_multi_slash_authorities_are_not_local_links(tmp_path):
+    # Browsers reject network-path/absolute HTTP(S) links with no host.
+    invalid = ('////', '///?q=1', 'https:////', 'https:////?q=1')
+    anchors = ''.join(f'<a href="{href}" rel="nofollow">Invalid</a>' for href in invalid)
+    build, manifest = _site(tmp_path, anchors)
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(
+            manifest, build, check_reviewed_navigation=True, check_internal_nofollow=True,
+        )
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['checked_links'] == 1  # Fixture's /about/ backlink.
+    assert report['internal_nofollow']['nofollow_targets'] == []
+
+
 def test_navigation_ignores_inert_markup_and_deduplicates_missing_targets(tmp_path):
     build, manifest = _site(tmp_path,
         '<template><a href="/ghost/">Ghost</a></template>'

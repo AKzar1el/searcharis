@@ -1193,6 +1193,10 @@ as browser-style separators, so a backslash cannot silently hide a reviewed
 local route or a missing route. Percent-encoded unreserved ASCII characters
 and valid UTF-8 internationalized hostname octets in observed anchors are
 decoded for browser-equivalent same-origin checks, with IDNA validation.
+Leading repeated slashes in observed network-path or absolute HTTP(S) links
+are interpreted as browser authority separators, not local path segments.
+Empty authorities are ignored as invalid browser links rather than treated as
+same-origin navigation or internal nofollow violations.
 Malformed UTF-8 and encoded ASCII authority delimiters remain invalid/skipped.
 Queries and fragments are not rewritten;
 declared contract and manifest URLs retain their strict input validation.
