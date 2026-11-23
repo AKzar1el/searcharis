@@ -98,7 +98,7 @@ class _SEOParser(HTMLParser):
         self.template_depth = 0
         self.map_depth = 0
         self.svg_depth = 0
-        self.svg_html_depth = 0
+        self.svg_foreignobject_depths: list[int] = []
         self.in_textarea = False
         self.in_plaintext = False
 
@@ -173,8 +173,11 @@ class _SEOParser(HTMLParser):
         if tag == "svg":
             self.svg_depth += 1
         elif tag == "foreignobject" and self.svg_depth:
-            self.svg_html_depth += 1
-        svg_link = (tag == "a" and self.svg_depth > self.svg_html_depth
+            # HTML context lasts until a deeper nested SVG element begins.
+            self.svg_foreignobject_depths.append(self.svg_depth)
+        html_svg_depth = (self.svg_foreignobject_depths[-1]
+                          if self.svg_foreignobject_depths else 0)
+        svg_link = (tag == "a" and self.svg_depth > html_svg_depth
                     and "xlink:href" in values)
         if (self.collect_anchors and ("href" in values or svg_link)
                 and (tag == "a" or (tag == "area" and self.map_depth > 0))):
@@ -370,8 +373,8 @@ class _SEOParser(HTMLParser):
             self.map_depth = max(0, self.map_depth - 1)
         if tag == "svg":
             self.svg_depth = max(0, self.svg_depth - 1)
-        elif tag == "foreignobject":
-            self.svg_html_depth = max(0, self.svg_html_depth - 1)
+        elif tag == "foreignobject" and self.svg_foreignobject_depths:
+            self.svg_foreignobject_depths.pop()
         if tag == "head":
             self.in_head = False
             self.in_title = False

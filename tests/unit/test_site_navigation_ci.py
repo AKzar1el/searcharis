@@ -122,6 +122,20 @@ def test_svg_xlink_navigation_honors_href_precedence_and_html_scope(tmp_path):
     assert report['reviewed_navigation']['checked_links'] == 2
 
 
+def test_svg_xlink_navigation_ignores_html_inside_deep_foreignobject(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<svg><svg><foreignObject>'
+        '<a xlink:href="/unreviewed/">HTML-only attribute</a>'
+        '<svg><a xlink:href="/about/">Real nested SVG link</a></svg>'
+        '</foreignObject></svg></svg>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['checked_links'] == 2
+
+
 def test_svg_xlink_navigation_checks_reviewed_fragments(tmp_path):
     build, manifest = _site(
         tmp_path, '<svg><a xlink:href="/about/#absent">Missing section</a></svg>',
