@@ -112,6 +112,56 @@ def test_optional_googlebot_root_block_from_identical_reviewed_policy(
     assert result["expected_sha256"] == result["observed_sha256"]
 
 
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+@pytest.mark.parametrize("leading", [False, True])
+def test_unicode_separators_cannot_create_phantom_sitemap_directives(
+    tmp_path, capsys, separator, leading,
+):
+    reviewed, build = _fixture(tmp_path)
+    required = "https://example.test/required.xml"
+    prefix = "" if leading else "Sitemap: https://example.test/other.xml"
+    content = f"User-agent: *\n{prefix}{separator}Sitemap: {required}\n".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(
+        capsys, reviewed, build, "--require-robots-sitemap", required,
+    )
+    assert stderr == ""
+    assert code == 1
+    assert result["reason"] == "sitemap_declaration_missing"
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+@pytest.mark.parametrize("leading", [False, True])
+def test_unicode_separators_cannot_create_phantom_disallow_rules(
+    tmp_path, capsys, separator, leading,
+):
+    reviewed, build = _fixture(tmp_path)
+    before = "User-agent: *\n" if leading else "User-agent: *"
+    content = f"{before}{separator}Disallow: /\n".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert stderr == ""
+    assert code == 0
+    assert result["status"] == "pass"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
+def test_robots_parser_still_respects_rfc_line_endings(tmp_path, capsys, newline):
+    reviewed, build = _fixture(tmp_path)
+    content = f"User-agent: *{newline}Disallow: /{newline}".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert stderr == ""
+    assert code == 1
+    assert result["reason"] == "root_crawl_block"
+
+
 def test_root_crawl_block_reports_and_preserves_existing_drift_priority(tmp_path, capsys):
     reviewed, build = _fixture(tmp_path)
     content = b"User-agent: *\nDisallow: /\n"
