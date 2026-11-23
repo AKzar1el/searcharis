@@ -225,7 +225,11 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
                 # actual fragment to routes outside the reviewed manifest.
                 for item in targets:
                     target = item["target"]
-                    if not _is_http_url(target) or not urlsplit(target).fragment:
+                    if not _is_http_url(target):
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    fragment = urlsplit(target).fragment
+                    # The live checker skips browser text-fragment directives.
+                    if not fragment or ":~:" in fragment:
                         raise ValueError(f"{name}: invalid {check} {key}")
                     identity = _page_url_identity(target)
                     if (identity in url_identities

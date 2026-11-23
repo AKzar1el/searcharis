@@ -77,6 +77,7 @@ def test_comparison_rejects_invalid_archived_checked_url(bad_url):
     "https://example.test/unknown",
     "https://outside.test/unknown#section",
     "https://example.test/index.html#section",
+    "https://example.test/unknown#:~:text=hello",
 ])
 def test_archived_unverified_fragment_targets_require_unknown_same_origin_url(target):
     report = _report([("index.html", [])])
