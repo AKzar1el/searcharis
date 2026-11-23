@@ -570,6 +570,16 @@ def main(argv: list[str] | None = None) -> int:
             "generated SEO contracts passed against local HTML",
             file=sys.stderr,
         )
+        unverified_fragments = checked.get("reviewed_fragments", {}).get(
+            "unverified_targets", [],
+        )
+        if unverified_fragments:
+            print(
+                f"WARNING: {len(unverified_fragments)} fragment destinations outside "
+                "reviewed pages could not be checked; add those pages or use "
+                "--check-reviewed-navigation to reject unreviewed routes",
+                file=sys.stderr,
+            )
         # Bounded, escaped diagnostics are safe for untrusted build filenames.
         failed = [page for page in checked["pages"] if page["status"] == "fail"]
         for page in failed[:10]:

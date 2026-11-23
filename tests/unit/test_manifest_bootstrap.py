@@ -219,6 +219,36 @@ def test_bootstrap_fragment_flag_requires_check_built(tmp_path, capsys):
     assert "--check-reviewed-fragments requires --check-built" in capsys.readouterr().err
 
 
+def test_bootstrap_discloses_unverified_fragment_destinations_without_failing(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body>'
+        '<a href="/pricing/#plan?SECRET">Pricing</a>'
+        '<a href="/help/#contact">Help</a></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built",
+            "--check-reviewed-fragments"]
+    assert main(args) == 0
+    captured = capsys.readouterr()
+    assert "PASS 1/1" in captured.err
+    assert "WARNING: 2 fragment destinations outside reviewed pages" in captured.err
+    assert "--check-reviewed-navigation" in captured.err
+    assert "SECRET" not in captured.err
+    assert len(json.loads(captured.out)["pages"]) == 1
+
+    _html(build / "pricing/index.html")
+    _html(build / "help/index.html")
+    assert main(args) == 1  # The now-reviewed targets lack the linked element IDs.
+    captured = capsys.readouterr()
+    assert "WARNING: 2 fragment destinations outside reviewed pages" not in captured.err
+    assert "navigation_fragment_missing" in captured.err
+
+
 def test_bootstrap_can_require_critical_page_to_have_reviewed_inbound_link(
     tmp_path, capsys, monkeypatch,
 ):

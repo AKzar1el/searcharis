@@ -610,6 +610,12 @@ changes default bootstrap behavior. The create-only manifest remains available
 for human review even after a finding. The terminal summary includes up to two
 bounded route or fragment examples per failing page so first-time reviewers can
 locate bad links; query values are omitted to avoid echoing tokens into CI logs.
+When fragment review finds links into pages **outside** the reviewed manifest,
+the bootstrap terminal reports their count as a warning without changing the
+exit code: it cannot inspect missing artifacts or prove those fragment IDs exist.
+Add and review those pages, or also enable `--check-reviewed-navigation` to fail
+on same-origin unreviewed routes. The warning never prints the full destination
+URL, query or fragment, which could contain private values.
 An ordinary single-file React/Vite
 SPA can pass `--check-built` and `site_cli --require-full-coverage` even though
 client-rendered routes were never emitted as HTML: *full coverage* counts built
