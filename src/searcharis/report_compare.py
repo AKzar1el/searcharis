@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
@@ -219,6 +220,17 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
                 for item in targets
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
+            if check == "reviewed_fragments" and key == "unverified_targets":
+                # The fragment checker only exports same-origin links with an
+                # actual fragment to routes outside the reviewed manifest.
+                for item in targets:
+                    target = item["target"]
+                    if not _is_http_url(target) or not urlsplit(target).fragment:
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    identity = _page_url_identity(target)
+                    if (identity in url_identities
+                            or identity[:3] != identities_by_path[item["path"]][:3]):
+                        raise ValueError(f"{name}: invalid {check} {key}")
 
     # A saved navigation/fragment summary must describe the same failures as
     # its page issues; otherwise a modified archive could silently pass CI.
