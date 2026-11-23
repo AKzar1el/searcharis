@@ -610,7 +610,8 @@ changes default bootstrap behavior. The create-only manifest remains available
 for human review even after a finding. The terminal summary includes up to two
 bounded route or fragment examples per failing page so first-time reviewers can
 locate bad links; query values and parameter-like fragments (including encoded
-key/value separators) are masked to avoid echoing tokens into CI logs. Ordinary
+and multiply encoded key/value separators) are masked to avoid echoing tokens
+into CI logs. Ordinary
 fragment IDs remain visible; the source HTML is the authority for full details.
 When fragment review finds links into pages **outside** the reviewed manifest,
 the bootstrap terminal reports their count as a warning without changing the

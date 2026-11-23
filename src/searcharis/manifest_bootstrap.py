@@ -603,8 +603,11 @@ def main(argv: list[str] | None = None) -> int:
                     # Hash fragments can contain OAuth-style key/value pairs;
                     # never echo those values into shared CI logs, even when encoded.
                     fragment = unquote(parts.fragment)
+                    encoded_separator = re.search(
+                        r"%(?:25)*(?:3[dDfF]|26)", parts.fragment,
+                    )
                     target += "#" + (
-                        "[redacted]" if any(char in fragment for char in "?=&")
+                        "[redacted]" if encoded_separator or any(char in fragment for char in "?=&")
                         else parts.fragment
                     )
                 print(f"    target {human_input_error(ValueError(target), limit=100)}", file=sys.stderr)

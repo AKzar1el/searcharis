@@ -180,6 +180,8 @@ def test_bootstrap_navigation_target_hints_are_bounded_and_hide_query_values(
     "access_token=PRIVATE_FRAGMENT_TOKEN",
     "section?token=PRIVATE_FRAGMENT_QUERY",
     "session%3DPRIVATE_ENCODED_TOKEN",
+    "session%253DPRIVATE_DOUBLE_ENCODED_TOKEN",
+    "session%25253DPRIVATE_TRIPLE_ENCODED_TOKEN",
     "details&signature=PRIVATE_FRAGMENT_SIGNATURE",
 ))
 def test_bootstrap_fragment_hints_hide_parameter_like_values(
