@@ -409,7 +409,10 @@ def test_browser_multi_slash_absolute_external_link_is_not_local(tmp_path):
 
 def test_browser_empty_multi_slash_authorities_are_not_local_links(tmp_path):
     # Browsers reject network-path/absolute HTTP(S) links with no host.
-    invalid = ('////', '///?q=1', 'https:////', 'https:////?q=1')
+    invalid = (
+        '////', '///?q=1', 'https:////', 'https:////?q=1',
+        'https://?q=1', 'https://#fragment',
+    )
     anchors = ''.join(f'<a href="{href}" rel="nofollow">Invalid</a>' for href in invalid)
     build, manifest = _site(tmp_path, anchors)
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):

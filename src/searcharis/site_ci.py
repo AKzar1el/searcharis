@@ -158,6 +158,10 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
         if char.isspace() and not char.isascii() else char
         for char in browser_href
     ).replace(" ", "%20")
+    # urljoin treats an absolute HTTP(S) URL with an empty host as a relative
+    # URL; browsers reject it, so never invent a same-origin navigation.
+    if re.match(r"(?i)^(?:https?:)?//(?:[?#]|$)", browser_href):
+        return None
     # WHATWG special-scheme URLs treat extra slashes as the start of an
     # authority. urljoin otherwise misreads them as same-origin path segments.
     if browser_href.startswith("///"):
