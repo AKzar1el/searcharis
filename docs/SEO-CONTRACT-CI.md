@@ -156,6 +156,9 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   the document hostname for a browser-invalid base.
   Browser-style backslashes and surplus authority slashes in an observed
   HTTP(S) document base resolve as path/authority separators (not query text).
+  Whitespace and control characters inside observed base URL paths are
+  browser-serialized rather than misclassified as an invalid document base.
+  Declared contract URLs retain their strict validation.
   `<base>` inside the body or an inert template is ignored. The build artifact's
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.

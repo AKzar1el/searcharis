@@ -1665,6 +1665,21 @@ def test_browser_backslash_document_base_path_uses_slash_separators():
     assert result["issues"] == []
 
 
+@pytest.mark.parametrize(("base", "target"), [
+    ("https://other.example.test/team files/", "https://other.example.test/team%20files/page.html"),
+    ("https://other.example.test/team\u00a0files/", "https://other.example.test/team%C2%A0files/page.html"),
+    ("/preview/team files/", "https://example.com/preview/team%20files/page.html"),
+    ("https://other.example.test/a\x0cb/", "https://other.example.test/a%0Cb/page.html"),
+])
+def test_observed_document_base_path_encodes_browser_whitespace(base, target):
+    # WHATWG percent-encodes path spaces and controls in observed base URLs.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="page.html"></head><body></body></html>')
+    result = verify_contract({"url": URL, "canonical": target}, html, include_canonical=True)
+    assert result["issues"] == []
+    assert result["observed_canonical"] == [target]
+
+
 def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():
     # Browsers ignore duplicate attributes after the first; Python dict(attrs) does not.
     wrong_first = '''<html><head><link rel="canonical" href="/wrong/" href="/en/">

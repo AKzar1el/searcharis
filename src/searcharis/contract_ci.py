@@ -650,6 +650,15 @@ def verify_contract(
             # the query/fragment, and extra leading slashes as an authority.
             # urljoin alone would instead invent a same-origin base.
             base_href = page.base_href
+            # Browsers remove embedded ASCII tabs/newlines and percent-encode
+            # other whitespace and controls in observed URL paths/queries.
+            # Do not apply this leniency to developer-declared contract URLs.
+            base_href = "".join(
+                "".join(f"%{byte:02X}" for byte in char.encode("utf-8"))
+                if char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F
+                else char
+                for char in base_href.replace("\t", "").replace("\n", "").replace("\r", "")
+            )
             path_end = len(base_href)
             for separator in "?#":
                 at = base_href.find(separator)
