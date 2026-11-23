@@ -607,7 +607,10 @@ when an active link points to a missing or ambiguous fragment ID on a reviewed
 built page, such as `<a href="#pricing">` without a unique `id="pricing"`.
 Both flags require `--check-built` and can be used independently; neither
 changes default bootstrap behavior. The create-only manifest remains available
-for human review even after a finding. An ordinary single-file React/Vite
+for human review even after a finding. The terminal summary includes up to two
+bounded route or fragment examples per failing page so first-time reviewers can
+locate bad links; query values are omitted to avoid echoing tokens into CI logs.
+An ordinary single-file React/Vite
 SPA can pass `--check-built` and `site_cli --require-full-coverage` even though
 client-rendered routes were never emitted as HTML: *full coverage* counts built
 HTML files, not all runtime routes. The reviewed-navigation flag catches

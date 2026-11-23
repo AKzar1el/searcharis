@@ -576,6 +576,25 @@ def main(argv: list[str] | None = None) -> int:
             label = human_input_error(ValueError(page["path"]), limit=100)
             codes = ", ".join(issue["code"] for issue in page["issues"][:8])
             print(f"  FAIL {label}: {codes}", file=sys.stderr)
+            # Show a bounded route/fragment hint without exposing query values
+            # (which can contain tokens) from the supplied HTML in CI logs.
+            examples = 0
+            for issue in page["issues"]:
+                if issue["code"] not in {
+                    "navigation_target_unreviewed", "navigation_fragment_missing",
+                    "navigation_fragment_ambiguous",
+                } or not isinstance(issue.get("actual"), str):
+                    continue
+                parts = urlsplit(issue["actual"])
+                target = parts.path or "/"
+                if parts.query:
+                    target += "?"
+                if parts.fragment and issue["code"] != "navigation_target_unreviewed":
+                    target += "#" + parts.fragment
+                print(f"    target {human_input_error(ValueError(target), limit=100)}", file=sys.stderr)
+                examples += 1
+                if examples == 2:
+                    break
         if len(failed) > 10:
             print(f"  ... and {len(failed) - 10} more failing pages", file=sys.stderr)
         return 0 if checked["status"] == "pass" else 1

@@ -139,6 +139,7 @@ def test_bootstrap_reviewed_navigation_detects_unbuilt_spa_routes(tmp_path, caps
     assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
     assert "FAIL 0/1" in captured.err
     assert "navigation_target_unreviewed" in captured.err
+    assert "target /pricing/" in captured.err
 
 
 def test_bootstrap_navigation_flag_requires_check_built(tmp_path, capsys):
@@ -151,6 +152,28 @@ def test_bootstrap_navigation_flag_requires_check_built(tmp_path, capsys):
     ]) == 2
     assert not output.exists()
     assert "--check-reviewed-navigation requires --check-built" in capsys.readouterr().err
+
+
+def test_bootstrap_navigation_target_hints_are_bounded_and_hide_query_values(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        + "".join(
+            f'<a href="/route-{i}/?token=PRIVATE_{i}">Route</a>'
+            for i in range(4)
+        )
+        + '</body></html>', encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(build), "https://example.com/", "--check-built",
+                 "--check-reviewed-navigation"]) == 1
+    err = capsys.readouterr().err
+    assert err.count("    target ") == 2
+    assert "target /route-0/?" in err
+    assert "PRIVATE" not in err
 
 
 def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
@@ -174,6 +197,7 @@ def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
     captured = capsys.readouterr()
     assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
     assert "navigation_fragment_missing" in captured.err
+    assert "target /#missing" in captured.err
 
     (build / "index.html").write_text(
         '<html><head><title>Example</title></head><body>'
