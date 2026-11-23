@@ -146,6 +146,17 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
     browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
     try:
         resolved = urljoin(base, browser_href)
+        parts = urlsplit(resolved)
+        if "%" in parts.netloc and "@" not in parts.netloc and not parts.netloc.startswith("["):
+            # Browsers decode ASCII hostname octets in observed HTTP(S) links.
+            # Leave encoded delimiters, ports, credentials and IPv6 untouched;
+            # the strict URL validator must still reject those authorities.
+            hostname, separator, port = parts.netloc.partition(":")
+            decoded_hostname = _normalize_percent_encoding(hostname)
+            if "%" not in decoded_hostname:
+                resolved = parts._replace(
+                    netloc=decoded_hostname + separator + port,
+                ).geturl()
         return resolved if _is_http_url(resolved) else None
     except ValueError:
         return None

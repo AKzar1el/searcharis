@@ -106,6 +106,54 @@ def test_backslash_path_nofollow_link_cannot_evade_opt_in_policy(tmp_path):
     ]
 
 
+def test_percent_encoded_ascii_host_cannot_hide_unreviewed_navigation(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://%65xample.test/missing/">Missing</a>',
+    )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_percent_encoded_ascii_host_counts_as_real_inbound_link(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://ex%61mple.test/about/">About</a>',
+    )
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_percent_encoded_ascii_host_exposes_broken_fragment_and_nofollow(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="https://%65xample.test/about/#missing" rel="nofollow">About</a>',
+    )
+    report = verify_manifest(
+        manifest, build, check_reviewed_fragments=True, check_internal_nofollow=True,
+    )
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#missing'},
+    ]
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
+def test_encoded_reserved_host_delimiter_is_not_treated_as_internal(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://%2Fexample.test/missing/">Bad host</a>',
+    )
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
 def test_navigation_ignores_inert_markup_and_deduplicates_missing_targets(tmp_path):
     build, manifest = _site(tmp_path,
         '<template><a href="/ghost/">Ghost</a></template>'
