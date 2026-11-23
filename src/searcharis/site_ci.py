@@ -138,12 +138,15 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
 def _resolve_anchor_href(base: str, href: str) -> str | None:
     # Browsers treat reverse solidus as a path separator for HTTP(S) URLs.
     # Normalize only the URL path portion, not a query or fragment payload.
+    # Observed links may contain literal spaces; browsers percent-encode
+    # interior spaces rather than dropping the link from navigation entirely.
+    href = href.strip(" \t\r\n\f")
     path_end = len(href)
     for separator in "?#":
         at = href.find(separator)
         if at >= 0:
             path_end = min(path_end, at)
-    browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    browser_href = (href[:path_end].replace("\\", "/") + href[path_end:]).replace(" ", "%20")
     try:
         resolved = urljoin(base, browser_href)
         return resolved if _is_http_url(resolved) else None

@@ -58,6 +58,62 @@ def test_navigation_accepts_relative_and_normalized_local_links(tmp_path):
     assert result['reviewed_navigation']['checked_links'] >= 2
 
 
+def test_literal_space_in_observed_href_cannot_hide_unreviewed_browser_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/missing page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%20page/'},
+    ]
+
+
+def test_literal_space_in_query_does_not_hide_unreviewed_browser_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/?q=two words">Search</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/?q=two%20words'},
+    ]
+
+
+def test_space_in_observed_authority_still_cannot_become_internal(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa mple.test/missing/">Bad</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_literal_space_in_fragment_exposes_missing_reviewed_anchor(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/#missing section">Jump</a>')
+    report = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#missing%20section'},
+    ]
+
+
+def test_surrounding_href_spaces_do_not_hide_internal_nofollow(tmp_path):
+    build, manifest = _site(tmp_path, '<a href=" /about/ " rel="nofollow">About</a>')
+    report = verify_manifest(manifest, build, check_internal_nofollow=True)
+    assert report['status'] == 'fail'
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
+def test_literal_space_url_matches_reviewed_percent_encoded_page_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about team/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%20team/'
+    report = verify_manifest(
+        manifest, build, check_reviewed_navigation=True,
+        required_inbound_paths=('about/index.html',),
+    )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
 def test_reviewed_unicode_path_matches_utf8_encoded_navigation_and_inbound(tmp_path):
     build, manifest = _site(tmp_path, '<a href="/caf%C3%A9/">Caf\u00e9</a>')
     manifest['pages'][1]['contract']['url'] = 'https://example.test/caf\u00e9/'
