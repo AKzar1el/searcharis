@@ -633,6 +633,12 @@ Review public routes and assertions before committing the manifest. Later,
 adds only new selected pages while preserving previous assertions and order.
 Check in the expanded manifest only after review. Do not enable strict
 `--require-full-coverage` until the intended site inventory is reviewed.
+If newly generated and preserved pages use different HTTP(S) site origins
+(scheme, host or effective port), `--extend-from` emits a warning on stderr
+without changing exit status or rewriting approved contracts. This can happen
+if a staging URL is accidentally used when extending a production manifest.
+Multiple origins are not forbidden, but review every resulting public URL
+before approval; this warning is not a deployment or redirect validation.
 
 For a separate **append-only approval-integrity gate** in a manifest-change
 review, compare the previously approved manifest with the proposed revision,

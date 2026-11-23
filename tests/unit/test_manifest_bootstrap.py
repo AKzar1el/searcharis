@@ -341,6 +341,42 @@ def test_extend_reviewed_manifest_preserves_old_contracts_and_adds_only_selected
     assert verify_manifest(expanded, build)["coverage"]["unlisted"] == ["legal/index.html"]
 
 
+def test_extend_warns_on_mixed_published_origins_without_rewriting_reviews(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    original = tmp_path / "approved.json"
+    approved = generate_manifest(build, "https://example.com/", only_paths=("index.html",))
+    original.write_text(json.dumps(approved), encoding="utf-8")
+    output = tmp_path / "expanded.json"
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+
+    assert main([
+        str(build), "https://staging.example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(output),
+    ]) == 0
+    assert "WARNING: --extend-from mixes published site origins" in capsys.readouterr().err
+    expanded = json.loads(output.read_text(encoding="utf-8"))
+    assert expanded["pages"][0] == approved["pages"][0]
+    assert expanded["pages"][1]["contract"]["url"] == "https://staging.example.com/pricing/"
+
+    same_origin = tmp_path / "same-origin.json"
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(same_origin),
+    ]) == 0
+    assert "WARNING" not in capsys.readouterr().err
+
+    equivalent_origin = tmp_path / "equivalent-origin.json"
+    assert main([
+        str(build), "https://EXAMPLE.COM:443/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(equivalent_origin),
+    ]) == 0
+    assert "WARNING" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("selected", [(), ("index.html",), ("missing.html",)])
 def test_extend_requires_new_selected_pages_and_never_overwrites(tmp_path, capsys, selected):
     build = tmp_path / "dist"

@@ -20,6 +20,7 @@ from searcharis.site_ci import (
     _HTML_EXTENSIONS,
     _MAX_PAGES,
     _manifest_path,
+    _page_url_identity,
     _read_limited,
     read_manifest,
     verify_manifest,
@@ -455,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
+    mixed_origins = False
     try:
         if args.check_reviewed_navigation and not args.check_built:
             raise ValueError("--check-reviewed-navigation requires --check-built")
@@ -493,6 +495,10 @@ def main(argv: list[str] | None = None) -> int:
             # Catch duplicate paths/URLs and malformed combined input before
             # opening an output file, even without --check-built.
             verify_manifest(manifest, args.build_dir)
+            mixed_origins = len({
+                _page_url_identity(page["contract"]["url"])[:3]
+                for page in manifest["pages"]
+            }) > 1
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.
         checked = (
@@ -537,6 +543,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.output is None:
         print(payload, end="")
+    if mixed_origins:
+        print(
+            "WARNING: --extend-from mixes published site origins; review "
+            "every preserved and newly generated URL before approval",
+            file=sys.stderr,
+        )
     if checked is not None:
         summary = checked["summary"]
         print(
