@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import unquote, unquote_to_bytes, urljoin, urlsplit
 
 from searcharis.contract_ci import _is_canonical_url, _is_http_url, verify_contract
 
@@ -153,6 +153,17 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
             # the strict URL validator must still reject those authorities.
             hostname, separator, port = parts.netloc.partition(":")
             decoded_hostname = _normalize_percent_encoding(hostname)
+            remaining_octets = _ENCODED_OCTET.findall(decoded_hostname)
+            if remaining_octets and all(int(octet[1:], 16) >= 128 for octet in remaining_octets):
+                # A browser first decodes UTF-8 host octets, then applies IDNA.
+                # Reject malformed UTF-8 and any encoded ASCII delimiters.
+                try:
+                    unicode_hostname = unquote_to_bytes(decoded_hostname).decode("utf-8")
+                    _page_url_identity(f"https://{unicode_hostname}/")
+                except ValueError:
+                    pass
+                else:
+                    decoded_hostname = unicode_hostname
             if "%" not in decoded_hostname:
                 resolved = parts._replace(
                     netloc=decoded_hostname + separator + port,

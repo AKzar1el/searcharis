@@ -1190,9 +1190,10 @@ deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
 For HTTP(S) anchor destinations, backslashes in the URL path portion resolve
 as browser-style separators, so a backslash cannot silently hide a reviewed
-local route or a missing route. Percent-encoded unreserved ASCII letters and
-digits in observed anchor hostnames are also decoded for browser-equivalent
-same-origin checks; encoded authority delimiters remain invalid and skipped.
+local route or a missing route. Percent-encoded unreserved ASCII characters
+and valid UTF-8 internationalized hostname octets in observed anchors are
+decoded for browser-equivalent same-origin checks, with IDNA validation.
+Malformed UTF-8 and encoded ASCII authority delimiters remain invalid/skipped.
 Queries and fragments are not rewritten;
 declared contract and manifest URLs retain their strict input validation.
 An internal link whose destination is not listed in the manifest fails with
