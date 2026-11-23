@@ -19,6 +19,7 @@ _MAX_PAGES = 10_000
 _MAX_DISCOVERED = 20_000
 _HTML_EXTENSIONS = frozenset({".html", ".htm"})
 _ENCODED_OCTET = re.compile(r"%[0-9a-fA-F]{2}")
+_WHATWG_TRIM_CHARS = "".join(chr(code) for code in range(0x21))
 
 
 def _read_limited(path: Path) -> str:
@@ -140,7 +141,9 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
     # Normalize only the URL path portion, not a query or fragment payload.
     # Observed links may contain literal spaces; browsers percent-encode
     # interior spaces rather than dropping the link from navigation entirely.
-    href = href.strip(" \t\r\n\f")
+    # WHATWG strips surrounding C0 controls/space, removes internal TAB/LF/CR,
+    # and percent-encodes other embedded controls in path/query/fragment.
+    href = href.strip(_WHATWG_TRIM_CHARS).replace("\t", "").replace("\n", "").replace("\r", "")
     path_end = len(href)
     for separator in "?#":
         at = href.find(separator)
@@ -150,6 +153,7 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
     # Non-ASCII spaces (for example a pasted NBSP) are UTF-8 URL octets in
     # browsers. Apply this to observed hrefs only; declared URLs stay strict.
     browser_href = "".join(
+        f"%{ord(char):02X}" if ord(char) < 0x20 or ord(char) == 0x7F else
         "".join(f"%{octet:02X}" for octet in char.encode("utf-8"))
         if char.isspace() and not char.isascii() else char
         for char in browser_href

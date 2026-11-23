@@ -4,6 +4,8 @@ import json
 import socket
 from unittest.mock import patch
 
+import pytest
+
 from searcharis.release_cli import main as release_main
 from searcharis.site_ci import verify_manifest
 from searcharis.site_cli import main as site_main
@@ -78,6 +80,56 @@ def test_nonbreaking_space_in_observed_href_cannot_hide_unreviewed_route(tmp_pat
     assert report['reviewed_navigation']['unreviewed_targets'] == [
         {'path': 'en/index.html', 'target': 'https://example.test/missing%C2%A0page/'},
     ]
+
+
+@pytest.mark.parametrize('control,encoded', [
+    ('\x01', '%01'), ('\x0b', '%0B'), ('\x0c', '%0C'), ('\x7f', '%7F'),
+])
+def test_embedded_c0_control_in_observed_href_cannot_hide_browser_route(
+    tmp_path, control, encoded,
+):
+    build, manifest = _site(tmp_path, f'<a href="/missing{control}page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': f'https://example.test/missing{encoded}page/'},
+    ]
+
+
+def test_leading_and_trailing_c0_in_observed_href_are_browser_trimmed(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="\x0b/missing/\x01">Missing</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_embedded_control_in_query_cannot_hide_distinct_unreviewed_url(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/?src=x\x0by">Query</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/?src=x%0By'},
+    ]
+
+
+def test_browser_encoded_control_link_matches_reviewed_page_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about\x0bteam/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%0Bteam/'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(
+            manifest, build, check_reviewed_navigation=True,
+            required_inbound_paths=('about/index.html',),
+        )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_observed_control_in_invalid_host_does_not_become_internal(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa\x0bmple.test/about/">Invalid</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
 
 
 def test_nonbreaking_space_link_matches_reviewed_percent_encoded_page(tmp_path):
