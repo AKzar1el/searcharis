@@ -72,6 +72,39 @@ def test_comparison_rejects_invalid_archived_checked_url(bad_url):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("target", [
+    "not-a-url",
+    "https://example.test/unknown",
+    "https://outside.test/unknown#section",
+    "https://example.test/index.html#section",
+    "https://example.test/unknown#:~:text=hello",
+])
+def test_archived_unverified_fragment_targets_require_unknown_same_origin_url(target):
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{"path": "index.html", "target": target}],
+    }
+    with pytest.raises(ValueError, match="invalid reviewed_fragments unverified_targets"):
+        compare_reports(report, report)
+
+
+def test_archived_unverified_fragment_target_accepts_unknown_local_route():
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{
+            "path": "index.html",
+            "target": "https://example.test/unknown#section",
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 @pytest.mark.parametrize("bad_path", [
     "../outside.html",
     "/absolute.html",
