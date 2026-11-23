@@ -1624,7 +1624,7 @@ def test_first_head_base_wins_and_body_template_bases_are_ignored():
     assert result["observed_canonical"] == ["https://example.com/nested/child.html"]
 
 
-@pytest.mark.parametrize("base", ["javascript:alert(1)", r"https://example.com\wrong/"])
+@pytest.mark.parametrize("base", ["javascript:alert(1)"])
 def test_invalid_document_base_fails_closed(base):
     html = (f'<html><head><base href="{base}">'
             '<link rel="canonical" href="/en/"></head><body></body></html>')
@@ -1641,6 +1641,28 @@ def test_browser_invalid_empty_authority_base_fails_closed(base):
             '<link rel="canonical" href="/en/"></head><body></body></html>')
     result = verify_contract({"url": URL, "canonical": URL}, html)
     assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
+
+
+@pytest.mark.parametrize("base", [
+    r"\\other.example.test\subdir/", "https:////other.example.test/subdir/",
+    r"https://other.example.test\subdir/",
+])
+def test_browser_special_document_base_authority_is_not_borrowed(base):
+    # WHATWG treats backslashes and surplus slashes as authority separators.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="article.html"></head><body></body></html>')
+    target = "https://other.example.test/subdir/article.html"
+    result = verify_contract({"url": URL, "canonical": target}, html)
+    assert result["issues"] == []
+
+
+def test_browser_backslash_document_base_path_uses_slash_separators():
+    html = (r'<html><head><base href="/preview\nested/">'
+            '<link rel="canonical" href="page.html"></head><body></body></html>')
+    result = verify_contract(
+        {"url": URL, "canonical": "https://example.com/preview/nested/page.html"}, html,
+    )
+    assert result["issues"] == []
 
 
 def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():

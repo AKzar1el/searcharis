@@ -154,6 +154,8 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   Explicit HTTP(S) or scheme-relative authorities with no hostname (such as
   `https://?q=1` or `//?q=1`) also fail; the checker never silently borrows
   the document hostname for a browser-invalid base.
+  Browser-style backslashes and surplus authority slashes in an observed
+  HTTP(S) document base resolve as path/authority separators (not query text).
   `<base>` inside the body or an inert template is ignored. The build artifact's
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.
