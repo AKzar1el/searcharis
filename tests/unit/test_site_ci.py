@@ -1,5 +1,6 @@
 """Offline multi-page artifact verification and coverage guarantees."""
 
+import builtins
 import json
 import os
 import socket
@@ -14,6 +15,95 @@ from searcharis.site_ci import verify_manifest
 from searcharis.site_cli import main
 
 BASE = "https://example.com/"
+
+
+@pytest.mark.parametrize(
+    ("unicode_host", "ascii_host"),
+    [
+        ("b\u00fccher.example", "xn--bcher-kva.example"),
+        ("fa\u00df.de", "xn--fa-hia.de"),
+        ("\uff45xample.test", "example.test"),
+    ],
+)
+def test_http_page_identity_uses_nontransitional_uts46_host_mapping(unicode_host, ascii_host):
+    assert site_ci._page_url_identity(f"https://{unicode_host}/en/") == (
+        site_ci._page_url_identity(f"https://{ascii_host}/en/")
+    )
+
+
+def test_idna_sharp_s_is_not_legacy_idna2003_ss_alias():
+    assert site_ci._page_url_identity("https://fa\u00df.de/en/") != (
+        site_ci._page_url_identity("https://fass.de/en/")
+    )
+
+
+def test_unicode_host_identity_fails_closed_when_idna_unavailable(monkeypatch):
+    original_import = builtins.__import__
+
+    def no_idna_import(name, *args, **kwargs):
+        if name == "idna":
+            raise ModuleNotFoundError("idna intentionally unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_idna_import)
+    with pytest.raises(ValueError, match="require the idna package"):
+        site_ci._page_url_identity("https://b\u00fccher.example/en/")
+    assert site_ci._page_url_identity("https://example.test/en/")[1] == "example.test"
+
+
+def test_idna_equivalent_manifest_urls_are_duplicate_contracts(tmp_path):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://b\u00fccher.example/en/"
+    manifest["pages"][1]["contract"]["url"] = "https://xn--bcher-kva.example/en/"
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
+
+
+def test_idna_equivalent_navigation_does_not_skip_broken_same_origin_link(tmp_path):
+    manifest = _setup(tmp_path)
+    for page in manifest["pages"]:
+        locale = page["path"].split("/")[0]
+        page["contract"]["url"] = f"https://b\u00fccher.example/{locale}/"
+    (tmp_path / "en" / "index.html").write_text(
+        '<html><head><title>Page</title></head><body>'
+        '<a href="https://xn--bcher-kva.example/missing/">Missing</a></body></html>',
+        encoding="utf-8",
+    )
+    with patch.object(socket.socket, "connect", side_effect=AssertionError("network forbidden")):
+        report = verify_manifest(manifest, tmp_path, check_reviewed_navigation=True)
+    assert report["status"] == "fail"
+    assert report["reviewed_navigation"]["unreviewed_targets"] == [
+        {"path": "en/index.html", "target": "https://xn--bcher-kva.example/missing/"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("iri", "uri"),
+    [
+        ("https://example.test/caf\u00e9/", "https://example.test/caf%C3%A9/"),
+        ("https://example.test/search?q=\u00fc", "https://example.test/search?q=%C3%BC"),
+    ],
+)
+def test_unicode_path_and_query_have_utf8_uri_identity(iri, uri):
+    assert site_ci._page_url_identity(iri) == site_ci._page_url_identity(uri)
+
+
+def test_uri_identity_does_not_guess_legacy_encodings_or_unicode_normalization():
+    unicode_url = "https://example.test/caf\u00e9/"
+    assert site_ci._page_url_identity(unicode_url) != (
+        site_ci._page_url_identity("https://example.test/caf%E9/")
+    )
+    assert site_ci._page_url_identity(unicode_url) != (
+        site_ci._page_url_identity("https://example.test/cafe\u0301/")
+    )
+
+
+def test_unicode_and_utf8_encoded_paths_are_duplicate_manifest_pages(tmp_path):
+    manifest = _setup(tmp_path)
+    manifest["pages"][0]["contract"]["url"] = "https://example.com/caf\u00e9/"
+    manifest["pages"][1]["contract"]["url"] = "https://example.com/caf%C3%A9/"
+    with pytest.raises(ValueError, match="Duplicate contract URL"):
+        verify_manifest(manifest, tmp_path)
 
 
 def _page(url):

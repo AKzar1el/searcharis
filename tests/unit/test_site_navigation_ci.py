@@ -58,6 +58,216 @@ def test_navigation_accepts_relative_and_normalized_local_links(tmp_path):
     assert result['reviewed_navigation']['checked_links'] >= 2
 
 
+def test_reviewed_unicode_path_matches_utf8_encoded_navigation_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/caf%C3%A9/">Caf\u00e9</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/caf\u00e9/'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        result = verify_manifest(
+            manifest, build, check_reviewed_navigation=True,
+            required_inbound_paths=('about/index.html',),
+        )
+    assert result['status'] == 'pass'
+    assert result['reviewed_navigation']['unreviewed_targets'] == []
+    assert result['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_backslash_path_does_not_hide_unreviewed_browser_navigation(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\missing/">Missing</a>')
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_backslash_path_does_not_hide_broken_reviewed_fragment(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/#absent">Broken jump</a>')
+    report = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#absent'},
+    ]
+
+
+def test_backslash_path_counts_as_real_critical_inbound_link(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/">About</a>')
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_backslash_path_nofollow_link_cannot_evade_opt_in_policy(tmp_path):
+    build, manifest = _site(tmp_path, r'<a href="\about/" rel="nofollow">About</a>')
+    report = verify_manifest(manifest, build, check_internal_nofollow=True)
+    assert report['status'] == 'fail'
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
+def test_percent_encoded_ascii_host_cannot_hide_unreviewed_navigation(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://%65xample.test/missing/">Missing</a>',
+    )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_percent_encoded_ascii_host_counts_as_real_inbound_link(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://ex%61mple.test/about/">About</a>',
+    )
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_percent_encoded_ascii_host_exposes_broken_fragment_and_nofollow(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="https://%65xample.test/about/#missing" rel="nofollow">About</a>',
+    )
+    report = verify_manifest(
+        manifest, build, check_reviewed_fragments=True, check_internal_nofollow=True,
+    )
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#missing'},
+    ]
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
+def test_encoded_reserved_host_delimiter_is_not_treated_as_internal(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://%2Fexample.test/missing/">Bad host</a>',
+    )
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_utf8_percent_encoded_idna_host_exposes_unreviewed_route(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://ex%C3%A4mple.test/missing/">Missing</a>',
+    )
+    for page in manifest['pages']:
+        page['contract']['url'] = page['contract']['url'].replace(
+            'example.test', 'xn--exmple-cua.test',
+        )
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://ex\u00e4mple.test/missing/'},
+    ]
+    assert report['status'] == 'fail'
+
+
+def test_utf8_percent_encoded_idna_host_counts_as_inbound_link(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https://ex%C3%A4mple.test/about/">About</a>',
+    )
+    for page in manifest['pages']:
+        page['contract']['url'] = page['contract']['url'].replace(
+            'example.test', 'xn--exmple-cua.test',
+        )
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_utf8_percent_encoded_idna_host_exposes_fragment_and_nofollow(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="https://ex%C3%A4mple.test/about/#absent" rel="nofollow">About</a>',
+    )
+    for page in manifest['pages']:
+        page['contract']['url'] = page['contract']['url'].replace(
+            'example.test', 'xn--exmple-cua.test',
+        )
+    report = verify_manifest(
+        manifest, build, check_reviewed_fragments=True, check_internal_nofollow=True,
+    )
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://ex\u00e4mple.test/about/#absent'},
+    ]
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://ex\u00e4mple.test/about/'},
+    ]
+
+
+def test_invalid_utf8_and_encoded_host_separator_do_not_enter_navigation(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="https://ex%C3%mple.test/missing/">Malformed</a>'
+        '<a href="https://ex%C3%A4%2Fmple.test/missing/">Encoded slash</a>',
+    )
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_slash_prefixed_authority_keeps_reviewed_and_external_links(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="///example.test/about/">About</a>'
+        '<a href="////other.test/ghost/">External</a>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_multi_slash_https_authority_exposes_missing_internal_link(tmp_path):
+    build, manifest = _site(
+        tmp_path, '<a href="https:////example.test/missing/">Missing</a>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_browser_multi_slash_authority_counts_inbound_link(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="///example.test/about/">About</a>')
+    report = verify_manifest(manifest, build, required_inbound_paths=('about/index.html',))
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_browser_multi_slash_absolute_external_link_is_not_local(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https:///other.test/ghost/">Other</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_empty_multi_slash_authorities_are_not_local_links(tmp_path):
+    # Browsers reject network-path/absolute HTTP(S) links with no host.
+    invalid = ('////', '///?q=1', 'https:////', 'https:////?q=1')
+    anchors = ''.join(f'<a href="{href}" rel="nofollow">Invalid</a>' for href in invalid)
+    build, manifest = _site(tmp_path, anchors)
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(
+            manifest, build, check_reviewed_navigation=True, check_internal_nofollow=True,
+        )
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['checked_links'] == 1  # Fixture's /about/ backlink.
+    assert report['internal_nofollow']['nofollow_targets'] == []
+
+
 def test_navigation_ignores_inert_markup_and_deduplicates_missing_targets(tmp_path):
     build, manifest = _site(tmp_path,
         '<template><a href="/ghost/">Ghost</a></template>'

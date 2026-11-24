@@ -73,6 +73,7 @@ how valid contracts or manifests are read.
 | `twitter_image_alt_equals` | Match the first explicit head `<meta name="twitter:image:alt">` image description (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
+| `meta_refresh_content_equals` | Require exactly one active head refresh declaration with an exact `content` string (opt-in; guards delay and redirect target drift) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `html_lang_present` | Require a non-blank root HTML `lang` attribute (`true`), or require it to be absent (`false`); blank values satisfy neither |
 | `canonical` | Require exactly one matching canonical link, without a URL fragment |
@@ -110,6 +111,21 @@ dot-like text inside a path segment or query is not normalized.
 This follows [RFC 3986 sections 5.2.4, 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
 Reports retain original URLs; different schemes, non-default ports, and
 non-equivalent paths/queries (including path and query casing) remain distinct.
+Literal Unicode characters in reviewed URL paths and queries compare equal to
+their UTF-8 percent-encoded spellings (for example `/café/` and
+`/caf%C3%A9/`), including local navigation and inbound checks. Legacy non-UTF-8
+percent encodings are not guessed, and Unicode normalization is not applied.
+This follows the IRI-to-URI mapping in
+[RFC 3987 section 3.1](https://www.rfc-editor.org/rfc/rfc3987#section-3.1).
+For multi-page URL identity, Unicode hostnames are mapped to their ASCII
+Punycode equivalents with nontransitional UTS #46, so e.g. a Unicode-host
+reviewed page cannot evade same-origin navigation or duplicate-URL checks by
+using the ASCII hostname form. The UTS #46 sharp-S hostname
+`xn--fa-hia.de` remains distinct from `fass.de`, unlike Python's older
+IDNA2003 mapping. Unicode
+host comparison requires the locally installed `idna` library; if unavailable,
+multi-page checks reject that input rather than silently passing an unsupported
+comparison. The checker never resolves or fetches these hostnames.
 Expected `canonical` and `hreflang` destinations in contracts must also be
 absolute HTTP(S) URLs with valid syntax. Invalid expected destinations (such as
 relative paths, non-HTTP schemes, malformed ports or embedded whitespace) are
@@ -419,6 +435,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   handles the redirect. Google distinguishes instant and delayed meta refresh
   redirects; see [Google Search Central](https://developers.google.com/search/docs/crawling-indexing/301-redirects)
   and [MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/http-equiv).
+  For intentional static redirect pages, `meta_refresh_content_equals` can
+  pin the complete declaration, such as `"0; url=/moved/"`. It requires
+  exactly one active head refresh directive and compares the HTML-decoded
+  `content` attribute exactly (including spacing and case); a missing or
+  repeated directive or changed delay/target fails CI. Expected content must
+  be a non-blank string. This is an explicit literal regression contract, not
+  browser refresh parsing, URL resolution, destination existence or a network
+  request. It does not weaken `meta_refresh_present: false` for regular pages.
   `html_lang` is an optional multilingual publishing assertion against the
   root `<html lang="...">` attribute. Language-tag casing is ignored, but
   region subtags are not interchangeable (`en` and `en-US` differ). A missing
@@ -1164,6 +1188,18 @@ uv run python -m searcharis.site_cli manifest.json dist \
 `<base href>` (otherwise the reviewed page URL), ignores URL fragments and
 deduplicates equivalent URL spellings. Same-origin means the same scheme,
 hostname and effective port; URL paths and nonempty queries remain significant.
+For HTTP(S) anchor destinations, backslashes in the URL path portion resolve
+as browser-style separators, so a backslash cannot silently hide a reviewed
+local route or a missing route. Percent-encoded unreserved ASCII characters
+and valid UTF-8 internationalized hostname octets in observed anchors are
+decoded for browser-equivalent same-origin checks, with IDNA validation.
+Leading repeated slashes in observed network-path or absolute HTTP(S) links
+are interpreted as browser authority separators, not local path segments.
+Empty authorities are ignored as invalid browser links rather than treated as
+same-origin navigation or internal nofollow violations.
+Malformed UTF-8 and encoded ASCII authority delimiters remain invalid/skipped.
+Queries and fragments are not rewritten;
+declared contract and manifest URLs retain their strict input validation.
 An internal link whose destination is not listed in the manifest fails with
 `navigation_target_unreviewed` and exit **1**, with source path and target
 available in JSON. The `reviewed_navigation` record reports distinct local
@@ -1200,6 +1236,9 @@ lists checked links and affected source paths/targets. The default is unchanged.
 
 Links to unreviewed routes (for example, intentionally restricted account
 pages), external origins, non-HTTP URLs and inert HTML are out of scope.
+Archived baseline/candidate comparisons also reject a saved
+`internal_link_nofollow` finding that points from one origin to a reviewed
+page on another origin (input error 2), even when both archives agree.
 `sponsored` or `ugc` alone does not trigger this particular gate. Saved report
 comparisons reject differing enabled/disabled policies (exit 2), and a new
 restricted link is a regression when both policies are enabled. This is a
@@ -1234,7 +1273,10 @@ The offline comparator rejects missing or changed inbound-link policies as
 incompatible input (exit **2**), even when both HTML builds pass. It rejects
 malformed inbound summaries rather than silently treating them as PASS.
 Previously archived site reports without this opt-in check remain comparable
-to other reports that also omit it.
+to other reports that also omit it, provided they contain no
+`reviewed_inbound_link_missing` findings. A saved report containing such a
+finding without its `reviewed_inbound` policy summary is invalid input
+(exit **2**) even when both archived reports are identically malformed.
 
 For a **one-command baseline-versus-candidate** check, the same option is
 available in `build_compare`:
@@ -1315,6 +1357,8 @@ It decodes HTML entities and collapses whitespace before comparing text
 **case-sensitively**. Duplicate nonblank titles produce `title_duplicate`
 on all affected pages (exit **1**), with one other matching built HTML path,
 a bounded title prefix and a SHA-256 fingerprint in the JSON findings.
+Archived site-report comparisons reject `title_duplicate` findings when the
+saved report lacks its `unique_titles: true` check marker (input error **2**).
 Pages explicitly declared `indexable: false` in the reviewed manifest are
 excluded. Blank titles are outside this comparison; require
 `title_present: true` to reject them independently. The option is off by
@@ -1342,6 +1386,8 @@ entity decoding and whitespace collapsing (case-sensitive). Nonblank
 duplicates produce `description_duplicate` on all affected pages (exit **1**).
 JSON, JUnit and Markdown reports show one other matching local page, a
 120-character maximum prefix and an SHA-256 digest, not the entire description.
+Archived site-report comparisons likewise require `unique_descriptions: true`
+whenever a saved page reports `description_duplicate` (input error **2**).
 An absent or empty description is not a duplicate: explicitly require
 `description_present: true` for those pages if needed.
 
@@ -1504,8 +1550,12 @@ For a separate, **opt-in** indexing-risk check on the standalone robots gate,
 add `--check-root-crawl-block`. A reviewed `robots.txt` that exactly matches its
 compiled copy may still explicitly block Googlebot at the site root. This flag
 fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
-`Googlebot` group declares `Disallow: /` without a basic root `Allow: /`,
-`Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. Googlebot-specific groups
+`Googlebot` group has a winning root `Disallow: /`, `/*`, `/$`, or `/*$` rule.
+For these four basic root patterns, Google ranks matching rules by pattern
+length (including `*` and `$`) and prefers `Allow` on ties. For example,
+`Disallow: /*` beats `Allow: /`, while `Allow: /*` ties and overrides
+`Disallow: /$`; `Disallow: /*$` beats `Allow: /$`. This remains a narrow
+root-only check, not a general robots.txt path matcher. Googlebot-specific groups
 take precedence over the wildcard group, and multiple matching groups are
 combined. By default this additional check is off; existing parity-only runs
 are unchanged. Failure details appear in JSON, JUnit, Markdown, human output
@@ -1527,7 +1577,7 @@ uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
   --check-root-crawl-block --report-dir reports
 ```
 
-An identical reviewed and built policy with a basic root `Disallow: /`
+An identical reviewed and built policy with a root `Disallow: /`, `/*`, `/$` or `/*$`
 now fails the combined gate (exit 1, `root_crawl_block`), while HTML and
 sitemap results remain independently reported. Its JSON, JUnit, Markdown,
 SARIF and GitHub annotations identify a distinct root-crawl failure rather
@@ -1537,7 +1587,7 @@ error 2 otherwise), never fetches URLs, and does not evaluate a complete
 robots.txt policy or actual production crawling.
 
 This is a deliberately **narrow static rule check**, not a complete robots.txt
-interpreter: it does not assess arbitrary URL paths, wildcard `Disallow` forms,
+interpreter: it does not assess arbitrary URL paths, other wildcard `Disallow` forms,
 all crawler identifiers, deployed HTTP responses, or actual Google indexing.
 Review the full policy if it flags an intentional exception. Google documents
 the [basic whole-site block](https://developers.google.com/crawling/docs/robots-txt/useful-robots-txt-rules)
@@ -1786,6 +1836,22 @@ This compares both builds with identical policies and reports only new
 duplicate findings as release blockers. It cannot observe deployed pages,
 Google-selected titles or search appearance; inspect deliberate duplicate
 titles/descriptions before enabling these opt-in checks.
+
+For a reviewed two-page site, the navigation, fragment, metadata, canonical
+and critical-page inbound options can run in **one** offline release gate:
+
+```sh
+uv run python -m searcharis.build_compare manifest.json baseline-build candidate-build \
+  --check-reviewed-navigation --check-reviewed-fragments \
+  --check-unique-titles --check-unique-descriptions \
+  --check-canonical-consistency --require-inbound-link services/index.html --json
+```
+
+The critical path must already be listed in the reviewed manifest. The trusted
+baseline may have existing SEO issues: those are reported but do not block
+the candidate unless a new issue appears. Exit **0** means no new regression,
+**1** means new blocking findings, and **2** means invalid input. This checks
+only supplied local built HTML; it never requests URLs or checks live indexing.
 
 For SARIF 2.1.0 output containing **only newly blocking regressions**, use:
 
@@ -2088,7 +2154,19 @@ in that report. An unverified target cannot also be the declared URL of a
 checked page in the same report: such a destination was locally verifiable and
 must not masquerade as outside-manifest. Corrupt or inconsistent summary data
 returns input error **2** instead of being silently accepted as a valid
-comparison.
+comparison. Archived reviewed-navigation and fragment summaries must also
+agree with their corresponding page issue details. Missing or invented
+unreviewed-link, missing-fragment or ambiguous-fragment findings, or counts too
+small to contain those findings, are invalid saved inputs (exit **2**), not a
+PASS. The comparator does not re-open built HTML when reading saved reports.
+Archived canonical-consistency, hreflang-reciprocity and hreflang-cluster page
+issues also require their matching opt-in policy summary. Removing that summary
+from both saved reports is invalid input (exit **2**), not inherited PASS;
+reports with disabled checks and no corresponding findings remain comparable.
+Saved unreviewed-navigation findings must target a previously unreviewed URL
+on the source page's own origin. A target already present among reviewed pages
+(including equivalent URL aliases), or on another origin, is inconsistent
+archived evidence and returns input error **2**.
 The comparator also rejects impossible cross-page counts: canonical internal
 and outside-manifest destinations combined cannot exceed the number of checked
 pages, while hreflang directed peer-pair counts cannot exceed `pages * (pages - 1)`.

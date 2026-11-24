@@ -72,6 +72,72 @@ def test_comparison_rejects_invalid_archived_checked_url(bad_url):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("target", [
+    "not-a-url",
+    "https://example.test/unknown",
+    "https://outside.test/unknown#section",
+    "https://example.test/index.html#section",
+    "https://example.test/unknown#:~:text=hello",
+])
+def test_archived_unverified_fragment_targets_require_unknown_same_origin_url(target):
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{"path": "index.html", "target": target}],
+    }
+    with pytest.raises(ValueError, match="invalid reviewed_fragments unverified_targets"):
+        compare_reports(report, report)
+
+
+def test_archived_unverified_fragment_target_accepts_unknown_local_route():
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{
+            "path": "index.html",
+            "target": "https://example.test/unknown#section",
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+@pytest.mark.parametrize("target", [
+    "", "not-a-url", "ftp://example.test/peer", "https://user@example.test/peer",
+    "https://outside.test/a\nFORGED TARGET",
+])
+def test_archived_hreflang_unverified_targets_reject_invalid_urls(check, extra, target):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{"path": "index.html", "target": target, **extra}],
+    }
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+def test_archived_hreflang_unverified_targets_allow_external_http_urls(check, extra):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{
+            "path": "index.html", "target": "https://outside.test/peer", **extra,
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 @pytest.mark.parametrize("bad_path", [
     "../outside.html",
     "/absolute.html",
@@ -214,6 +280,48 @@ def test_archived_reports_reject_changed_required_inbound_paths():
         compare_reports(before, after)
 
 
+def test_archived_inbound_issue_requires_saved_policy_summary(tmp_path, capsys):
+    (tmp_path / "index.html").write_text(
+        "<html><head><title>Home</title></head><body></body></html>",
+        encoding="utf-8",
+    )
+    services = tmp_path / "services" / "index.html"
+    services.parent.mkdir()
+    services.write_text(
+        "<html><head><title>Services</title></head><body></body></html>",
+        encoding="utf-8",
+    )
+    manifest = {"version": 1, "pages": [
+        {"path": path, "contract": {"url": url, "title_present": True}}
+        for path, url in (
+            ("index.html", "https://example.test/"),
+            ("services/index.html", "https://example.test/services/"),
+        )
+    ]}
+    opted_in = verify_manifest(
+        manifest, tmp_path, required_inbound_paths=("services/index.html",),
+    )
+    assert opted_in["reviewed_inbound"]["missing_paths"] == ["services/index.html"]
+    assert opted_in["pages"][1]["issues"][0]["code"] == "reviewed_inbound_link_missing"
+    assert compare_reports(opted_in, opted_in)["status"] == "pass"
+
+    disabled = verify_manifest(manifest, tmp_path)
+    assert "reviewed_inbound" not in disabled
+    assert compare_reports(disabled, disabled)["status"] == "pass"
+
+    malformed = json.loads(json.dumps(opted_in))
+    del malformed["reviewed_inbound"]
+    with pytest.raises(ValueError, match="reviewed_inbound issues without enabled policy"):
+        compare_reports(malformed, malformed)
+
+    before, after = tmp_path / "baseline.json", tmp_path / "candidate.json"
+    before.write_text(json.dumps(malformed), encoding="utf-8")
+    after.write_text(json.dumps(malformed), encoding="utf-8")
+    assert main([str(before), str(after), "--json"]) == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "error"
+
+
 @pytest.mark.parametrize("bad_inbound", [
     {"required_paths": [], "linked_paths": [], "missing_paths": []},
     {"required_paths": ["missing.html"], "linked_paths": [], "missing_paths": ["missing.html"]},
@@ -247,6 +355,24 @@ def test_archived_cli_inbound_option_mismatch_exits_two(tmp_path, capsys):
     assert "different check options" in response["error"]
 
 
+@pytest.mark.parametrize("check, issue_code", [
+    ("canonical_consistency", "canonical_count"),
+    ("canonical_consistency", "canonical_invalid_url"),
+    ("canonical_consistency", "canonical_target_not_self"),
+    ("hreflang_reciprocity", "hreflang_self_missing"),
+    ("hreflang_reciprocity", "hreflang_return:de"),
+    ("hreflang_clusters", "hreflang_cluster_duplicate:de"),
+    ("hreflang_clusters", "hreflang_cluster_mismatch:de"),
+])
+def test_archived_cross_page_issues_require_enabled_policy(check, issue_code):
+    issue = {"code": issue_code, "expected": "expected", "actual": "observed"}
+    report = _report([("index.html", [issue])], checks=(check,))
+    assert compare_reports(report, report)["status"] == "pass"
+    report.pop(check)
+    with pytest.raises(ValueError, match=f"{check} issues without enabled policy"):
+        compare_reports(report, report)
+
+
 @pytest.mark.parametrize("field, bad_summary", [
     ("reviewed_navigation", {"checked_links": -1, "unreviewed_targets": []}),
     ("reviewed_fragments", {"checked_fragments": "not-a-count", "missing_targets": [],
@@ -256,6 +382,92 @@ def test_archived_reports_reject_invalid_reviewed_link_summaries(field, bad_summ
     report = _report([("index.html", [])])
     report[field] = bad_summary
     with pytest.raises(ValueError, match="invalid " + field):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check, finding, code, target", [
+    ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+     "https://example.test/ghost"),
+    ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+     "https://example.test/#missing"),
+    ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+     "https://example.test/#duplicate"),
+])
+@pytest.mark.parametrize("missing_from", ["issues", "summary"])
+def test_archived_reviewed_link_findings_must_match_page_issues(
+    check, finding, code, target, missing_from,
+):
+    issue = {"code": code, "expected": "reviewed target", "actual": target}
+    report = _report([("index.html", [issue] if missing_from == "summary" else [])])
+    detail = {"path": "index.html", "target": target}
+    if check == "reviewed_navigation":
+        report[check] = {
+            "checked_links": 1,
+            "unreviewed_targets": [detail] if missing_from == "issues" else [],
+        }
+    else:
+        report[check] = {
+            "checked_fragments": 1,
+            "missing_targets": [detail] if finding == "missing_targets"
+                and missing_from == "issues" else [],
+            "ambiguous_targets": [detail] if finding == "ambiguous_targets"
+                and missing_from == "issues" else [],
+            "unverified_targets": [],
+        }
+    with pytest.raises(ValueError, match="inconsistent " + check + " findings"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check, key, code, target", [
+    ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+     "https://example.test/ghost"),
+    ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+     "https://example.test/#missing"),
+    ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+     "https://example.test/#duplicate"),
+])
+def test_archived_reviewed_link_matching_issues_remain_comparable(check, key, code, target):
+    issue = {"code": code, "expected": "reviewed target", "actual": target}
+    report = _report([("index.html", [issue])])
+    summary = {"checked_fragments": 1, "missing_targets": [],
+               "ambiguous_targets": [], "unverified_targets": []}
+    if check == "reviewed_navigation":
+        summary = {"checked_links": 1, "unreviewed_targets": []}
+    summary[key] = [{"path": "index.html", "target": target}]
+    report[check] = summary
+    assert compare_reports(report, report)["status"] == "pass"
+    report[check]["checked_links" if check == "reviewed_navigation"
+                  else "checked_fragments"] = 0
+    with pytest.raises(ValueError, match="inconsistent " + check + " findings"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("target", [
+    "https://example.test/other.html",
+    "https://EXAMPLE.TEST:443/%6fther.html",
+    "https://outside.test/not-reviewed.html",
+])
+def test_archived_navigation_rejects_reviewed_or_external_target(target):
+    issue = {
+        "code": "navigation_target_unreviewed",
+        "expected": "a URL listed in the reviewed manifest",
+        "actual": target,
+    }
+    report = _report([("index.html", [issue]), ("other.html", [])])
+    report["reviewed_navigation"] = {
+        "checked_links": 1,
+        "unreviewed_targets": [{"path": "index.html", "target": target}],
+    }
+    with pytest.raises(ValueError, match="inconsistent reviewed_navigation"):
+        compare_reports(report, report)
+
+
+def test_archived_navigation_issue_without_enabled_summary_is_invalid():
+    report = _report([("index.html", [{
+        "code": "navigation_target_unreviewed",
+        "expected": "reviewed target", "actual": "https://example.test/ghost",
+    }])])
+    with pytest.raises(ValueError, match="issues without enabled policy"):
         compare_reports(report, report)
 
 
@@ -802,13 +1014,42 @@ def test_archived_cli_rejects_invalid_unverified_canonical_with_json_error(tmp_p
     assert json.loads(output.out)["status"] == "error"
 
 
-def test_archived_hreflang_target_alias_retains_exact_url_matching():
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "de"}),
+])
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/de/index.html",
+    "https://example.test:443/de/index.html",
+    "https://example.test/de/%69ndex.html",
+    "https://example.test/en/../de/index.html",
+])
+def test_archived_hreflang_target_alias_rejects_checked_page(check, extra, alias):
     report = _report(
         [("en/index.html", []), ("de/index.html", [])],
-        checks=("hreflang_reciprocity",),
+        checks=(check,),
     )
-    report["hreflang_reciprocity"]["unverified_targets"] = [{
-        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    report[check]["unverified_targets"] = [{
+        "path": "en/index.html", "target": alias, **extra,
+    }]
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "de"}),
+])
+@pytest.mark.parametrize("target", [
+    "https://example.test/de/index.html?variant=1",
+    "https://example.test:444/de/index.html",
+])
+def test_archived_hreflang_target_distinct_page_is_unverified(check, extra, target):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])], checks=(check,),
+    )
+    report[check]["unverified_targets"] = [{
+        "path": "en/index.html", "target": target, **extra,
     }]
     assert compare_reports(report, report)["status"] == "pass"
 
@@ -1773,7 +2014,8 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     candidate["pages"][0]["checked_url"] = "https://example.test/index.html"
     candidate["hreflang_clusters"]["unverified_targets"] = [{
         "path": bad_path, "language": "de\nFORGED LOCALE",
-        "target": "https://elsewhere.test/a\nFORGED TARGET",
+        # Invalid raw URL newlines are now rejected; use a valid encoded URL.
+        "target": "https://elsewhere.test/a%0AFORGED%20TARGET",
     }]
     before, after = tmp_path / "before.json", tmp_path / "after.json"
     before.write_text(json.dumps(baseline), encoding="utf-8")
@@ -1787,7 +2029,7 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     assert "index\\nFORGED PATH.html" in lines[1]
     assert "other\\nFORGED UNLISTED.html" in lines[2]
     assert "de\\nFORGED LOCALE" in lines[4]
-    assert "a\\nFORGED TARGET" in lines[4]
+    assert "a%0AFORGED%20TARGET" in lines[4]
 
 
 def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, capsys):

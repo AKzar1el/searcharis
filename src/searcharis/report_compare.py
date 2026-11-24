@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
@@ -64,6 +65,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
     paths: set[str] = set()
     urls: set[str] = set()
     url_identities: set[tuple[str, str, int | None, str, str]] = set()
+    identities_by_path: dict[str, tuple[str, str, int | None, str, str]] = {}
     fingerprints: set[bool] = set()
     failed = 0
     for page in pages:
@@ -82,6 +84,7 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
         paths.add(path)
         urls.add(url)
         url_identities.add(identity)
+        identities_by_path[path] = identity
         has_fingerprint = "contract_sha256" in page
         fingerprints.add(has_fingerprint)
         if has_fingerprint:
@@ -173,13 +176,33 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             # fragment-free HTTP(S) targets as outside-manifest links.
             or (check == "canonical_consistency"
                 and not _is_canonical_url(item["target"]))
+            # Archived hreflang peers must obey the same HTTP(S) URL rules as
+            # live links; otherwise two malformed reports compare as PASS.
+            or (check != "canonical_consistency" and not _is_http_url(item["target"]))
             or item["target"] in urls
-            or (check == "canonical_consistency"
-                and _page_url_identity(item["target"]) in url_identities)
+            # All three live cross-page checks resolve reviewed URL identities.
+            or _page_url_identity(item["target"]) in url_identities
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]
         ):
             raise ValueError(f"{name}: invalid {check} unverified targets")
+
+    # Cross-page issue rows must retain the enabled policy that produced them;
+    # otherwise two identically corrupted reports compare as inherited PASS.
+    for page in pages:
+        for issue in page["issues"]:
+            code = issue["code"]
+            if code in ("canonical_count", "canonical_invalid_url", "canonical_target_not_self"):
+                check = "canonical_consistency"
+            elif code == "hreflang_self_missing" or code.startswith("hreflang_return:"):
+                check = "hreflang_reciprocity"
+            elif code.startswith(("hreflang_cluster_duplicate:",
+                                  "hreflang_cluster_mismatch:")):
+                check = "hreflang_clusters"
+            else:
+                continue
+            if check not in report:
+                raise ValueError(f"{name}: {check} issues without enabled policy")
 
     # A saved report with one of these opt-in checks disabled cannot be
     # compared against one with it enabled, even if both found zero issues.
@@ -200,6 +223,63 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
                 for item in targets
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
+            if check == "reviewed_fragments" and key == "unverified_targets":
+                # The fragment checker only exports same-origin links with an
+                # actual fragment to routes outside the reviewed manifest.
+                for item in targets:
+                    target = item["target"]
+                    if not _is_http_url(target):
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    fragment = urlsplit(target).fragment
+                    # The live checker skips browser text-fragment directives.
+                    if not fragment or ":~:" in fragment:
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    identity = _page_url_identity(target)
+                    if (identity in url_identities
+                            or identity[:3] != identities_by_path[item["path"]][:3]):
+                        raise ValueError(f"{name}: invalid {check} {key}")
+
+    # A saved navigation/fragment summary must describe the same failures as
+    # its page issues; otherwise a modified archive could silently pass CI.
+    for check, key, issue_code, count_key in (
+        ("reviewed_navigation", "unreviewed_targets", "navigation_target_unreviewed",
+         "checked_links"),
+        ("reviewed_fragments", "missing_targets", "navigation_fragment_missing",
+         "checked_fragments"),
+        ("reviewed_fragments", "ambiguous_targets", "navigation_fragment_ambiguous",
+         "checked_fragments"),
+    ):
+        page_findings = [
+            (page["path"], issue["actual"])
+            for page in pages for issue in page["issues"]
+            if issue["code"] == issue_code
+        ]
+        if check not in report:
+            if page_findings:
+                raise ValueError(f"{name}: {check} issues without enabled policy")
+            continue
+        if any(not isinstance(target, str) for _, target in page_findings):
+            raise ValueError(f"{name}: inconsistent {check} findings")
+        findings = [
+            (item["path"], item["target"]) for item in report[check][key]
+        ]
+        if (
+            sorted(findings) != sorted(page_findings)
+            or len(findings) > report[check][count_key]
+            or len(set(findings)) != len(findings)
+            or any(not _is_http_url(target) for _, target in findings)
+        ):
+            raise ValueError(f"{name}: inconsistent {check} findings")
+        if check == "reviewed_navigation":
+            # Generated navigation failures are same-origin links to *unreviewed*
+            # URLs. Both a reviewed alias and a foreign origin are impossible.
+            for path, target in findings:
+                target_identity = _page_url_identity(target)
+                if (
+                    target_identity in url_identities
+                    or target_identity[:3] != identities_by_path[path][:3]
+                ):
+                    raise ValueError(f"{name}: inconsistent {check} findings")
 
     nofollow_issues = [
         (page["path"], issue["actual"])
@@ -218,20 +298,33 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             or any(
                 not _is_http_url(target)
                 or _page_url_identity(target) not in url_identities
-                for _, target in entries
+                or _page_url_identity(target)[:3] != identities_by_path[path][:3]
+                for path, target in entries
             )
         ):
             raise ValueError(f"{name}: inconsistent internal_nofollow findings")
     elif nofollow_issues:
         raise ValueError(f"{name}: internal_nofollow issues without enabled policy")
 
-    for check in _UNIQUE_CHECKS:
-        if check in report and report[check] is not True:
-            raise ValueError(f"{name}: invalid {check} provenance")
+    for check, issue_code in (
+        ("unique_titles", "title_duplicate"),
+        ("unique_descriptions", "description_duplicate"),
+    ):
+        if check in report:
+            if report[check] is not True:
+                raise ValueError(f"{name}: invalid {check} provenance")
+        elif any(
+            issue["code"] == issue_code for page in pages for issue in page["issues"]
+        ):
+            raise ValueError(f"{name}: {check} issues without enabled policy")
 
     # Opt-in critical-page inbound policy is a selected set of paths, not
     # merely a boolean: changing the targets can silently weaken a CI gate.
     inbound_paths: tuple[str, ...] = ()
+    actual_missing = {
+        page["path"] for page in pages
+        if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
+    }
     if "reviewed_inbound" in report:
         inbound = report["reviewed_inbound"]
         if not isinstance(inbound, dict):
@@ -252,13 +345,11 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             or set(linked) | set(missing) != set(required)
         ):
             raise ValueError(f"{name}: invalid reviewed_inbound data")
-        actual_missing = {
-            page["path"] for page in pages
-            if any(issue["code"] == "reviewed_inbound_link_missing" for issue in page["issues"])
-        }
         if set(missing) != actual_missing:
             raise ValueError(f"{name}: invalid reviewed_inbound missing-page findings")
         inbound_paths = tuple(sorted(required))
+    elif actual_missing:
+        raise ValueError(f"{name}: reviewed_inbound issues without enabled policy")
 
     options = (
         strict,

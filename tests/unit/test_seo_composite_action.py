@@ -934,9 +934,9 @@ def test_composite_action_adoption_guide_preserves_manual_approval_boundary() ->
         guide,
     )
     assert pin is not None
-    # The earlier merged pin accepted explicitly blank opt-in boolean values.
-    # The copyable recipe must use the independently merged fail-closed fix.
-    assert pin.group(1) == "7194455b5e16b02052adfe7216922c423df1294e"
+    # The prior pin preceded the stream-bounded source-map reader fix.
+    # The copyable recipe must use the independently merged safe reader.
+    assert pin.group(1) == "edff0f6415e423103a6bc7647f5c3e2f75798467"
     assert "<reviewed-40-character-commit>" not in guide
     assert "independently merged" in guide
     assert "require-full-coverage: 'false'" in guide

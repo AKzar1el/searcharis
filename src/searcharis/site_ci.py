@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import unquote, unquote_to_bytes, urljoin, urlsplit
 
 from searcharis.contract_ci import _is_canonical_url, _is_http_url, verify_contract
 
@@ -59,6 +59,18 @@ def _normalize_percent_encoding(component: str) -> str:
     return _ENCODED_OCTET.sub(replacement, component)
 
 
+def _iri_component_as_uri(component: str) -> str:
+    """Map literal Unicode to UTF-8 URL octets without rewriting ASCII syntax."""
+    try:
+        return re.sub(
+            r"[^\x00-\x7f]",
+            lambda match: "".join(f"%{octet:02X}" for octet in match.group().encode("utf-8")),
+            component,
+        )
+    except UnicodeEncodeError as error:
+        raise ValueError("Invalid Unicode URL path or query") from error
+
+
 def _remove_dot_segments(path: str) -> str:
     """Remove whole URI dot-segments, preserving empty and reserved path segments."""
     remaining = path
@@ -94,6 +106,22 @@ def _remove_dot_segments(path: str) -> str:
 def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     """Compare HTTP(S) page identities without collapsing distinct routes or queries."""
     parts = urlsplit(url)
+    hostname = parts.hostname or ""
+    if not hostname.isascii():
+        # Python's built-in IDNA codec uses IDNA2003, which would incorrectly
+        # equate fa\u00df.de with fass.de. The installed idna package implements
+        # browser-compatible, nontransitional UTS #46 mapping. Without it,
+        # reject Unicode host comparisons instead of silently passing a CI gate.
+        try:
+            import idna
+        except ImportError as error:
+            raise ValueError(
+                "Unicode URL hosts require the idna package for safe offline comparison"
+            ) from error
+        try:
+            hostname = idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+        except idna.IDNAError as error:
+            raise ValueError("Invalid internationalized URL hostname") from error
     # RFC 3986 6.2.2 and 6.2.3: default ports, empty roots and percent-
     # encoded unreserved octets and complete dot-segments do not identify
     # separate resources. Do not rewrite observed URL strings in reports.
@@ -101,10 +129,62 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     default_port = 80 if parts.scheme == "http" else 443
     port = None if parts.port in (None, default_port) else parts.port
     return (
-        parts.scheme, parts.hostname or "", port,
-        _remove_dot_segments(_normalize_percent_encoding(parts.path or "/")),
-        _normalize_percent_encoding(parts.query),
+        parts.scheme, hostname, port,
+        _remove_dot_segments(_normalize_percent_encoding(_iri_component_as_uri(parts.path or "/"))),
+        _normalize_percent_encoding(_iri_component_as_uri(parts.query)),
     )
+
+
+def _resolve_anchor_href(base: str, href: str) -> str | None:
+    # Browsers treat reverse solidus as a path separator for HTTP(S) URLs.
+    # Normalize only the URL path portion, not a query or fragment payload.
+    path_end = len(href)
+    for separator in "?#":
+        at = href.find(separator)
+        if at >= 0:
+            path_end = min(path_end, at)
+    browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    # WHATWG special-scheme URLs treat extra slashes as the start of an
+    # authority. urljoin otherwise misreads them as same-origin path segments.
+    if browser_href.startswith("///"):
+        authority = browser_href.lstrip("/")
+        if not authority or authority[0] in "?#":
+            return None  # A browser rejects an empty host; never infer the base host.
+        browser_href = "//" + authority
+    else:
+        extra_slashes = re.match(r"(?i)^(https?):/{3,}", browser_href)
+        if extra_slashes:
+            authority = browser_href[extra_slashes.end():]
+            if not authority or authority[0] in "?#":
+                return None
+            browser_href = extra_slashes.group(1) + "://" + authority
+    try:
+        resolved = urljoin(base, browser_href)
+        parts = urlsplit(resolved)
+        if "%" in parts.netloc and "@" not in parts.netloc and not parts.netloc.startswith("["):
+            # Browsers decode ASCII hostname octets in observed HTTP(S) links.
+            # Leave encoded delimiters, ports, credentials and IPv6 untouched;
+            # the strict URL validator must still reject those authorities.
+            hostname, separator, port = parts.netloc.partition(":")
+            decoded_hostname = _normalize_percent_encoding(hostname)
+            remaining_octets = _ENCODED_OCTET.findall(decoded_hostname)
+            if remaining_octets and all(int(octet[1:], 16) >= 128 for octet in remaining_octets):
+                # A browser first decodes UTF-8 host octets, then applies IDNA.
+                # Reject malformed UTF-8 and any encoded ASCII delimiters.
+                try:
+                    unicode_hostname = unquote_to_bytes(decoded_hostname).decode("utf-8")
+                    _page_url_identity(f"https://{unicode_hostname}/")
+                except ValueError:
+                    pass
+                else:
+                    decoded_hostname = unicode_hostname
+            if "%" not in decoded_hostname:
+                resolved = parts._replace(
+                    netloc=decoded_hostname + separator + port,
+                ).geturl()
+        return resolved if _is_http_url(resolved) else None
+    except ValueError:
+        return None
 
 
 def _hreflang_peer_targets(links: dict[str, list[str]], source_identity: tuple) -> dict[tuple, str]:
@@ -282,11 +362,8 @@ def verify_manifest(
             source_identity = _page_url_identity(source_url)
             anchors = observed_anchors[source_url]
             for href in anchors["hrefs"]:
-                try:
-                    resolved = urljoin(anchors["base_url"], href)
-                except ValueError:
-                    continue
-                if not _is_http_url(resolved):
+                resolved = _resolve_anchor_href(anchors["base_url"], href)
+                if resolved is None:
                     continue
                 target_url = urlsplit(resolved)._replace(fragment="").geturl()
                 identity = _page_url_identity(target_url)
@@ -323,11 +400,8 @@ def verify_manifest(
             # harmless URL spelling differences. Never fetch any destination.
             local: dict[tuple[str, str, int | None, str, str], str] = {}
             for href in anchors["hrefs"]:
-                try:
-                    resolved = urljoin(anchors["base_url"], href)
-                except ValueError:
-                    continue
-                if not _is_http_url(resolved):
+                resolved = _resolve_anchor_href(anchors["base_url"], href)
+                if resolved is None:
                     continue  # External protocols and malformed URLs are outside this check.
                 target = urlsplit(resolved)._replace(fragment="").geturl()
                 identity = _page_url_identity(target)
@@ -359,8 +433,8 @@ def verify_manifest(
             targets: dict[tuple, str] = {}
             for href in hrefs:
                 try:
-                    resolved = urljoin(base, href)
-                    if not _is_http_url(resolved):
+                    resolved = _resolve_anchor_href(base, href)
+                    if resolved is None:
                         continue
                     target = urlsplit(resolved)._replace(fragment="").geturl()
                     identity = _page_url_identity(target)
@@ -420,12 +494,12 @@ def verify_manifest(
                 if "#" not in href:
                     continue
                 try:
-                    resolved = urljoin(anchors["base_url"], href)
+                    resolved = _resolve_anchor_href(anchors["base_url"], href)
+                    if resolved is None:
+                        continue
+                    parts = urlsplit(resolved)
                 except ValueError:
                     continue
-                if not _is_http_url(resolved):
-                    continue
-                parts = urlsplit(resolved)
                 if not parts.fragment:
                     continue  # Empty fragments scroll to the top, not an element ID.
                 if ":~:" in parts.fragment:
