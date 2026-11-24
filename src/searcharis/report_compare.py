@@ -180,8 +180,8 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             # live links; otherwise two malformed reports compare as PASS.
             or (check != "canonical_consistency" and not _is_http_url(item["target"]))
             or item["target"] in urls
-            or (check == "canonical_consistency"
-                and _page_url_identity(item["target"]) in url_identities)
+            # All three live cross-page checks resolve reviewed URL identities.
+            or _page_url_identity(item["target"]) in url_identities
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]
         ):
