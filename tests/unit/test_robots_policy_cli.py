@@ -56,6 +56,13 @@ def test_staging_disallow_all_drift_blocks_release_without_interpreting_rules(
 @pytest.mark.parametrize("policy,should_block", [
     ("User-agent: *\nDisallow: /\n", True),
     ("User-agent: Googlebot\nDisallow: /\n", True),
+    ("User-agent: *\nDisallow: /$\n", True),
+    ("User-agent: Googlebot\nDisallow: /$\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /*\n", False),
+    ("User-agent: *\nDisallow: /$\nAllow: /$\n", False),
+    ("User-agent: *\nDisallow: /$\nAllow: /*$\n", False),
+    ("User-agent: *\nDisallow: /$\nUser-agent: Googlebot\nAllow: /\n", False),
     ("user-agent: *\nSitemap: https://example.test/map.xml\n disallow : / # staging\n", True),
     ("User-agent: Bingbot\nDisallow: /\n", False),
     ("User-agent: *\nDisallow: /private/\n", False),
@@ -70,7 +77,19 @@ def test_staging_disallow_all_drift_blocks_release_without_interpreting_rules(
     ("User-agent: Bingbot\nUser-agent: Googlebot\nDisallow: /\n", True),
     ("User-agent: Googlebot*\nDisallow: /\n", True),
     ("User-agent: Googlebot/1.2\nDisallow: /\n", True),
-    ("User-agent: *\nDisallow: /*\n", False),
+    ("User-agent: *\nDisallow: /*\n", True),
+    ("User-agent: Googlebot\nDisallow: /*\n", True),
+    ("User-agent: *\nDisallow: /*\nAllow: /\n", True),
+    ("User-agent: *\nDisallow: /*\nAllow: /*\n", False),
+    ("User-agent: *\nDisallow: /*\nAllow: /public/\n", True),
+    ("User-agent: *\nDisallow: /*\nUser-agent: Googlebot\nAllow: /\n", False),
+    ("User-agent: *\nDisallow: /*$\n", True),
+    ("User-agent: Googlebot\nDisallow: /*$\n", True),
+    ("User-agent: *\nDisallow: /*$\nAllow: /*$\n", False),
+    ("User-agent: *\nDisallow: /*$\nAllow: /$\n", True),
+    ("User-agent: *\nDisallow: /*$\nAllow: /\n", True),
+    ("User-agent: Googlebot\nAllow: /\nDisallow: /*\n", True),
+    ("User-agent: *\nDisallow: /$\nAllow: /*\nDisallow: /*$\n", True),
 ])
 def test_optional_googlebot_root_block_from_identical_reviewed_policy(
     tmp_path, capsys, monkeypatch, policy, should_block,
@@ -91,6 +110,56 @@ def test_optional_googlebot_root_block_from_identical_reviewed_policy(
     assert result["status"] == ("fail" if should_block else "pass")
     assert result["reason"] == ("root_crawl_block" if should_block else None)
     assert result["expected_sha256"] == result["observed_sha256"]
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+@pytest.mark.parametrize("leading", [False, True])
+def test_unicode_separators_cannot_create_phantom_sitemap_directives(
+    tmp_path, capsys, separator, leading,
+):
+    reviewed, build = _fixture(tmp_path)
+    required = "https://example.test/required.xml"
+    prefix = "" if leading else "Sitemap: https://example.test/other.xml"
+    content = f"User-agent: *\n{prefix}{separator}Sitemap: {required}\n".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(
+        capsys, reviewed, build, "--require-robots-sitemap", required,
+    )
+    assert stderr == ""
+    assert code == 1
+    assert result["reason"] == "sitemap_declaration_missing"
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+@pytest.mark.parametrize("leading", [False, True])
+def test_unicode_separators_cannot_create_phantom_disallow_rules(
+    tmp_path, capsys, separator, leading,
+):
+    reviewed, build = _fixture(tmp_path)
+    before = "User-agent: *\n" if leading else "User-agent: *"
+    content = f"{before}{separator}Disallow: /\n".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert stderr == ""
+    assert code == 0
+    assert result["status"] == "pass"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
+def test_robots_parser_still_respects_rfc_line_endings(tmp_path, capsys, newline):
+    reviewed, build = _fixture(tmp_path)
+    content = f"User-agent: *{newline}Disallow: /{newline}".encode()
+    reviewed.write_bytes(content)
+    (build / "robots.txt").write_bytes(content)
+
+    code, result, stderr = _run(capsys, reviewed, build, "--check-root-crawl-block")
+    assert stderr == ""
+    assert code == 1
+    assert result["reason"] == "root_crawl_block"
 
 
 def test_root_crawl_block_reports_and_preserves_existing_drift_priority(tmp_path, capsys):

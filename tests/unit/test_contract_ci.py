@@ -287,6 +287,60 @@ def test_meta_refresh_presence_cli_json_reports_unexpected_redirect(tmp_path, ca
     }]
 
 
+@pytest.mark.parametrize("actual", [
+    "0; url=/old/",
+    "5; url=/new/",
+    "0; URL=/new/",
+])
+def test_meta_refresh_content_contract_catches_target_and_delay_drift(actual):
+    expected = "0; url=/new/"
+    html = HTML.replace("</head>",
+                        f'<meta http-equiv="refresh" content="{actual}"></head>')
+    result = verify_contract({"url": URL, "meta_refresh_content_equals": expected}, html)
+    assert result["issues"] == [{
+        "code": "meta_refresh_content_equals", "expected": [expected], "actual": [actual],
+    }]
+
+
+def test_meta_refresh_content_contract_requires_exactly_one_active_head_declaration():
+    expected = "0; url=/new/"
+    spec = {"url": URL, "meta_refresh_content_equals": expected}
+    one = '<meta http-equiv="refresh" content="0; url=/new/">'
+    assert verify_contract(spec, HTML.replace("</head>", one + "</head>"))["status"] == "pass"
+    for injected, actual in [
+        ("", []),
+        (one + one, [expected, expected]),
+        ('<template>' + one + '</template>', []),
+    ]:
+        report = verify_contract(spec, HTML.replace("</head>", injected + "</head>"))
+        assert report["issues"] == [{
+            "code": "meta_refresh_content_equals", "expected": [expected], "actual": actual,
+        }]
+
+
+@pytest.mark.parametrize("value", [None, False, 0, [], {}, ""])
+def test_meta_refresh_content_contract_rejects_invalid_expected(value):
+    with pytest.raises(ValueError, match="meta_refresh_content_equals"):
+        verify_contract({"url": URL, "meta_refresh_content_equals": value}, HTML)
+
+
+def test_meta_refresh_content_contract_cli_detects_redirect_drift(tmp_path, capsys):
+    spec_path = tmp_path / "expected.json"
+    html_path = tmp_path / "index.html"
+    spec_path.write_text(json.dumps({
+        "url": URL, "meta_refresh_content_equals": "0; url=/new/",
+    }), encoding="utf-8")
+    html_path.write_text(HTML.replace("</head>",
+                         '<meta http-equiv="refresh" content="0; url=/old/"></head>'),
+                         encoding="utf-8")
+    assert main([str(spec_path), str(html_path), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["issues"] == [{
+        "code": "meta_refresh_content_equals",
+        "expected": ["0; url=/new/"], "actual": ["0; url=/old/"],
+    }]
+
+
 @pytest.mark.parametrize("omit_html_and_body", [False, True])
 def test_valid_optional_head_start_tag_keeps_seo_assertions(omit_html_and_body):
     # HTML5 permits the head start tag to be omitted; minifiers may also omit
