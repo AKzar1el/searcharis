@@ -73,6 +73,7 @@ how valid contracts or manifests are read.
 | `twitter_image_alt_equals` | Match the first explicit head `<meta name="twitter:image:alt">` image description (opt-in, case-sensitive) |
 | `viewport_device_width` | Require the first head viewport meta to explicitly set `width=device-width` (true/false) |
 | `meta_refresh_present` | Assert whether any active head `http-equiv="refresh"` declaration exists (true/false) |
+| `meta_refresh_content_equals` | Require exactly one active head refresh declaration with an exact `content` string (opt-in; guards delay and redirect target drift) |
 | `html_lang` | Match the root `<html lang>` attribute (case-insensitive language tag) |
 | `html_lang_present` | Require a non-blank root HTML `lang` attribute (`true`), or require it to be absent (`false`); blank values satisfy neither |
 | `canonical` | Require exactly one matching canonical link, without a URL fragment |
@@ -110,6 +111,12 @@ dot-like text inside a path segment or query is not normalized.
 This follows [RFC 3986 sections 5.2.4, 6.2.2 and 6.2.3](https://www.rfc-editor.org/rfc/rfc3986.html).
 Reports retain original URLs; different schemes, non-default ports, and
 non-equivalent paths/queries (including path and query casing) remain distinct.
+Literal Unicode characters in reviewed URL paths and queries compare equal to
+their UTF-8 percent-encoded spellings (for example `/café/` and
+`/caf%C3%A9/`), including local navigation and inbound checks. Legacy non-UTF-8
+percent encodings are not guessed, and Unicode normalization is not applied.
+This follows the IRI-to-URI mapping in
+[RFC 3987 section 3.1](https://www.rfc-editor.org/rfc/rfc3987#section-3.1).
 For multi-page URL identity, Unicode hostnames are mapped to their ASCII
 Punycode equivalents with nontransitional UTS #46, so e.g. a Unicode-host
 reviewed page cannot evade same-origin navigation or duplicate-URL checks by
@@ -428,6 +435,14 @@ report invalid built links as findings rather than accepting ambiguous hosts.
   handles the redirect. Google distinguishes instant and delayed meta refresh
   redirects; see [Google Search Central](https://developers.google.com/search/docs/crawling-indexing/301-redirects)
   and [MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/http-equiv).
+  For intentional static redirect pages, `meta_refresh_content_equals` can
+  pin the complete declaration, such as `"0; url=/moved/"`. It requires
+  exactly one active head refresh directive and compares the HTML-decoded
+  `content` attribute exactly (including spacing and case); a missing or
+  repeated directive or changed delay/target fails CI. Expected content must
+  be a non-blank string. This is an explicit literal regression contract, not
+  browser refresh parsing, URL resolution, destination existence or a network
+  request. It does not weaken `meta_refresh_present: false` for regular pages.
   `html_lang` is an optional multilingual publishing assertion against the
   root `<html lang="...">` attribute. Language-tag casing is ignored, but
   region subtags are not interchangeable (`en` and `en-US` differ). A missing
@@ -1179,7 +1194,15 @@ An `xlink:href` on an HTML anchor outside SVG is not a navigable link, and
 external SVG image files are not crawled.
 For HTTP(S) anchor destinations, backslashes in the URL path portion resolve
 as browser-style separators, so a backslash cannot silently hide a reviewed
-local route or a missing route. Queries and fragments are not rewritten;
+local route or a missing route. Percent-encoded unreserved ASCII characters
+and valid UTF-8 internationalized hostname octets in observed anchors are
+decoded for browser-equivalent same-origin checks, with IDNA validation.
+Leading repeated slashes in observed network-path or absolute HTTP(S) links
+are interpreted as browser authority separators, not local path segments.
+Empty authorities are ignored as invalid browser links rather than treated as
+same-origin navigation or internal nofollow violations.
+Malformed UTF-8 and encoded ASCII authority delimiters remain invalid/skipped.
+Queries and fragments are not rewritten;
 declared contract and manifest URLs retain their strict input validation.
 An internal link whose destination is not listed in the manifest fails with
 `navigation_target_unreviewed` and exit **1**, with source path and target
@@ -1531,8 +1554,12 @@ For a separate, **opt-in** indexing-risk check on the standalone robots gate,
 add `--check-root-crawl-block`. A reviewed `robots.txt` that exactly matches its
 compiled copy may still explicitly block Googlebot at the site root. This flag
 fails CI (exit 1, reason `root_crawl_block`) when a selected `User-agent: *` or
-`Googlebot` group declares `Disallow: /` without a basic root `Allow: /`,
-`Allow: /$`, `Allow: /*`, or `Allow: /*$` exception. Googlebot-specific groups
+`Googlebot` group has a winning root `Disallow: /`, `/*`, `/$`, or `/*$` rule.
+For these four basic root patterns, Google ranks matching rules by pattern
+length (including `*` and `$`) and prefers `Allow` on ties. For example,
+`Disallow: /*` beats `Allow: /`, while `Allow: /*` ties and overrides
+`Disallow: /$`; `Disallow: /*$` beats `Allow: /$`. This remains a narrow
+root-only check, not a general robots.txt path matcher. Googlebot-specific groups
 take precedence over the wildcard group, and multiple matching groups are
 combined. By default this additional check is off; existing parity-only runs
 are unchanged. Failure details appear in JSON, JUnit, Markdown, human output
@@ -1554,7 +1581,7 @@ uv run python -m searcharis.release_cli manifest.json dist dist/sitemap.xml \
   --check-root-crawl-block --report-dir reports
 ```
 
-An identical reviewed and built policy with a basic root `Disallow: /`
+An identical reviewed and built policy with a root `Disallow: /`, `/*`, `/$` or `/*$`
 now fails the combined gate (exit 1, `root_crawl_block`), while HTML and
 sitemap results remain independently reported. Its JSON, JUnit, Markdown,
 SARIF and GitHub annotations identify a distinct root-crawl failure rather
@@ -1564,7 +1591,7 @@ error 2 otherwise), never fetches URLs, and does not evaluate a complete
 robots.txt policy or actual production crawling.
 
 This is a deliberately **narrow static rule check**, not a complete robots.txt
-interpreter: it does not assess arbitrary URL paths, wildcard `Disallow` forms,
+interpreter: it does not assess arbitrary URL paths, other wildcard `Disallow` forms,
 all crawler identifiers, deployed HTTP responses, or actual Google indexing.
 Review the full policy if it flags an intentional exception. Google documents
 the [basic whole-site block](https://developers.google.com/crawling/docs/robots-txt/useful-robots-txt-rules)
@@ -2136,6 +2163,10 @@ agree with their corresponding page issue details. Missing or invented
 unreviewed-link, missing-fragment or ambiguous-fragment findings, or counts too
 small to contain those findings, are invalid saved inputs (exit **2**), not a
 PASS. The comparator does not re-open built HTML when reading saved reports.
+Archived canonical-consistency, hreflang-reciprocity and hreflang-cluster page
+issues also require their matching opt-in policy summary. Removing that summary
+from both saved reports is invalid input (exit **2**), not inherited PASS;
+reports with disabled checks and no corresponding findings remain comparable.
 Saved unreviewed-navigation findings must target a previously unreviewed URL
 on the source page's own origin. A target already present among reviewed pages
 (including equivalent URL aliases), or on another origin, is inconsistent

@@ -54,12 +54,17 @@ def _read_bounded(path: Path) -> bytes:
     return data
 
 
+def _robots_lines(policy: bytes) -> list[str]:
+    """REP line endings are CR, LF or CRLF, not arbitrary Unicode separators."""
+    return policy.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
 def _declares_sitemap(policy: bytes, required_url: str) -> bool:
     """Find a reviewed Sitemap directive, not a comment or a URL substring."""
-    for line in policy.decode("utf-8-sig").splitlines():
-        active = line.partition("#")[0].strip()
+    for line in _robots_lines(policy):
+        active = line.partition("#")[0].strip(" \t")
         name, separator, value = active.partition(":")
-        if separator and name.strip().casefold() == "sitemap" and value.strip() == required_url:
+        if separator and name.strip(" \t").casefold() == "sitemap" and value.strip(" \t") == required_url:
             return True
     return False
 
@@ -71,19 +76,19 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
     rules: list[tuple[str, str]] = []
     has_rule = False
 
-    for raw_line in policy.decode("utf-8-sig").splitlines():
-        active = raw_line.partition("#")[0].strip()
+    for raw_line in _robots_lines(policy):
+        active = raw_line.partition("#")[0].strip(" \t")
         name, colon, value = active.partition(":")
         if not colon:
             continue
-        name, value = name.strip().casefold(), value.strip()
+        name, value = name.strip(" \t").casefold(), value.strip(" \t")
         if name == "user-agent":
             if has_rule:
                 groups.append((tuple(agents), tuple(rules)))
                 agents, rules, has_rule = [], [], False
             if value:
                 # Google treats `googlebot*` and `googlebot/1.2` as Googlebot.
-                agent = value.casefold().split()[0].split("/", 1)[0]
+                agent = value.casefold().replace("\t", " ").split(" ", 1)[0].split("/", 1)[0]
                 if agent != "*":
                     agent = agent.rstrip("*")
                 agents.append(agent)
@@ -99,13 +104,18 @@ def _explicit_googlebot_root_block(policy: bytes) -> bool:
         rules for agents, rules in groups if "*" in agents
     ]
     applicable = [rule for group in selected for rule in group]
-    if not any(name == "disallow" and value == "/" for name, value in applicable):
-        return False
-    # Only these simple allow rules can explicitly admit the homepage itself.
-    return not any(
-        name == "allow" and value in {"/", "/$", "/*", "/*$"}
-        for name, value in applicable
-    )
+    # All four basic patterns match the root. Google ranks matching rules by
+    # pattern length even when '*' matches zero characters; Allow wins ties.
+    root_patterns = {"/", "/*", "/$", "/*$"}
+    strongest_disallow = max((
+        len(value) for name, value in applicable
+        if name == "disallow" and value in root_patterns
+    ), default=0)
+    strongest_allow = max((
+        len(value) for name, value in applicable
+        if name == "allow" and value in root_patterns
+    ), default=0)
+    return strongest_disallow > strongest_allow
 
 
 def verify_reviewed_robots_policy(

@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import unquote, unquote_to_bytes, urljoin, urlsplit
 
 from searcharis.contract_ci import _is_canonical_url, _is_http_url, verify_contract
 
@@ -57,6 +57,18 @@ def _normalize_percent_encoding(component: str) -> str:
         return match.group().upper()
 
     return _ENCODED_OCTET.sub(replacement, component)
+
+
+def _iri_component_as_uri(component: str) -> str:
+    """Map literal Unicode to UTF-8 URL octets without rewriting ASCII syntax."""
+    try:
+        return re.sub(
+            r"[^\x00-\x7f]",
+            lambda match: "".join(f"%{octet:02X}" for octet in match.group().encode("utf-8")),
+            component,
+        )
+    except UnicodeEncodeError as error:
+        raise ValueError("Invalid Unicode URL path or query") from error
 
 
 def _remove_dot_segments(path: str) -> str:
@@ -118,8 +130,8 @@ def _page_url_identity(url: str) -> tuple[str, str, int | None, str, str]:
     port = None if parts.port in (None, default_port) else parts.port
     return (
         parts.scheme, hostname, port,
-        _remove_dot_segments(_normalize_percent_encoding(parts.path or "/")),
-        _normalize_percent_encoding(parts.query),
+        _remove_dot_segments(_normalize_percent_encoding(_iri_component_as_uri(parts.path or "/"))),
+        _normalize_percent_encoding(_iri_component_as_uri(parts.query)),
     )
 
 
@@ -132,8 +144,44 @@ def _resolve_anchor_href(base: str, href: str) -> str | None:
         if at >= 0:
             path_end = min(path_end, at)
     browser_href = href[:path_end].replace("\\", "/") + href[path_end:]
+    # WHATWG special-scheme URLs treat extra slashes as the start of an
+    # authority. urljoin otherwise misreads them as same-origin path segments.
+    if browser_href.startswith("///"):
+        authority = browser_href.lstrip("/")
+        if not authority or authority[0] in "?#":
+            return None  # A browser rejects an empty host; never infer the base host.
+        browser_href = "//" + authority
+    else:
+        extra_slashes = re.match(r"(?i)^(https?):/{3,}", browser_href)
+        if extra_slashes:
+            authority = browser_href[extra_slashes.end():]
+            if not authority or authority[0] in "?#":
+                return None
+            browser_href = extra_slashes.group(1) + "://" + authority
     try:
         resolved = urljoin(base, browser_href)
+        parts = urlsplit(resolved)
+        if "%" in parts.netloc and "@" not in parts.netloc and not parts.netloc.startswith("["):
+            # Browsers decode ASCII hostname octets in observed HTTP(S) links.
+            # Leave encoded delimiters, ports, credentials and IPv6 untouched;
+            # the strict URL validator must still reject those authorities.
+            hostname, separator, port = parts.netloc.partition(":")
+            decoded_hostname = _normalize_percent_encoding(hostname)
+            remaining_octets = _ENCODED_OCTET.findall(decoded_hostname)
+            if remaining_octets and all(int(octet[1:], 16) >= 128 for octet in remaining_octets):
+                # A browser first decodes UTF-8 host octets, then applies IDNA.
+                # Reject malformed UTF-8 and any encoded ASCII delimiters.
+                try:
+                    unicode_hostname = unquote_to_bytes(decoded_hostname).decode("utf-8")
+                    _page_url_identity(f"https://{unicode_hostname}/")
+                except ValueError:
+                    pass
+                else:
+                    decoded_hostname = unicode_hostname
+            if "%" not in decoded_hostname:
+                resolved = parts._replace(
+                    netloc=decoded_hostname + separator + port,
+                ).geturl()
         return resolved if _is_http_url(resolved) else None
     except ValueError:
         return None

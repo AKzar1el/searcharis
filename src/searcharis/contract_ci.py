@@ -21,7 +21,8 @@ _ALLOWED = frozenset({
     "og_image_alt_present", "og_image_alt_equals", "twitter_card_equals", "twitter_title_equals", "twitter_description_equals",
     "og_image_width_equals", "og_image_height_equals", "og_image_type_equals",
     "twitter_image_present", "twitter_image_equals", "twitter_image_alt_present", "twitter_image_alt_equals",
-    "viewport_device_width", "meta_refresh_present", "html_lang", "html_lang_present",
+    "viewport_device_width", "meta_refresh_present", "meta_refresh_content_equals",
+    "html_lang", "html_lang_present",
     "canonical", "canonical_present",
     "indexable", "followable",
     "h1_min", "h1_max", "h1_text_equals",
@@ -440,7 +441,7 @@ def _check_contract(spec: object) -> dict:
                   "og_site_name_equals",
                   "og_title_equals", "og_description_equals", "og_image_alt_equals",
                   "twitter_title_equals", "twitter_description_equals", "twitter_image_alt_equals",
-                  "h1_text_equals"):
+                  "h1_text_equals", "meta_refresh_content_equals"):
         if field in spec and (not isinstance(spec[field], str) or not spec[field].strip()):
             raise ValueError(f"'{field}' must be non-blank text")
     if "twitter_card_equals" in spec and (
@@ -808,6 +809,13 @@ def verify_contract(
         actual = page.meta_refresh_contents
         if bool(actual) != spec["meta_refresh_present"]:
             fail("meta_refresh_presence", spec["meta_refresh_present"], actual)
+    if "meta_refresh_content_equals" in spec:
+        # Opt-in exact publish contract: both redirect destination and delay
+        # must remain stable, with no later declaration masking the first.
+        actual = page.meta_refresh_contents
+        expected = [spec["meta_refresh_content_equals"]]
+        if actual != expected:
+            fail("meta_refresh_content_equals", expected, actual)
     if "html_lang" in spec:
         actual = page.html_lang
         if actual is None or actual.lower() != spec["html_lang"].lower():

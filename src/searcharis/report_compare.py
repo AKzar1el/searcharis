@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from searcharis.cli_error_display import human_input_error
 from searcharis.comparison_markdown import build_comparison_markdown
@@ -175,13 +176,33 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
             # fragment-free HTTP(S) targets as outside-manifest links.
             or (check == "canonical_consistency"
                 and not _is_canonical_url(item["target"]))
+            # Archived hreflang peers must obey the same HTTP(S) URL rules as
+            # live links; otherwise two malformed reports compare as PASS.
+            or (check != "canonical_consistency" and not _is_http_url(item["target"]))
             or item["target"] in urls
-            or (check == "canonical_consistency"
-                and _page_url_identity(item["target"]) in url_identities)
+            # All three live cross-page checks resolve reviewed URL identities.
+            or _page_url_identity(item["target"]) in url_identities
             or (check == "hreflang_clusters" and not isinstance(item.get("language"), str))
             for item in data["unverified_targets"]
         ):
             raise ValueError(f"{name}: invalid {check} unverified targets")
+
+    # Cross-page issue rows must retain the enabled policy that produced them;
+    # otherwise two identically corrupted reports compare as inherited PASS.
+    for page in pages:
+        for issue in page["issues"]:
+            code = issue["code"]
+            if code in ("canonical_count", "canonical_invalid_url", "canonical_target_not_self"):
+                check = "canonical_consistency"
+            elif code == "hreflang_self_missing" or code.startswith("hreflang_return:"):
+                check = "hreflang_reciprocity"
+            elif code.startswith(("hreflang_cluster_duplicate:",
+                                  "hreflang_cluster_mismatch:")):
+                check = "hreflang_clusters"
+            else:
+                continue
+            if check not in report:
+                raise ValueError(f"{name}: {check} issues without enabled policy")
 
     # A saved report with one of these opt-in checks disabled cannot be
     # compared against one with it enabled, even if both found zero issues.
@@ -202,6 +223,21 @@ def _validate(report: object, name: str) -> tuple[dict, tuple[object, ...]]:
                 for item in targets
             ):
                 raise ValueError(f"{name}: invalid {check} {key}")
+            if check == "reviewed_fragments" and key == "unverified_targets":
+                # The fragment checker only exports same-origin links with an
+                # actual fragment to routes outside the reviewed manifest.
+                for item in targets:
+                    target = item["target"]
+                    if not _is_http_url(target):
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    fragment = urlsplit(target).fragment
+                    # The live checker skips browser text-fragment directives.
+                    if not fragment or ":~:" in fragment:
+                        raise ValueError(f"{name}: invalid {check} {key}")
+                    identity = _page_url_identity(target)
+                    if (identity in url_identities
+                            or identity[:3] != identities_by_path[item["path"]][:3]):
+                        raise ValueError(f"{name}: invalid {check} {key}")
 
     # A saved navigation/fragment summary must describe the same failures as
     # its page issues; otherwise a modified archive could silently pass CI.
