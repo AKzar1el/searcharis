@@ -365,6 +365,22 @@ def generate_manifest(
     return {"version": 1, "pages": pages}
 
 
+def _fragment_hint(fragment: str) -> str:
+    """Mask parameter-like fragments in diagnostics, not in anchor matching."""
+    # Bound both input and decoding depth; uncertain deep encodings are hidden.
+    if len(fragment) > 4096:
+        return "[redacted]"
+    decoded = fragment
+    for _ in range(8):
+        if any(char in decoded for char in "?=&"):
+            return "[redacted]"
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            return fragment
+        decoded = next_value
+    return "[redacted]"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Print a reviewable starter SEO manifest from local built HTML"
@@ -602,14 +618,7 @@ def main(argv: list[str] | None = None) -> int:
                 if parts.fragment and issue["code"] != "navigation_target_unreviewed":
                     # Hash fragments can contain OAuth-style key/value pairs;
                     # never echo those values into shared CI logs, even when encoded.
-                    fragment = unquote(parts.fragment)
-                    encoded_separator = re.search(
-                        r"%(?:25)*(?:3[dDfF]|26)", parts.fragment,
-                    )
-                    target += "#" + (
-                        "[redacted]" if encoded_separator or any(char in fragment for char in "?=&")
-                        else parts.fragment
-                    )
+                    target += "#" + _fragment_hint(parts.fragment)
                 print(f"    target {human_input_error(ValueError(target), limit=100)}", file=sys.stderr)
                 examples += 1
                 if examples == 2:

@@ -182,6 +182,12 @@ def test_bootstrap_navigation_target_hints_are_bounded_and_hide_query_values(
     "session%3DPRIVATE_ENCODED_TOKEN",
     "session%253DPRIVATE_DOUBLE_ENCODED_TOKEN",
     "session%25253DPRIVATE_TRIPLE_ENCODED_TOKEN",
+    "session%25%33%44PRIVATE_SYNTHETIC",
+    "session%25%32%36PRIVATE_SYNTHETIC",
+    "session%25%33%66PRIVATE_SYNTHETIC",
+    "session%2525%2533%2544PRIVATE_SYNTHETIC",
+    "session%" + "25" * 12 + "%33%44PRIVATE_SYNTHETIC",
+    pytest.param("PRIVATE_SYNTHETIC" + "a" * 4096, id="overlength-fragment"),
     "details&signature=PRIVATE_FRAGMENT_SIGNATURE",
 ))
 def test_bootstrap_fragment_hints_hide_parameter_like_values(
@@ -201,6 +207,35 @@ def test_bootstrap_fragment_hints_hide_parameter_like_values(
     assert "navigation_fragment_missing" in captured.err
     assert "PRIVATE" not in captured.err
     assert "target /#[redacted]" in captured.err
+
+
+@pytest.mark.parametrize("fragment, anchor", (
+    ("ordinary-id", "ordinary-id"),
+    ("section%20two", "section two"),
+    ("section%2520two", "section%20two"),
+    ("session%25%33%44PRIVATE_SYNTHETIC", "session%25%33%44PRIVATE_SYNTHETIC"),
+))
+def test_bootstrap_fragment_hint_masking_does_not_change_matching(
+    tmp_path, capsys, monkeypatch, fragment, anchor,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    page = build / "index.html"
+    link = f'<a href="#{fragment}">Section</a>'
+    prefix = '<html><head><title>Example</title></head><body>'
+    page.write_text(prefix + link + '</body></html>', encoding="utf-8")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built", "--check-reviewed-fragments"]
+    assert main(args) == 1
+    err = capsys.readouterr().err
+    expected = "[redacted]" if "PRIVATE" in fragment else fragment
+    assert f"target /#{expected}" in err
+    assert "PRIVATE" not in err
+
+    page.write_text(prefix + link + f'<h2 id="{anchor}">Section</h2></body></html>',
+                    encoding="utf-8")
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
 
 
 def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
