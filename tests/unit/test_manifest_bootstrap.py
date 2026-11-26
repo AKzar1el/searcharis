@@ -121,6 +121,230 @@ def test_opt_in_check_built_accepts_valid_pages_without_network(tmp_path, capsys
     assert verify_manifest(json.loads(target.read_text()), build)["status"] == "pass"
 
 
+def test_bootstrap_reviewed_navigation_detects_unbuilt_spa_routes(tmp_path, capsys, monkeypatch):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>SPA</title></head><body>'
+        '<a href="/pricing/">Pricing</a><div id="app"></div></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built"]
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+    assert main([*args, "--check-reviewed-navigation"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
+    assert "FAIL 0/1" in captured.err
+    assert "navigation_target_unreviewed" in captured.err
+    assert "target /pricing/" in captured.err
+
+
+def test_bootstrap_navigation_flag_requires_check_built(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "manifest.json"
+    assert main([
+        str(build), "https://example.com/", "--check-reviewed-navigation",
+        "--output", str(output),
+    ]) == 2
+    assert not output.exists()
+    assert "--check-reviewed-navigation requires --check-built" in capsys.readouterr().err
+
+
+def test_bootstrap_navigation_target_hints_are_bounded_and_hide_query_values(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        + "".join(
+            f'<a href="/route-{i}/?token=PRIVATE_{i}">Route</a>'
+            for i in range(4)
+        )
+        + '</body></html>', encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(build), "https://example.com/", "--check-built",
+                 "--check-reviewed-navigation"]) == 1
+    err = capsys.readouterr().err
+    assert err.count("    target ") == 2
+    assert "target /route-0/?" in err
+    assert "PRIVATE" not in err
+
+
+@pytest.mark.parametrize("fragment", (
+    "access_token=PRIVATE_FRAGMENT_TOKEN",
+    "section?token=PRIVATE_FRAGMENT_QUERY",
+    "session%3DPRIVATE_ENCODED_TOKEN",
+    "session%253DPRIVATE_DOUBLE_ENCODED_TOKEN",
+    "session%25253DPRIVATE_TRIPLE_ENCODED_TOKEN",
+    "session%25%33%44PRIVATE_SYNTHETIC",
+    "session%25%32%36PRIVATE_SYNTHETIC",
+    "session%25%33%66PRIVATE_SYNTHETIC",
+    "session%2525%2533%2544PRIVATE_SYNTHETIC",
+    "session%" + "25" * 12 + "%33%44PRIVATE_SYNTHETIC",
+    pytest.param("PRIVATE_SYNTHETIC" + "a" * 4096, id="overlength-fragment"),
+    "details&signature=PRIVATE_FRAGMENT_SIGNATURE",
+))
+def test_bootstrap_fragment_hints_hide_parameter_like_values(
+    tmp_path, capsys, monkeypatch, fragment,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        f'<a href="#{fragment}">Broken section</a></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    assert main([str(build), "https://example.com/", "--check-built",
+                 "--check-reviewed-fragments"]) == 1
+    captured = capsys.readouterr()
+    assert "navigation_fragment_missing" in captured.err
+    assert "PRIVATE" not in captured.err
+    assert "target /#[redacted]" in captured.err
+
+
+@pytest.mark.parametrize("fragment, anchor", (
+    ("ordinary-id", "ordinary-id"),
+    ("section%20two", "section two"),
+    ("section%2520two", "section%20two"),
+    ("session%25%33%44PRIVATE_SYNTHETIC", "session%25%33%44PRIVATE_SYNTHETIC"),
+))
+def test_bootstrap_fragment_hint_masking_does_not_change_matching(
+    tmp_path, capsys, monkeypatch, fragment, anchor,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    page = build / "index.html"
+    link = f'<a href="#{fragment}">Section</a>'
+    prefix = '<html><head><title>Example</title></head><body>'
+    page.write_text(prefix + link + '</body></html>', encoding="utf-8")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built", "--check-reviewed-fragments"]
+    assert main(args) == 1
+    err = capsys.readouterr().err
+    expected = "[redacted]" if "PRIVATE" in fragment else fragment
+    assert f"target /#{expected}" in err
+    assert "PRIVATE" not in err
+
+    page.write_text(prefix + link + f'<h2 id="{anchor}">Section</h2></body></html>',
+                    encoding="utf-8")
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+
+def test_bootstrap_fragment_review_catches_broken_anchor_at_first_run(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        '<a href="#missing">Broken section</a><h2 id="details">Details</h2>'
+        '</body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built",
+            "--check-reviewed-navigation"]
+    assert main(args) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+    assert main([*args, "--check-reviewed-fragments"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["pages"][0]["path"] == "index.html"
+    assert "navigation_fragment_missing" in captured.err
+    assert "target /#missing" in captured.err
+
+    (build / "index.html").write_text(
+        '<html><head><title>Example</title></head><body>'
+        '<a href="#details">Working section</a><h2 id="details">Details</h2>'
+        '</body></html>',
+        encoding="utf-8",
+    )
+    assert main([*args, "--check-reviewed-fragments"]) == 0
+    assert "PASS 1/1" in capsys.readouterr().err
+
+
+def test_bootstrap_fragment_flag_requires_check_built(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "manifest.json"
+    assert main([str(build), "https://example.com/", "--check-reviewed-fragments",
+                 "--output", str(output)]) == 2
+    assert not output.exists()
+    assert "--check-reviewed-fragments requires --check-built" in capsys.readouterr().err
+
+
+def test_bootstrap_discloses_unverified_fragment_destinations_without_failing(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body>'
+        '<a href="/pricing/#plan?SECRET">Pricing</a>'
+        '<a href="/help/#contact">Help</a></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built",
+            "--check-reviewed-fragments"]
+    assert main(args) == 0
+    captured = capsys.readouterr()
+    assert "PASS 1/1" in captured.err
+    assert "WARNING: 2 fragment destinations outside reviewed pages" in captured.err
+    assert "--check-reviewed-navigation" in captured.err
+    assert "SECRET" not in captured.err
+    assert len(json.loads(captured.out)["pages"]) == 1
+
+    _html(build / "pricing/index.html")
+    _html(build / "help/index.html")
+    assert main(args) == 1  # The now-reviewed targets lack the linked element IDs.
+    captured = capsys.readouterr()
+    assert "WARNING: 2 fragment destinations outside reviewed pages" not in captured.err
+    assert "navigation_fragment_missing" in captured.err
+
+
+def test_bootstrap_can_require_critical_page_to_have_reviewed_inbound_link(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+    args = [str(build), "https://example.com/", "--check-built"]
+    assert main(args) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+
+    assert main([*args, "--require-inbound-link", "pricing/index.html"]) == 1
+    captured = capsys.readouterr()
+    assert len(json.loads(captured.out)["pages"]) == 2
+    assert "reviewed_inbound_link_missing" in captured.err
+
+    (build / "index.html").write_text(
+        '<html><head><title>Home</title></head><body>'
+        '<a href="/pricing/">Pricing</a></body></html>', encoding="utf-8",
+    )
+    assert main([*args, "--require-inbound-link", "pricing/index.html"]) == 0
+    assert "PASS 2/2" in capsys.readouterr().err
+
+
+def test_bootstrap_inbound_gate_requires_built_check(tmp_path, capsys):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    output = tmp_path / "reviewed.json"
+    assert main([str(build), "https://example.com/", "--require-inbound-link",
+                 "index.html", "--output", str(output)]) == 2
+    assert not output.exists()
+    assert "--require-inbound-link requires --check-built" in capsys.readouterr().err
+
+
 def test_selected_pages_create_reviewable_incremental_manifest(tmp_path, capsys, monkeypatch):
     build = tmp_path / "dist"
     for path in ("index.html", "pricing/index.html", "legal/index.html"):
@@ -307,6 +531,42 @@ def test_extend_reviewed_manifest_preserves_old_contracts_and_adds_only_selected
     assert expanded["pages"][1]["contract"]["description_present"] is True
     assert original.read_bytes() == before
     assert verify_manifest(expanded, build)["coverage"]["unlisted"] == ["legal/index.html"]
+
+
+def test_extend_warns_on_mixed_published_origins_without_rewriting_reviews(
+    tmp_path, capsys, monkeypatch,
+):
+    build = tmp_path / "dist"
+    _html(build / "index.html")
+    _html(build / "pricing/index.html")
+    original = tmp_path / "approved.json"
+    approved = generate_manifest(build, "https://example.com/", only_paths=("index.html",))
+    original.write_text(json.dumps(approved), encoding="utf-8")
+    output = tmp_path / "expanded.json"
+    monkeypatch.setattr(socket.socket, "connect", lambda *_: pytest.fail("network used"))
+
+    assert main([
+        str(build), "https://staging.example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(output),
+    ]) == 0
+    assert "WARNING: --extend-from mixes published site origins" in capsys.readouterr().err
+    expanded = json.loads(output.read_text(encoding="utf-8"))
+    assert expanded["pages"][0] == approved["pages"][0]
+    assert expanded["pages"][1]["contract"]["url"] == "https://staging.example.com/pricing/"
+
+    same_origin = tmp_path / "same-origin.json"
+    assert main([
+        str(build), "https://example.com/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(same_origin),
+    ]) == 0
+    assert "WARNING" not in capsys.readouterr().err
+
+    equivalent_origin = tmp_path / "equivalent-origin.json"
+    assert main([
+        str(build), "https://EXAMPLE.COM:443/", "--extend-from", str(original),
+        "--only", "pricing/index.html", "--output", str(equivalent_origin),
+    ]) == 0
+    assert "WARNING" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("selected", [(), ("index.html",), ("missing.html",)])
