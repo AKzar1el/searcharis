@@ -72,6 +72,72 @@ def test_comparison_rejects_invalid_archived_checked_url(bad_url):
         compare_reports(report, report)
 
 
+@pytest.mark.parametrize("target", [
+    "not-a-url",
+    "https://example.test/unknown",
+    "https://outside.test/unknown#section",
+    "https://example.test/index.html#section",
+    "https://example.test/unknown#:~:text=hello",
+])
+def test_archived_unverified_fragment_targets_require_unknown_same_origin_url(target):
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{"path": "index.html", "target": target}],
+    }
+    with pytest.raises(ValueError, match="invalid reviewed_fragments unverified_targets"):
+        compare_reports(report, report)
+
+
+def test_archived_unverified_fragment_target_accepts_unknown_local_route():
+    report = _report([("index.html", [])])
+    report["reviewed_fragments"] = {
+        "checked_fragments": 0,
+        "missing_targets": [],
+        "ambiguous_targets": [],
+        "unverified_targets": [{
+            "path": "index.html",
+            "target": "https://example.test/unknown#section",
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+@pytest.mark.parametrize("target", [
+    "", "not-a-url", "ftp://example.test/peer", "https://user@example.test/peer",
+    "https://outside.test/a\nFORGED TARGET",
+])
+def test_archived_hreflang_unverified_targets_reject_invalid_urls(check, extra, target):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{"path": "index.html", "target": target, **extra}],
+    }
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "en"}),
+])
+def test_archived_hreflang_unverified_targets_allow_external_http_urls(check, extra):
+    report = _report([("index.html", [])])
+    report[check] = {
+        "checked_pairs": 0,
+        "unverified_targets": [{
+            "path": "index.html", "target": "https://outside.test/peer", **extra,
+        }],
+    }
+    assert compare_reports(report, report)["status"] == "pass"
+
+
 @pytest.mark.parametrize("bad_path", [
     "../outside.html",
     "/absolute.html",
@@ -948,13 +1014,42 @@ def test_archived_cli_rejects_invalid_unverified_canonical_with_json_error(tmp_p
     assert json.loads(output.out)["status"] == "error"
 
 
-def test_archived_hreflang_target_alias_retains_exact_url_matching():
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "de"}),
+])
+@pytest.mark.parametrize("alias", [
+    "https://EXAMPLE.test/de/index.html",
+    "https://example.test:443/de/index.html",
+    "https://example.test/de/%69ndex.html",
+    "https://example.test/en/../de/index.html",
+])
+def test_archived_hreflang_target_alias_rejects_checked_page(check, extra, alias):
     report = _report(
         [("en/index.html", []), ("de/index.html", [])],
-        checks=("hreflang_reciprocity",),
+        checks=(check,),
     )
-    report["hreflang_reciprocity"]["unverified_targets"] = [{
-        "path": "en/index.html", "target": "https://EXAMPLE.test/de/index.html",
+    report[check]["unverified_targets"] = [{
+        "path": "en/index.html", "target": alias, **extra,
+    }]
+    with pytest.raises(ValueError, match=f"invalid {check} unverified targets"):
+        compare_reports(report, report)
+
+
+@pytest.mark.parametrize("check,extra", [
+    ("hreflang_reciprocity", {}),
+    ("hreflang_clusters", {"language": "de"}),
+])
+@pytest.mark.parametrize("target", [
+    "https://example.test/de/index.html?variant=1",
+    "https://example.test:444/de/index.html",
+])
+def test_archived_hreflang_target_distinct_page_is_unverified(check, extra, target):
+    report = _report(
+        [("en/index.html", []), ("de/index.html", [])], checks=(check,),
+    )
+    report[check]["unverified_targets"] = [{
+        "path": "en/index.html", "target": target, **extra,
     }]
     assert compare_reports(report, report)["status"] == "pass"
 
@@ -1919,7 +2014,8 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     candidate["pages"][0]["checked_url"] = "https://example.test/index.html"
     candidate["hreflang_clusters"]["unverified_targets"] = [{
         "path": bad_path, "language": "de\nFORGED LOCALE",
-        "target": "https://elsewhere.test/a\nFORGED TARGET",
+        # Invalid raw URL newlines are now rejected; use a valid encoded URL.
+        "target": "https://elsewhere.test/a%0AFORGED%20TARGET",
     }]
     before, after = tmp_path / "before.json", tmp_path / "after.json"
     before.write_text(json.dumps(baseline), encoding="utf-8")
@@ -1933,7 +2029,7 @@ def test_cli_human_output_escapes_untrusted_identifiers_without_forged_lines(tmp
     assert "index\\nFORGED PATH.html" in lines[1]
     assert "other\\nFORGED UNLISTED.html" in lines[2]
     assert "de\\nFORGED LOCALE" in lines[4]
-    assert "a\\nFORGED TARGET" in lines[4]
+    assert "a%0AFORGED%20TARGET" in lines[4]
 
 
 def test_cli_human_output_bounds_long_identifiers_and_retains_json(tmp_path, capsys):
