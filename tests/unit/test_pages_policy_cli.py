@@ -1,6 +1,7 @@
 """One offline command checks both reviewed Cloudflare Pages static artifacts."""
 
 import json
+import os
 import socket
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -41,6 +42,24 @@ def test_combined_pass_is_one_offline_json_report(tmp_path, capsys, monkeypatch)
     assert [item["artifact"] for item in report["checks"]] == ["_redirects", "_headers"]
     assert all(item["status"] == "pass" for item in report["checks"])
     assert not any("error" in item for item in report["checks"])
+
+
+def test_combined_gate_rejects_hardlinked_headers_reference(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    built = build / "_headers"
+    built.unlink()
+    try:
+        os.link(headers, built)
+    except OSError as error:
+        pytest.skip(f"Hard links unavailable: {error}")
+
+    code, out, err = _run(capsys, redirects, headers, build, "--json")
+    report = json.loads(out)
+    assert code == 2 and err == "" and report["status"] == "error"
+    assert [item["artifact"] for item in report["checks"]] == ["_redirects"]
+    assert report["checks"][0]["status"] == "pass"
+    assert report["errors"][0]["artifact"] == "_headers"
+    assert "hard link" in report["errors"][0]["error"].lower()
 
 
 @pytest.mark.parametrize("drift", ["_redirects", "_headers", "both", "both_missing"])
