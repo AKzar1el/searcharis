@@ -1,8 +1,10 @@
 """Opt-in reviewed robots.txt policy must participate in every offline release result."""
 
+import hashlib
 import json
 import socket
 import xml.etree.ElementTree as ET
+from itertools import permutations
 
 import pytest
 
@@ -373,6 +375,48 @@ def test_multiple_missing_sitemaps_are_actionable_in_every_output(inputs, tmp_pa
     sarif = json.loads(outputs[3].read_text(encoding="utf-8"))
     assert all(url in sarif["runs"][0]["results"][0]["message"]["text"] for url in urls)
     assert capsys.readouterr().out == ""
+
+
+def _robots_sarif_finding(inputs, capsys, urls):
+    args = ["--reviewed-robots", str(inputs[3])]
+    for url in urls:
+        args.extend(["--require-robots-sitemap", url])
+    parent = inputs[3].parent
+    target = parent / f"finding-{len(list(parent.glob('finding-*.sarif')))}.sarif"
+    assert _run(inputs, *args, "--sarif-file", target) == 1
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+    results = json.loads(target.read_text(encoding="utf-8"))["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "robots_sitemap_declaration_missing"
+    return results[0]
+
+
+def test_missing_sitemap_sarif_order_does_not_change_finding(inputs, capsys, monkeypatch):
+    def no_network(*args, **kwargs):
+        raise AssertionError("offline release CI must not open sockets")
+
+    monkeypatch.setattr(socket, "socket", no_network)
+    urls = tuple(f"https://example.test/{name}.xml" for name in ("a", "b", "c"))
+    expected = _robots_sarif_finding(inputs, capsys, urls)
+    for ordered in permutations(urls):
+        assert _robots_sarif_finding(inputs, capsys, ordered) == expected
+    changed = _robots_sarif_finding(inputs, capsys, (*urls[:2], "https://example.test/d.xml"))
+    assert changed["partialFingerprints"] != expected["partialFingerprints"]
+
+
+@pytest.mark.parametrize("names", [("a",), ("a", "b", "c")])
+def test_missing_sitemap_sarif_preserves_sorted_legacy_fingerprint(inputs, capsys, names):
+    urls = tuple(f"https://example.test/{name}.xml" for name in names)
+    digest = hashlib.sha256(inputs[3].read_bytes()).hexdigest()
+    identity = json.dumps(
+        ["robots", "sitemap_declaration_missing", digest, digest, *urls],
+        separators=(",", ":"),
+    )
+    finding = _robots_sarif_finding(inputs, capsys, urls)
+    assert finding["partialFingerprints"] == {
+        "searcharis/issue/v1": hashlib.sha256(identity.encode("utf-8")).hexdigest(),
+    }
 
 
 @pytest.mark.parametrize("requirements", [

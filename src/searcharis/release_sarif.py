@@ -80,13 +80,15 @@ def build_release_sarif(
             robots["observed_sha256"],
         ]
         if sitemap_missing:
-            identity_values.extend(robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]))
+            # CLI argument order is not part of a missing-URL finding's identity.
+            # Preserve existing fingerprints for single or already sorted lists.
+            missing = sorted(robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]]))
+            identity_values.extend(missing)
         identity = json.dumps(
             identity_values, separators=(",", ":"),
         )
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
         if sitemap_missing:
-            missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
             examples = ", ".join(
                 json.dumps(url, ensure_ascii=True)[:480] for url in missing[:3]
             )
