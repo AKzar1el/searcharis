@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import socket
 from pathlib import Path
 
@@ -119,6 +120,24 @@ def test_built_headers_directory_is_invalid(tmp_path, capsys):
     (build / "_headers").mkdir()
     status, report, _ = _check(capsys, reviewed, build)
     assert status == 2 and report["status"] == "error"
+
+
+def test_hardlinked_built_headers_cannot_alias_reviewed_reference(tmp_path, capsys):
+    reviewed, build = _fixture(tmp_path)
+    built = build / "_headers"
+    built.unlink()
+    try:
+        os.link(reviewed, built)
+    except OSError as error:
+        pytest.skip(f"Hard links unavailable: {error}")
+
+    # A build write can otherwise silently change the reviewed reference too.
+    built.write_bytes(b"/*\n  X-Robots-Tag: index\n")
+    assert reviewed.read_bytes() == built.read_bytes()
+    status, report, err = _check(capsys, reviewed, build)
+    assert status == 2 and err == ""
+    assert report["status"] == "error"
+    assert "hard link" in report["error"].lower()
 
 
 def test_empty_headers_policy_may_match(tmp_path, capsys):
