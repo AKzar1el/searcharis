@@ -165,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate newly introduced reviewed noncanonical sitemap URLs",
     )
     parser.add_argument(
+        "--require-indexability-coverage", action="store_true",
+        help="Require explicit indexable true/false for every reviewed manifest page",
+    )
+    parser.add_argument(
         "--reject-unreviewed-urls", action="store_true",
         help="Gate newly introduced sitemap URLs absent from reviewed manifest",
     )
@@ -217,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         manifest = read_manifest(args.manifest)
         checks = {
+            "require_indexability_coverage": args.require_indexability_coverage,
             "reject_noncanonical_urls": args.reject_noncanonical_urls,
             "reject_unreviewed_urls": args.reject_unreviewed_urls,
         }

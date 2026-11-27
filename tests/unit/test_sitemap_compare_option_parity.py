@@ -1,9 +1,11 @@
 """Optional sitemap comparison policies must match across verified reports."""
 
+import json
+
 import pytest
 
 from searcharis.sitemap_ci import verify_sitemap_manifest
-from searcharis.sitemap_compare import compare_sitemap_reports
+from searcharis.sitemap_compare import compare_sitemap_reports, main
 
 MANIFEST = {
     "version": 1,
@@ -58,3 +60,43 @@ def test_matching_optional_checks_still_detect_real_sitemap_regressions(tmp_path
     assert result["status"] == "regression"
     assert result["summary"]["new"] == 1
     assert result["new"]["unreviewed_urls"] == ["https://example.test/unreviewed"]
+
+
+@pytest.mark.parametrize(
+    ("strict", "complete", "remove_required", "expected_code", "expected_status"),
+    [
+        (False, False, False, 0, "pass"),
+        (True, False, False, 2, "error"),
+        (True, True, False, 0, "pass"),
+        (True, True, True, 1, "regression"),
+    ],
+)
+def test_comparison_indexability_coverage(
+    tmp_path, capsys, strict, complete, remove_required, expected_code, expected_status,
+):
+    extra = {"url": "https://example.test/private"}
+    if complete:
+        extra["indexable"] = False
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "version": 1,
+        "pages": [*MANIFEST["pages"], {"path": "private.html", "contract": extra}],
+    }), encoding="utf-8")
+    before = tmp_path / "before"
+    after = tmp_path / "after"
+    before.mkdir()
+    after.mkdir()
+    baseline = _sitemap(before, "sitemap.xml", "https://example.test/")
+    candidate = _sitemap(after, "sitemap.xml", *(
+        () if remove_required else ("https://example.test/",)
+    ))
+    args = [str(manifest), str(baseline), str(candidate), "--single-sitemap", "--json"]
+    if strict:
+        args.append("--require-indexability-coverage")
+    assert main(args) == expected_code
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == expected_status
+    if expected_code == 2:
+        assert "lack an explicit indexability assertion" in result["error"]
+    elif expected_code == 1:
+        assert result["new"]["missing_required"] == ["https://example.test/"]
