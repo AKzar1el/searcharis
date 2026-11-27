@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 import socket
 from html import escape
 
@@ -91,6 +92,21 @@ def test_index_discovers_noindex_regression_in_second_shard(tmp_path):
     report = verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
     assert report["status"] == "fail"
     assert report["present_excluded"] == ["https://example.test/draft"]
+
+
+def test_index_rejects_duplicate_physical_empty_shards(tmp_path):
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    empty = _shard(tmp_path, "sitemap-1.xml")
+    try:
+        os.link(empty, tmp_path / "sitemap-2.xml")
+    except OSError as error:
+        pytest.skip(f"Filesystem does not support hard links: {error}")
+    index = _index(
+        tmp_path, "https://example.test/sitemap-0.xml",
+        "https://example.test/sitemap-1.xml", "https://example.test/sitemap-2.xml",
+    )
+    with pytest.raises(ValueError, match="Duplicate sitemap file"):
+        verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
 
 
 @pytest.mark.parametrize("filename", ["sitemap-1.xml", "sitemap-1.xml.gz"])

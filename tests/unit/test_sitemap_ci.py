@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 from html import escape
 
 import pytest
@@ -572,6 +573,31 @@ def test_duplicate_identity_across_sitemap_files_is_input_error(tmp_path):
     second = _sitemap(tmp_path, "https://example.test:443/~user", filename="second.xml")
     with pytest.raises(ValueError, match="Duplicate sitemap"):
         verify_sitemap_manifest(manifest, [first, second])
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_duplicate_physical_empty_shard_is_input_error(tmp_path, capsys, compressed):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": False,
+    })), encoding="utf-8")
+    first = _sitemap(tmp_path, filename="first.xml")
+    if compressed:
+        first = _gzip_sitemap(first)
+    alias = tmp_path / ("alias.xml.gz" if compressed else "alias.xml")
+    try:
+        os.link(first, alias)
+    except OSError as error:
+        pytest.skip(f"Filesystem does not support hard links: {error}")
+    assert main([str(manifest), str(first), str(alias), "--json"]) == 2
+    assert "Duplicate sitemap file" in json.loads(capsys.readouterr().out)["error"]
+
+
+def test_distinct_empty_shards_with_identical_content_are_allowed(tmp_path):
+    manifest = _manifest({"url": "https://example.test/", "indexable": False})
+    first = _sitemap(tmp_path, filename="first.xml")
+    second = _sitemap(tmp_path, filename="second.xml")
+    assert verify_sitemap_manifest(manifest, [first, second])["status"] == "pass"
 
 
 def test_malformed_second_sitemap_fails_closed(tmp_path):

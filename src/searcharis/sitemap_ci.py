@@ -7,6 +7,7 @@ entries are nonblocking by default: the manifest is not a crawl map.
 from __future__ import annotations
 
 import gzip
+import os
 import re
 import zlib
 from collections.abc import Sequence
@@ -119,11 +120,14 @@ def _local_index_shards(index_path: Path) -> tuple[tuple[Path, ...], tuple]:
     return tuple(files), public_scope[:3]
 
 
-def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], int]:
-    """Read a bounded UTF-8 URL set, returning its actual byte count."""
+def _read_sitemap(
+    path: Path, remaining_bytes: int,
+) -> tuple[dict[tuple, str], int, tuple[int, int]]:
+    """Read a bounded UTF-8 URL set, returning byte count and open-file identity."""
     if path.suffix.lower() == ".gz":
         # Bound BOTH the compressed input and decompressed output before parsing.
         with path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
             compressed = stream.read(_MAX_SITEMAP_BYTES + 1)
         if len(compressed) > _MAX_SITEMAP_BYTES:
             raise ValueError(f"Compressed sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
@@ -134,6 +138,7 @@ def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], i
             raise ValueError(f"Invalid gzip sitemap: {path}") from error
     else:
         with path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
             data = stream.read(min(_MAX_SITEMAP_BYTES, remaining_bytes) + 1)
     if len(data) > _MAX_SITEMAP_BYTES:
         raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_BYTES} bytes: {path}")
@@ -185,7 +190,7 @@ def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], i
         urls[identity] = location
         if len(urls) > _MAX_SITEMAP_URLS:
             raise ValueError(f"Sitemap exceeds {_MAX_SITEMAP_URLS} URLs")
-    return urls, len(data)
+    return urls, len(data), (info.st_dev, info.st_ino)
 
 
 def _read_sitemaps(
@@ -208,6 +213,7 @@ def _read_sitemaps(
 
     urls: dict[tuple, str] = {}
     seen_files: set[Path] = set()
+    seen_identities: dict[tuple[int, int], Path] = {}
     site_scope: tuple[str, str, int | None] | None = None
     total_bytes = 0
     for path in files:
@@ -215,13 +221,21 @@ def _read_sitemaps(
             raise ValueError(f"Duplicate sitemap file: {path}")
         seen_files.add(path)
         try:
-            shard, actual_bytes = _read_sitemap(path, _MAX_TOTAL_SITEMAP_BYTES - total_bytes)
+            shard, actual_bytes, file_identity = _read_sitemap(
+                path, _MAX_TOTAL_SITEMAP_BYTES - total_bytes,
+            )
         except (OSError, UnicodeError, ValueError) as error:
             if index_site is None:
                 raise
             # An index can name 16 files; identify the failing local shard
             # without guessing which XML line caused the problem.
             raise ValueError(f"Invalid indexed sitemap {path.name!r}: {error}") from error
+        # Different names can refer to the same open file. Empty URL sets have
+        # no URL identities to expose this otherwise silent duplicate input.
+        if file_identity[1]:
+            if file_identity in seen_identities:
+                raise ValueError(f"Duplicate sitemap file: {seen_identities[file_identity]} and {path}")
+            seen_identities[file_identity] = path
         total_bytes += actual_bytes
         if index_site is not None and any(key[:3] != index_site for key in shard):
             raise ValueError("Indexed sitemap URL site differs from local shard page URLs")
