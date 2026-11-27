@@ -291,6 +291,42 @@ def test_sarif_source_map_rejects_missing_source_file(tmp_path, capsys, monkeypa
     assert "Invalid input:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("source_hint", [
+    "SRC/pages/index.astro",
+    "src/Pages/index.astro",
+    "src/pages/Index.astro",
+])
+def test_sarif_source_map_rejects_wrong_case_source_hint(
+    tmp_path, capsys, monkeypatch, source_hint,
+):
+    manifest = _fixture(tmp_path)
+    source = tmp_path / "src" / "pages" / "index.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Source</h1>", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    mapping = _source_map(tmp_path, {"sl/index.html": source_hint})
+
+    assert main([str(manifest), str(tmp_path), "--sarif", "--sarif-source-map", str(mapping)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Invalid input:" in output.err
+
+
+def test_sarif_source_map_preserves_exact_mixed_case_source_hint(tmp_path, capsys, monkeypatch):
+    manifest = _fixture(tmp_path)
+    (tmp_path / "sl" / "index.html").write_text("<html><title>Wrong</title></html>")
+    source = tmp_path / "Src" / "Pages" / "Index.astro"
+    source.parent.mkdir(parents=True)
+    source.write_text("<h1>Source</h1>", encoding="utf-8")
+    mapping = _source_map(tmp_path, {"sl/index.html": "Src/Pages/Index.astro"})
+    monkeypatch.chdir(tmp_path)
+
+    code, report = _run(manifest, tmp_path, capsys, "--sarif-source-map", str(mapping))
+    assert code == 1
+    location = report["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"] == {"uri": "Src/Pages/Index.astro"}
+
+
 def test_sarif_source_map_rejects_duplicate_artifact_keys(tmp_path, capsys, monkeypatch):
     manifest = _fixture(tmp_path)
     monkeypatch.chdir(tmp_path)
