@@ -65,6 +65,7 @@ def read_source_map(file: Path, report: dict, *, source_root: Path) -> dict[str,
     root = source_root.resolve(strict=True)
     checked: set[str] = set()
     result: dict[str, str] = {}
+    directory_names: dict[str, set[str]] = {}
     for artifact, source in sources.items():
         artifact = _relative_posix(artifact)
         source = _relative_posix(source)
@@ -78,5 +79,17 @@ def read_source_map(file: Path, report: dict, *, source_root: Path) -> dict[str,
         path = (root / source).resolve(strict=True)
         if not path.is_relative_to(root) or not path.is_file():
             raise ValueError(f"Source map escapes source root or is not a file: {source}")
+        # A case-insensitive filesystem can resolve a misspelled hint, but the
+        # SARIF consumer needs the exact repository-relative path spelling.
+        parent = root
+        for component in source.split("/"):
+            key = parent.as_posix()
+            if key not in directory_names:
+                if not parent.resolve(strict=True).is_relative_to(root):
+                    raise ValueError(f"Source map escapes source root: {source}")
+                directory_names[key] = {entry.name for entry in parent.iterdir()}
+            if component not in directory_names[key]:
+                raise ValueError(f"Source map must match exact-case source path: {source}")
+            parent = parent / component
         result[artifact] = source
     return result
