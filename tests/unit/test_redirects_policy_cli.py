@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import socket
 from pathlib import Path
 
@@ -130,6 +131,23 @@ def test_built_directory_named_redirects_is_invalid(tmp_path, capsys):
     (build / "_redirects").mkdir()
     exit_code, report, _ = _run(capsys, source, build)
     assert exit_code == 2 and report["status"] == "error"
+
+
+def test_hardlinked_built_redirects_cannot_alias_reviewed_reference(tmp_path, capsys):
+    source, build = _fixture(tmp_path)
+    built = build / "_redirects"
+    built.unlink()
+    try:
+        os.link(source, built)
+    except OSError as error:
+        pytest.skip(f"Hard links unavailable: {error}")
+
+    built.write_bytes(b"/legacy /wrong 302\n")
+    assert source.read_bytes() == built.read_bytes()
+    exit_code, report, errors = _run(capsys, source, build)
+    assert exit_code == 2 and errors == ""
+    assert report["status"] == "error"
+    assert "hard link" in report["error"].lower()
 
 
 def test_empty_reviewed_redirects_file_can_match_exactly(tmp_path, capsys):
