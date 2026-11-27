@@ -40,13 +40,15 @@ def verify_reviewed_redirects_policy(reviewed_policy: Path, build_dir: Path) -> 
     if not expected.is_file() or expected.is_relative_to(root):
         raise ValueError("Reviewed redirects policy must be a file outside the static build")
 
-    expected_digest = hashlib.sha256(_read_bounded(expected)).hexdigest()
     # Match exact case, including on case-insensitive Windows/NTFS. A differently
     # cased file is not Cloudflare's required build-root _redirects artifact.
     built = next((item for item in root.iterdir() if item.name == "_redirects"), None)
     if built is not None and (built.is_symlink() or not built.is_file()):
         raise ValueError("Built _redirects must be a regular file, not a symlink")
+    if built is not None and built.samefile(expected):
+        raise ValueError("Built _redirects must not be a hard link to the reviewed policy")
 
+    expected_digest = hashlib.sha256(_read_bounded(expected)).hexdigest()
     observed_digest = (
         hashlib.sha256(_read_bounded(built)).hexdigest()
         if built is not None else None

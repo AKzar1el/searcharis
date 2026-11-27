@@ -62,6 +62,26 @@ def test_combined_gate_rejects_hardlinked_headers_reference(tmp_path, capsys):
     assert "hard link" in report["errors"][0]["error"].lower()
 
 
+def test_combined_gate_rejects_hardlinked_redirects_reference(tmp_path, capsys):
+    redirects, headers, build = _fixture(tmp_path)
+    built = build / "_redirects"
+    built.unlink()
+    try:
+        os.link(redirects, built)
+    except OSError as error:
+        pytest.skip(f"Hard links unavailable: {error}")
+
+    built.write_bytes(b"/old /wrong 302\n")
+    assert redirects.read_bytes() == built.read_bytes()
+    code, out, err = _run(capsys, redirects, headers, build, "--json")
+    report = json.loads(out)
+    assert code == 2 and err == "" and report["status"] == "error"
+    assert [item["artifact"] for item in report["checks"]] == ["_headers"]
+    assert report["checks"][0]["status"] == "pass"
+    assert report["errors"][0]["artifact"] == "_redirects"
+    assert "hard link" in report["errors"][0]["error"].lower()
+
+
 @pytest.mark.parametrize("drift", ["_redirects", "_headers", "both", "both_missing"])
 def test_one_or_both_drifts_block_without_masking_other_check(tmp_path, capsys, drift):
     redirects, headers, build = _fixture(tmp_path)
