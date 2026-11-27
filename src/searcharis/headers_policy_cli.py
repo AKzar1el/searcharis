@@ -37,12 +37,14 @@ def verify_reviewed_headers_policy(reviewed_policy: Path, build_dir: Path) -> di
     if not expected.is_file() or expected.is_relative_to(root):
         raise ValueError("Reviewed headers policy must be a file outside the static build")
 
-    expected_digest = hashlib.sha256(_read_bounded(expected)).hexdigest()
     # On case-insensitive NTFS, Path(root / "_headers").exists() is not enough.
     built = next((item for item in root.iterdir() if item.name == "_headers"), None)
     if built is not None and (built.is_symlink() or not built.is_file()):
         raise ValueError("Built _headers must be a regular file, not a symlink")
+    if built is not None and built.samefile(expected):
+        raise ValueError("Built _headers must not be a hard link to the reviewed policy")
 
+    expected_digest = hashlib.sha256(_read_bounded(expected)).hexdigest()
     observed_digest = hashlib.sha256(_read_bounded(built)).hexdigest() if built else None
     if observed_digest is None:
         reason = "missing"
