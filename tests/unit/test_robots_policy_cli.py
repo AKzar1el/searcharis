@@ -242,6 +242,22 @@ def test_built_robots_symlink_cannot_escape_build(tmp_path, capsys):
     assert payload["status"] == "error"
 
 
+def test_hardlinked_robots_reference_cannot_hide_build_drift(tmp_path, capsys):
+    reviewed, build = _fixture(tmp_path)
+    artifact = build / "robots.txt"
+    artifact.unlink()
+    try:
+        artifact.hardlink_to(reviewed)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hard links not available: {exc}")
+    artifact.write_bytes(b"User-agent: *\nDisallow: /\n")
+    assert artifact.samefile(reviewed)
+    code, report, stderr = _run(capsys, reviewed, build)
+    assert code == 2 and stderr == ""
+    assert report["status"] == "error"
+    assert "hard link" in report["error"].lower()
+
+
 def test_plain_output_preserves_exit_code_and_actionable_digest(tmp_path, capsys):
     reviewed, build = _fixture(tmp_path)
     assert main([str(reviewed), str(build)]) == 0

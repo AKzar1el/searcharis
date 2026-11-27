@@ -158,6 +158,8 @@ def verify_reviewed_robots_policy(
         raise ValueError("Built robots.txt must be a regular file, not a symlink")
     if built is not None and not built.is_file():
         raise ValueError("Built robots.txt must be a regular file")
+    if built is not None and built.samefile(expected):
+        raise ValueError("Built robots.txt must not be a hard link to the reviewed policy")
     observed_digest = (
         hashlib.sha256(_read_bounded(built)).hexdigest() if built is not None else None
     )
