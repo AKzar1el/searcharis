@@ -151,6 +151,26 @@ def test_missing_built_robots_is_a_mismatch_not_an_input_error(inputs, capsys):
     assert json.loads(capsys.readouterr().out)["robots"]["reason"] == "missing"
 
 
+def test_combined_release_rejects_hardlinked_robots_reference(inputs, tmp_path, capsys):
+    _, build, _, policy = inputs
+    artifact = build / "robots.txt"
+    artifact.unlink()
+    try:
+        artifact.hardlink_to(policy)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hard links not available: {exc}")
+    artifact.write_bytes(b"User-agent: *\nDisallow: /\n")
+    assert artifact.samefile(policy)
+    assert _run(inputs, "--reviewed-robots", policy, "--json") == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "error"
+    assert "hard link" in report["error"].lower()
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    assert _run(inputs, "--reviewed-robots", policy, "--report-dir", reports) == 2
+    assert not list(reports.iterdir())
+
+
 @pytest.mark.parametrize("bad_source", ["missing", "inside_build", "oversized"])
 def test_bad_reviewed_robots_policy_fails_closed_before_report_writes(
     inputs, tmp_path, capsys, bad_source,
