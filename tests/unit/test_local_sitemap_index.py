@@ -64,6 +64,25 @@ def test_astro_index_discovers_local_xml_and_gzip_without_network(tmp_path, monk
     assert report["summary"]["sitemap_urls"] == 2
 
 
+@pytest.mark.parametrize("encoding,allowed", [
+    ("utf-8", True), ("utf-8-sig", True),
+    ("utf-16-le", False), ("utf-16-be", False),
+])
+@pytest.mark.parametrize("dtd", [False, True])
+def test_index_encoding_and_dtd_policy(tmp_path, encoding, allowed, dtd):
+    _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
+    index = _index(tmp_path, "https://example.test/sitemap-0.xml")
+    xml = index.read_text(encoding="utf-8")
+    if dtd:
+        xml = "<!DOCTYPE sitemapindex>" + xml
+    index.write_bytes(xml.encode(encoding))
+    if allowed and not dtd:
+        assert verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)["status"] == "pass"
+    else:
+        with pytest.raises(ValueError):
+            verify_sitemap_manifest(_manifest(), [], sitemap_index_path=index)
+
+
 def test_index_discovers_noindex_regression_in_second_shard(tmp_path):
     _shard(tmp_path, "sitemap-0.xml", "https://example.test/")
     _shard(tmp_path, "sitemap-1.xml", "https://example.test/draft")

@@ -47,6 +47,9 @@ def _local_index_shards(index_path: Path) -> tuple[tuple[Path, ...], tuple]:
     if len(data) > _MAX_SITEMAP_BYTES:
         raise ValueError(f"Sitemap index exceeds {_MAX_SITEMAP_BYTES} bytes")
     decoded = data.decode("utf-8-sig")
+    # NUL bytes can hide UTF-16 markup from the UTF-8 checks before XML auto-detection.
+    if "\x00" in decoded:
+        raise ValueError("Sitemap index XML must use UTF-8 without NUL characters")
     if "<!DOCTYPE" in decoded.upper() or "<!ENTITY" in decoded.upper():
         raise ValueError("Sitemap index DTD and entities are not supported")
     declaration = re.match(r"<\?xml[^?]*\?>", decoded)
@@ -139,6 +142,8 @@ def _read_sitemap(path: Path, remaining_bytes: int) -> tuple[dict[tuple, str], i
     # ElementTree does not resolve external resources, and rejecting DTDs also
     # avoids entity amplification and XML parser-dependent interpretation.
     decoded = data.decode("utf-8-sig")
+    if "\x00" in decoded:
+        raise ValueError("Sitemap XML must use UTF-8 without NUL characters")
     if "<!DOCTYPE" in decoded.upper() or "<!ENTITY" in decoded.upper():
         raise ValueError("Sitemap DTD and entities are not supported")
     declaration = re.match(r"<\?xml[^?]*\?>", decoded)

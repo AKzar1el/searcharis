@@ -45,6 +45,30 @@ def test_explicit_local_gzip_urlset_passes(tmp_path):
     assert report["summary"]["sitemap_urls"] == 1
 
 
+@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize("encoding,allowed", [
+    ("utf-8", True), ("utf-8-sig", True),
+    ("utf-16-le", False), ("utf-16-be", False),
+])
+@pytest.mark.parametrize("dtd", [False, True])
+def test_sitemap_encoding_and_dtd_policy(tmp_path, capsys, encoding, allowed, compressed, dtd):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest({
+        "url": "https://example.test/", "indexable": True,
+    })), encoding="utf-8")
+    xml = ('<!DOCTYPE urlset>' if dtd else '') + (
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<url><loc>https://example.test/</loc></url></urlset>'
+    )
+    sitemap = tmp_path / "sitemap.xml"
+    sitemap.write_bytes(xml.encode(encoding))
+    if compressed:
+        sitemap = _gzip_sitemap(sitemap)
+    expected = allowed and not dtd
+    assert main([str(manifest), str(sitemap), "--json"]) == (0 if expected else 2)
+    assert json.loads(capsys.readouterr().out)["status"] == ("pass" if expected else "error")
+
+
 def test_mixed_gzip_and_plain_shards_detect_noindex(tmp_path):
     manifest = _manifest(
         {"url": "https://example.test/", "indexable": True},
