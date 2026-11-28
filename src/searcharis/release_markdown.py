@@ -144,10 +144,14 @@ def build_release_markdown(
         ])
         if robots["reason"] == "sitemap_declaration_missing":
             missing = robots.get("missing_sitemap_urls", [robots["required_sitemap_url"]])
-            for url in missing[:3]:
-                lines.append(f"- Required Sitemap URL: {_code(url)}")
-            if len(missing) > 3:
-                lines.append(f"- ... and {len(missing) - 3} more missing Sitemap URLs")
+        else:
+            # Explicit per-URL evidence survives a changed or missing artifact;
+            # legacy required_sitemap_url alone does not prove a missing declaration.
+            missing = robots.get("missing_sitemap_urls", [])
+        for url in missing[:3]:
+            lines.append(f"- Required Sitemap URL: {_code(url)}")
+        if len(missing) > 3:
+            lines.append(f"- ... and {len(missing) - 3} more missing Sitemap URLs")
 
     if not passed:
         issue_codes = {
