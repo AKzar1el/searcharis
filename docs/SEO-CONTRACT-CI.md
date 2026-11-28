@@ -1807,6 +1807,14 @@ local HTML, or new nofollow marks on links to reviewed internal pages.
 Pre-existing broken links do not block the candidate. These flags
 use the same static-only semantics as the corresponding site/release gates;
 they do not fetch URLs, test live routing or inspect JavaScript-created IDs.
+Observed HTML hrefs with ordinary literal spaces or non-ASCII whitespace
+(such as a pasted non-breaking space) are compared using browser-style
+percent-encoded path, query and fragment semantics. Surrounding ASCII spaces
+and C0 controls are trimmed, internal tab/newline/carriage-return characters
+are removed, and other embedded C0 or DEL characters are percent-encoded.
+This avoids silently skipping broken local links written as `/missing page/`,
+`/missing&nbsp;page/`, or with embedded control characters, while keeping
+invalid URL authorities excluded.
 Outside-manifest fragment destinations cannot be verified. For example:
 
 ```sh

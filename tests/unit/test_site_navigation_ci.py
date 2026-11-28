@@ -4,6 +4,8 @@ import json
 import socket
 from unittest.mock import patch
 
+import pytest
+
 from searcharis.release_cli import main as release_main
 from searcharis.site_ci import verify_manifest
 from searcharis.site_cli import main as site_main
@@ -56,6 +58,157 @@ def test_navigation_accepts_relative_and_normalized_local_links(tmp_path):
     result = verify_manifest(manifest, build, check_reviewed_navigation=True)
     assert result['status'] == 'pass'
     assert result['reviewed_navigation']['checked_links'] >= 2
+
+
+def test_literal_space_in_observed_href_cannot_hide_unreviewed_browser_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/missing page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%20page/'},
+    ]
+
+
+def test_nonbreaking_space_in_observed_href_cannot_hide_unreviewed_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/missing\u00a0page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%C2%A0page/'},
+    ]
+
+
+@pytest.mark.parametrize('control,encoded', [
+    ('\x01', '%01'), ('\x0b', '%0B'), ('\x0c', '%0C'), ('\x7f', '%7F'),
+])
+def test_embedded_c0_control_in_observed_href_cannot_hide_browser_route(
+    tmp_path, control, encoded,
+):
+    build, manifest = _site(tmp_path, f'<a href="/missing{control}page/">Missing</a>')
+    assert verify_manifest(manifest, build)['status'] == 'pass'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': f'https://example.test/missing{encoded}page/'},
+    ]
+
+
+def test_leading_and_trailing_c0_in_observed_href_are_browser_trimmed(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="\x0b/missing/\x01">Missing</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing/'},
+    ]
+
+
+def test_embedded_control_in_query_cannot_hide_distinct_unreviewed_url(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/?src=x\x0by">Query</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/?src=x%0By'},
+    ]
+
+
+def test_browser_encoded_control_link_matches_reviewed_page_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about\x0bteam/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%0Bteam/'
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(
+            manifest, build, check_reviewed_navigation=True,
+            required_inbound_paths=('about/index.html',),
+        )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_observed_control_in_invalid_host_does_not_become_internal(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa\x0bmple.test/about/">Invalid</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_nonbreaking_space_link_matches_reviewed_percent_encoded_page(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about\u00a0team/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%C2%A0team/'
+    report = verify_manifest(
+        manifest, build, check_reviewed_navigation=True,
+        required_inbound_paths=('about/index.html',),
+    )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
+
+
+def test_nonbreaking_space_in_url_authority_is_not_an_internal_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa\u00a0mple.test/about/">Invalid</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_browser_multi_slash_encoded_host_and_spaces_cannot_hide_unreviewed_links(tmp_path):
+    build, manifest = _site(
+        tmp_path,
+        '<a href="///%65xample.test/missing page/">Missing ASCII space</a>'
+        '<a href="https:////example.test/missing\u00a0page/">Missing NBSP</a>'
+        '<a href="https:////?q=1">Invalid authority</a>',
+    )
+    with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
+        report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%20page/'},
+        {'path': 'en/index.html', 'target': 'https://example.test/missing%C2%A0page/'},
+    ]
+
+
+def test_literal_space_in_query_does_not_hide_unreviewed_browser_route(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/?q=two words">Search</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_navigation']['unreviewed_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/?q=two%20words'},
+    ]
+
+
+def test_space_in_observed_authority_still_cannot_become_internal(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="https://exa mple.test/missing/">Bad</a>')
+    report = verify_manifest(manifest, build, check_reviewed_navigation=True)
+    assert report['status'] == 'pass'
+    assert report['reviewed_navigation']['unreviewed_targets'] == []
+
+
+def test_literal_space_in_fragment_exposes_missing_reviewed_anchor(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about/#missing section">Jump</a>')
+    report = verify_manifest(manifest, build, check_reviewed_fragments=True)
+    assert report['status'] == 'fail'
+    assert report['reviewed_fragments']['missing_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/#missing%20section'},
+    ]
+
+
+def test_surrounding_href_spaces_do_not_hide_internal_nofollow(tmp_path):
+    build, manifest = _site(tmp_path, '<a href=" /about/ " rel="nofollow">About</a>')
+    report = verify_manifest(manifest, build, check_internal_nofollow=True)
+    assert report['status'] == 'fail'
+    assert report['internal_nofollow']['nofollow_targets'] == [
+        {'path': 'en/index.html', 'target': 'https://example.test/about/'},
+    ]
+
+
+def test_literal_space_url_matches_reviewed_percent_encoded_page_and_inbound(tmp_path):
+    build, manifest = _site(tmp_path, '<a href="/about team/">About</a>')
+    manifest['pages'][1]['contract']['url'] = 'https://example.test/about%20team/'
+    report = verify_manifest(
+        manifest, build, check_reviewed_navigation=True,
+        required_inbound_paths=('about/index.html',),
+    )
+    assert report['status'] == 'pass'
+    assert report['reviewed_inbound']['linked_paths'] == ['about/index.html']
 
 
 def test_reviewed_unicode_path_matches_utf8_encoded_navigation_and_inbound(tmp_path):
@@ -256,7 +409,10 @@ def test_browser_multi_slash_absolute_external_link_is_not_local(tmp_path):
 
 def test_browser_empty_multi_slash_authorities_are_not_local_links(tmp_path):
     # Browsers reject network-path/absolute HTTP(S) links with no host.
-    invalid = ('////', '///?q=1', 'https:////', 'https:////?q=1')
+    invalid = (
+        '////', '///?q=1', 'https:////', 'https:////?q=1',
+        'https://?q=1', 'https://#fragment',
+    )
     anchors = ''.join(f'<a href="{href}" rel="nofollow">Invalid</a>' for href in invalid)
     build, manifest = _site(tmp_path, anchors)
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
