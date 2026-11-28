@@ -590,6 +590,53 @@ manifest; on invalid HTML input, no manifest is created. This is an optional
 initial feedback loop, not a replacement for checking the reviewed, committed
 manifest via `site_cli` on future CI builds. No network URLs are fetched.
 
+For static sites with navigable internal links, the optional
+`--check-reviewed-navigation` flag adds a one-command route review to
+`--check-built`:
+
+```sh
+uv run python -m searcharis.manifest_bootstrap dist https://example.com/ \
+  --check-built --check-reviewed-navigation --check-reviewed-fragments \
+  --output seo-manifest.json
+```
+
+The navigation flag fails (exit 1) if an active built HTML anchor or navigable
+image-map hotspot points to a same-origin URL absent from the generated
+manifest. The separate optional `--check-reviewed-fragments` flag also fails
+when an active link points to a missing or ambiguous fragment ID on a reviewed
+built page, such as `<a href="#pricing">` without a unique `id="pricing"`.
+Both flags require `--check-built` and can be used independently; neither
+changes default bootstrap behavior. The create-only manifest remains available
+for human review even after a finding. The terminal summary includes up to two
+bounded route or fragment examples per failing page so first-time reviewers can
+locate bad links; query values and parameter-like fragments (including encoded
+and multiply encoded key/value separators) are masked to avoid echoing tokens
+into CI logs. Ordinary
+fragment IDs remain visible; the source HTML is the authority for full details.
+When fragment review finds links into pages **outside** the reviewed manifest,
+the bootstrap terminal reports their count as a warning without changing the
+exit code: it cannot inspect missing artifacts or prove those fragment IDs exist.
+Add and review those pages, or also enable `--check-reviewed-navigation` to fail
+on same-origin unreviewed routes. The warning never prints the full destination
+URL, query or fragment, which could contain private values.
+An ordinary single-file React/Vite
+SPA can pass `--check-built` and `site_cli --require-full-coverage` even though
+client-rendered routes were never emitted as HTML: *full coverage* counts built
+HTML files, not all runtime routes. The reviewed-navigation flag catches
+unlisted routes linked in built HTML, but cannot discover routes rendered only
+by JavaScript. Prerender required routes to HTML and review the complete route
+inventory before relying on these offline gates for deployment decisions.
+
+For important published landing pages, add repeatable
+`--require-inbound-link BUILD_PATH` to the same `--check-built` invocation.
+For example, `--require-inbound-link pricing/index.html` fails if no *other*
+reviewed page on the same origin links to the built pricing page. This reuses
+the offline `site_cli` inbound check, so a page linking only to itself does not
+pass. The exact build-relative path must be in the generated/extended reviewed
+manifest; an unknown path is an input error (exit 2). Requiring inbound links
+is opt-in and does not prove search engines actually crawl or index the page;
+only links present in the supplied built HTML can be checked.
+
 To start with only a manually curated set of important pages on a large site,
 put their **exact build-relative HTML paths** in a UTF-8 text file, one per
 LF/CRLF-delimited line. Blank lines and lines beginning with `#` (including
@@ -613,6 +660,12 @@ Review public routes and assertions before committing the manifest. Later,
 adds only new selected pages while preserving previous assertions and order.
 Check in the expanded manifest only after review. Do not enable strict
 `--require-full-coverage` until the intended site inventory is reviewed.
+If newly generated and preserved pages use different HTTP(S) site origins
+(scheme, host or effective port), `--extend-from` emits a warning on stderr
+without changing exit status or rewriting approved contracts. This can happen
+if a staging URL is accidentally used when extending a production manifest.
+Multiple origins are not forbidden, but review every resulting public URL
+before approval; this warning is not a deployment or redirect validation.
 
 For a separate **append-only approval-integrity gate** in a manifest-change
 review, compare the previously approved manifest with the proposed revision,

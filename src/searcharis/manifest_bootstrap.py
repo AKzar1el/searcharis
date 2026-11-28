@@ -20,6 +20,7 @@ from searcharis.site_ci import (
     _HTML_EXTENSIONS,
     _MAX_PAGES,
     _manifest_path,
+    _page_url_identity,
     _read_limited,
     read_manifest,
     verify_manifest,
@@ -364,6 +365,22 @@ def generate_manifest(
     return {"version": 1, "pages": pages}
 
 
+def _fragment_hint(fragment: str) -> str:
+    """Mask parameter-like fragments in diagnostics, not in anchor matching."""
+    # Bound both input and decoding depth; uncertain deep encodings are hidden.
+    if len(fragment) > 4096:
+        return "[redacted]"
+    decoded = fragment
+    for _ in range(8):
+        if any(char in decoded for char in "?=&"):
+            return "[redacted]"
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            return fragment
+        decoded = next_value
+    return "[redacted]"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Print a reviewable starter SEO manifest from local built HTML"
@@ -449,9 +466,28 @@ def main(argv: list[str] | None = None) -> int:
         "--check-built", action="store_true",
         help="Also verify generated SEO assertions against local HTML, exiting 1 on mismatch",
     )
+    parser.add_argument(
+        "--check-reviewed-navigation", action="store_true",
+        help="With --check-built, require active built HTML links to target reviewed manifest URLs",
+    )
+    parser.add_argument(
+        "--check-reviewed-fragments", action="store_true",
+        help="With --check-built, require linked HTML fragments to resolve to unique reviewed targets",
+    )
+    parser.add_argument(
+        "--require-inbound-link", action="append", default=[], metavar="PAGE_PATH",
+        help="With --check-built, require another reviewed page to link to this built HTML path (repeatable)",
+    )
     args = parser.parse_args(argv)
     created_output: tuple[Path, tuple[int, int] | None] | None = None
+    mixed_origins = False
     try:
+        if args.check_reviewed_navigation and not args.check_built:
+            raise ValueError("--check-reviewed-navigation requires --check-built")
+        if args.check_reviewed_fragments and not args.check_built:
+            raise ValueError("--check-reviewed-fragments requires --check-built")
+        if args.require_inbound_link and not args.check_built:
+            raise ValueError("--require-inbound-link requires --check-built")
         selected_paths = (
             *args.only,
             *(read_selected_paths(args.only_file) if args.only_file else ()),
@@ -487,11 +523,19 @@ def main(argv: list[str] | None = None) -> int:
             # Catch duplicate paths/URLs and malformed combined input before
             # opening an output file, even without --check-built.
             verify_manifest(manifest, args.build_dir)
+            mixed_origins = len({
+                _page_url_identity(page["contract"]["url"])[:3]
+                for page in manifest["pages"]
+            }) > 1
         # Validate before creating the output file so malformed HTML never
         # leaves a misleading manifest. Assertion mismatches remain reviewable.
         checked = (
             verify_manifest(
-                manifest, args.build_dir, require_full_coverage=not bool(selected_paths)
+                manifest, args.build_dir,
+                require_full_coverage=not bool(selected_paths),
+                check_reviewed_navigation=args.check_reviewed_navigation,
+                check_reviewed_fragments=args.check_reviewed_fragments,
+                required_inbound_paths=tuple(args.require_inbound_link),
             )
             if args.check_built else None
         )
@@ -529,6 +573,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.output is None:
         print(payload, end="")
+    if mixed_origins:
+        print(
+            "WARNING: --extend-from mixes published site origins; review "
+            "every preserved and newly generated URL before approval",
+            file=sys.stderr,
+        )
     if checked is not None:
         summary = checked["summary"]
         print(
@@ -536,12 +586,43 @@ def main(argv: list[str] | None = None) -> int:
             "generated SEO contracts passed against local HTML",
             file=sys.stderr,
         )
+        unverified_fragments = checked.get("reviewed_fragments", {}).get(
+            "unverified_targets", [],
+        )
+        if unverified_fragments:
+            print(
+                f"WARNING: {len(unverified_fragments)} fragment destinations outside "
+                "reviewed pages could not be checked; add those pages or use "
+                "--check-reviewed-navigation to reject unreviewed routes",
+                file=sys.stderr,
+            )
         # Bounded, escaped diagnostics are safe for untrusted build filenames.
         failed = [page for page in checked["pages"] if page["status"] == "fail"]
         for page in failed[:10]:
             label = human_input_error(ValueError(page["path"]), limit=100)
             codes = ", ".join(issue["code"] for issue in page["issues"][:8])
             print(f"  FAIL {label}: {codes}", file=sys.stderr)
+            # Show a bounded route/fragment hint without exposing query values
+            # (which can contain tokens) from the supplied HTML in CI logs.
+            examples = 0
+            for issue in page["issues"]:
+                if issue["code"] not in {
+                    "navigation_target_unreviewed", "navigation_fragment_missing",
+                    "navigation_fragment_ambiguous",
+                } or not isinstance(issue.get("actual"), str):
+                    continue
+                parts = urlsplit(issue["actual"])
+                target = parts.path or "/"
+                if parts.query:
+                    target += "?"
+                if parts.fragment and issue["code"] != "navigation_target_unreviewed":
+                    # Hash fragments can contain OAuth-style key/value pairs;
+                    # never echo those values into shared CI logs, even when encoded.
+                    target += "#" + _fragment_hint(parts.fragment)
+                print(f"    target {human_input_error(ValueError(target), limit=100)}", file=sys.stderr)
+                examples += 1
+                if examples == 2:
+                    break
         if len(failed) > 10:
             print(f"  ... and {len(failed) - 10} more failing pages", file=sys.stderr)
         return 0 if checked["status"] == "pass" else 1
