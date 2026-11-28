@@ -151,6 +151,16 @@ report invalid built links as findings rather than accepting ambiguous hosts.
 * Resolves relative canonical and hreflang URLs against the first `<base href>`
   inside the HTML `<head>` (when present); otherwise uses the declared URL.
   An invalid or non-HTTP(S) document base fails as `document_base_invalid`.
+  Explicit HTTP(S) or scheme-relative authorities with no hostname (such as
+  `https://?q=1` or `//?q=1`) also fail; the checker never silently borrows
+  the document hostname for a browser-invalid base.
+  Browser-style backslashes and surplus authority slashes in an observed
+  HTTP(S) document base resolve as path/authority separators (not query text).
+  Whitespace and control characters inside observed base URL paths are
+  browser-serialized rather than misclassified as an invalid document base.
+  Whole percent-encoded dot segments (`%2e` or `%2e%2e`, including mixed
+  literal dots) navigate like `.` and `..`; partial segments remain literal.
+  Declared contract URLs retain their strict validation.
   `<base>` inside the body or an inert template is ignored. The build artifact's
   local path is never the URL base. No URL is fetched, and meaningful URL
   differences are preserved; set canonical expected values deliberately.

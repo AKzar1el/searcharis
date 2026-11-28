@@ -646,8 +646,57 @@ def verify_contract(
     base_url = url
     if page.base_href is not None:
         try:
-            candidate = urljoin(url, page.base_href)
-            valid_base = _is_http_url(candidate)
+            # The HTTP(S) URL parser treats reverse solidus as a slash before
+            # the query/fragment, and extra leading slashes as an authority.
+            # urljoin alone would instead invent a same-origin base.
+            base_href = page.base_href
+            # Browsers remove embedded ASCII tabs/newlines and percent-encode
+            # other whitespace and controls in observed URL paths/queries.
+            # Do not apply this leniency to developer-declared contract URLs.
+            base_href = "".join(
+                "".join(f"%{byte:02X}" for byte in char.encode("utf-8"))
+                if char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F
+                else char
+                for char in base_href.replace("\t", "").replace("\n", "").replace("\r", "")
+            )
+            path_end = len(base_href)
+            for separator in "?#":
+                at = base_href.find(separator)
+                if at >= 0:
+                    path_end = min(path_end, at)
+            base_href = base_href[:path_end].replace("\\", "/") + base_href[path_end:]
+            if base_href.startswith("///"):
+                base_href = "//" + base_href.lstrip("/")
+            else:
+                extra_slashes = re.match(r"(?i)^(https?):/{3,}", base_href)
+                if extra_slashes:
+                    base_href = extra_slashes.group(1) + "://" + base_href[extra_slashes.end():]
+            # Decode only whole dot segments in the path, never an encoded
+            # hostname. WHATWG navigates these segments; urljoin does not.
+            path_end = len(base_href)
+            for separator in "?#":
+                at = base_href.find(separator)
+                if at >= 0:
+                    path_end = min(path_end, at)
+            browser_path = base_href[:path_end]
+            authority = re.match(r"(?i)^(?:https?:)?//[^/]*", browser_path)
+            path_start = authority.end() if authority else 0
+            browser_path = browser_path[:path_start] + "/".join(
+                re.sub(r"(?i)%2e", ".", part)
+                if re.fullmatch(r"(?i)(?:\.|%2e){1,2}", part) else part
+                for part in browser_path[path_start:].split("/")
+            )
+            base_href = browser_path + base_href[path_end:]
+            # urljoin silently borrows the document host for an explicit
+            # HTTP(S) authority with no host; browsers reject that base URL.
+            empty_authority = re.match(
+                r"(?i)^(?:https?:)?/{2,}(?:[?#]|$)", base_href,
+            )
+            if empty_authority:
+                valid_base = False
+            else:
+                candidate = urljoin(url, base_href)
+                valid_base = _is_http_url(candidate)
         except ValueError:
             valid_base = False
         if valid_base:

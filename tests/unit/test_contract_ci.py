@@ -1624,12 +1624,91 @@ def test_first_head_base_wins_and_body_template_bases_are_ignored():
     assert result["observed_canonical"] == ["https://example.com/nested/child.html"]
 
 
-@pytest.mark.parametrize("base", ["javascript:alert(1)", r"https://example.com\wrong/"])
+@pytest.mark.parametrize("base", ["javascript:alert(1)"])
 def test_invalid_document_base_fails_closed(base):
     html = (f'<html><head><base href="{base}">'
             '<link rel="canonical" href="/en/"></head><body></body></html>')
     result = verify_contract({"url": URL, "canonical": URL}, html)
     assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
+
+
+@pytest.mark.parametrize("base", [
+    "https://?q=1", "https://#fragment", "https:////?q=1", "//?q=1",
+])
+def test_browser_invalid_empty_authority_base_fails_closed(base):
+    # WHATWG rejects missing HTTP(S) hosts even if urljoin supplies the page host.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="/en/"></head><body></body></html>')
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert {issue["code"] for issue in result["issues"]} == {"document_base_invalid"}
+
+
+@pytest.mark.parametrize("base", [
+    r"\\other.example.test\subdir/", "https:////other.example.test/subdir/",
+    r"https://other.example.test\subdir/",
+])
+def test_browser_special_document_base_authority_is_not_borrowed(base):
+    # WHATWG treats backslashes and surplus slashes as authority separators.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="article.html"></head><body></body></html>')
+    target = "https://other.example.test/subdir/article.html"
+    result = verify_contract({"url": URL, "canonical": target}, html)
+    assert result["issues"] == []
+
+
+def test_browser_backslash_document_base_path_uses_slash_separators():
+    html = (r'<html><head><base href="/preview\nested/">'
+            '<link rel="canonical" href="page.html"></head><body></body></html>')
+    result = verify_contract(
+        {"url": URL, "canonical": "https://example.com/preview/nested/page.html"}, html,
+    )
+    assert result["issues"] == []
+
+
+@pytest.mark.parametrize(("base", "target"), [
+    ("https://other.example.test/team files/", "https://other.example.test/team%20files/page.html"),
+    ("https://other.example.test/team\u00a0files/", "https://other.example.test/team%C2%A0files/page.html"),
+    ("/preview/team files/", "https://example.com/preview/team%20files/page.html"),
+    ("https://other.example.test/a\x0cb/", "https://other.example.test/a%0Cb/page.html"),
+])
+def test_observed_document_base_path_encodes_browser_whitespace(base, target):
+    # WHATWG percent-encodes path spaces and controls in observed base URLs.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="page.html"></head><body></body></html>')
+    result = verify_contract({"url": URL, "canonical": target}, html, include_canonical=True)
+    assert result["issues"] == []
+    assert result["observed_canonical"] == [target]
+
+
+@pytest.mark.parametrize(("base", "target"), [
+    ("/docs/%2e%2e/blog/", "https://example.com/blog/post/"),
+    ("/docs/%2E./blog/", "https://example.com/blog/post/"),
+    ("https://example.com/docs/.%2e/blog/", "https://example.com/blog/post/"),
+    ("/docs/%2e/blog/", "https://example.com/docs/blog/post/"),
+    ("/docs/%2efoo/blog/", "https://example.com/docs/%2efoo/blog/post/"),
+])
+def test_observed_document_base_normalizes_only_encoded_dot_segments(base, target):
+    # WHATWG resolves encoded whole dot segments before relative head links.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="post/">'
+            '<link rel="alternate" hreflang="en" href="post/">'
+            '</head><body></body></html>')
+    result = verify_contract(
+        {"url": URL, "canonical": target, "hreflang": {"en": target}}, html,
+        include_canonical=True, include_hreflang=True,
+    )
+    assert result["issues"] == []
+    assert result["observed_canonical"] == [target]
+    assert result["observed_hreflang"] == {"en": [target]}
+
+
+@pytest.mark.parametrize("base", ["https://%2e/", "https://%2e%2e/"])
+def test_document_base_encoded_authority_is_not_rewritten_as_path(base):
+    # Browser-style path normalization must not relax authority validation.
+    html = (f'<html><head><base href="{base}">'
+            '<link rel="canonical" href="/en/"></head></html>')
+    result = verify_contract({"url": URL, "canonical": URL}, html)
+    assert [issue["code"] for issue in result["issues"]] == ["document_base_invalid"]
 
 
 def test_duplicate_html_attributes_use_first_value_for_canonical_and_rel():
