@@ -1,6 +1,9 @@
 """Reviewer-facing remediation hints in offline release Markdown artifacts."""
 
+import pytest
+
 from searcharis.release_markdown import build_release_markdown
+from searcharis.robots_policy_cli import verify_reviewed_robots_policy
 
 
 def _results(*codes: str, missing_sitemap: bool = False, unlisted: bool = False):
@@ -94,3 +97,52 @@ def test_bounded_sitemap_findings_preserve_each_blocking_category():
     assert "Unreviewed URL unexpectedly present" in result
     assert "23 more sitemap findings" in result
     assert sum(line.startswith("- ") for line in result.split("## Blocking sitemap findings")[1].split("## Suggested reviewer actions")[0].splitlines()) == 21
+
+
+@pytest.mark.parametrize("mode", ["changed", "missing"])
+def test_missing_robots_sitemaps_remain_actionable_when_built_artifact_fails(tmp_path, mode):
+    build = tmp_path / "dist"
+    build.mkdir()
+    reviewed = tmp_path / "reviewed-robots.txt"
+    reviewed.write_bytes(b"User-agent: *\nAllow: /\n")
+    if mode == "changed":
+        (build / "robots.txt").write_bytes(b"User-agent: *\nDisallow: /\n")
+    urls = [
+        "https://example.test/a.xml?x=1&y=2",
+        "https://example.test/b.xml",
+        "https://example.test/c.xml",
+        "https://example.test/d.xml",
+    ]
+    robots = verify_reviewed_robots_policy(reviewed, build, required_sitemap_url=urls)
+    assert robots["reason"] == mode
+    assert robots["missing_sitemap_urls"] == urls
+
+    site, sitemap = _results()
+    result = build_release_markdown(site, sitemap, robots)
+    assert "**Result: FAIL**" in result
+    assert f"&#x27;{mode}&#x27;" in result
+    assert "https://example.test/a.xml?x=1&amp;y=2" in result
+    assert urls[1] in result and urls[2] in result
+    assert urls[3] not in result
+    assert result.count("- Required Sitemap URL:") == 3
+    assert "1 more missing Sitemap URLs" in result
+
+
+@pytest.mark.parametrize("mode", ["changed", "missing"])
+def test_legacy_single_sitemap_is_not_inferred_missing_after_artifact_failure(tmp_path, mode):
+    build = tmp_path / "dist"
+    build.mkdir()
+    reviewed = tmp_path / "reviewed-robots.txt"
+    url = "https://example.test/present.xml"
+    reviewed.write_text(f"User-agent: *\nAllow: /\nSitemap: {url}\n", encoding="utf-8")
+    if mode == "changed":
+        (build / "robots.txt").write_bytes(b"User-agent: *\nDisallow: /\n")
+    robots = verify_reviewed_robots_policy(reviewed, build, required_sitemap_url=url)
+    assert robots["reason"] == mode
+    assert "missing_sitemap_urls" not in robots
+
+    site, sitemap = _results()
+    result = build_release_markdown(site, sitemap, robots)
+    assert "**Result: FAIL**" in result
+    assert "Required Sitemap URL:" not in result
+    assert url not in result
